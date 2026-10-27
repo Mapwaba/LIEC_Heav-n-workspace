@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LIEC One — Front Office & Back Office Implementation Specification</title>
+<style>
+:root{--blue:#147db3;--cyan:#32c4d7;--green:#62b64d;--lime:#c9df55;--yellow:#f3d34a;--ink:#17324a;--muted:#607487;--line:#dce7ed;--pale:#f3fafc;--white:#fff}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font:14px/1.6 Arial,Helvetica,sans-serif;color:var(--ink);background:#f5f8fa}
+header{background:linear-gradient(120deg,#eafaff,#f7fff1);border-bottom:1px solid var(--line);padding:38px max(22px,calc((100% - 1120px)/2))}
+.brand{display:flex;align-items:center;gap:14px}.brand-mark{width:58px;height:58px;border-radius:16px;background:#fff;border:1px solid var(--line);display:grid;place-items:center;overflow:hidden}.brand-mark img{width:100%;height:100%;object-fit:contain}.wordmark{font-size:25px;font-weight:800;letter-spacing:-.6px}.wordmark .liec{color:var(--green)}.wordmark .one{color:var(--blue)}.tag{color:var(--muted);margin:6px 0 0}.hero{max-width:1120px;margin:28px auto 0;padding:0 22px}.hero h1{font-size:clamp(27px,4vw,42px);line-height:1.13;margin:0 0 12px;letter-spacing:-1px}.hero p{max-width:800px;color:var(--muted);font-size:16px}
+main{max-width:1120px;margin:28px auto;padding:0 22px 60px;display:grid;grid-template-columns:240px minmax(0,1fr);gap:24px}
+nav{align-self:start;position:sticky;top:16px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px;max-height:calc(100vh - 32px);overflow:auto}nav strong{display:block;margin:0 0 10px}nav a{display:block;color:#31556c;text-decoration:none;padding:7px 9px;border-radius:8px;font-size:13px}nav a:hover{background:var(--pale);color:var(--blue)}
+article{min-width:0}.intro,.section{background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px;margin-bottom:18px;box-shadow:0 4px 18px #18364b08}.section h2{font-size:22px;line-height:1.25;margin:0 0 12px}.section h3{font-size:16px;margin:22px 0 8px}.section p{margin:8px 0}.eyebrow{text-transform:uppercase;letter-spacing:1.3px;font-size:11px;font-weight:bold;color:var(--blue)}.muted{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.tile{border:1px solid var(--line);background:#fbfdfe;border-radius:12px;padding:15px}.tile h3{margin:0 0 6px}.pill{display:inline-block;background:#e8f7fb;color:#176a8d;border-radius:100px;padding:3px 9px;font-size:11px;font-weight:bold}.warning{border-left:4px solid var(--yellow);background:#fffdf3;padding:12px 14px;border-radius:7px}.good{border-left:4px solid var(--green);background:#f4fff2;padding:12px 14px;border-radius:7px}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}th,td{text-align:left;vertical-align:top;padding:10px;border-bottom:1px solid var(--line)}th{background:#f1f8fb;font-weight:700}code,pre{font-family:Consolas,Monaco,monospace;font-size:12px}code{background:#eef4f7;border-radius:4px;padding:2px 4px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#102b3d;color:#e7f4fb;padding:16px;border-radius:10px;overflow:auto}.checklist{padding-left:20px}.checklist li{margin:6px 0}.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:14px 0}.flow span{background:#eef8fb;border:1px solid #cde7ef;padding:8px 11px;border-radius:8px}.flow b{color:var(--blue)}footer{max-width:1120px;margin:0 auto;padding:0 22px 35px;color:var(--muted);font-size:12px}
+@media(max-width:800px){main{grid-template-columns:1fr}nav{position:relative;top:auto;max-height:none}.grid{grid-template-columns:1fr}.section,.intro{padding:18px}header{padding:24px 22px}}
+@media print{body{background:white}main{display:block;max-width:none;margin:0}nav{position:static;max-height:none;margin-bottom:18px}header{padding:20px}.section,.intro{break-inside:avoid;box-shadow:none}a{color:inherit}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="brand-mark"><img src="assets/liec-logo.png" alt="LIEC logo" onerror="this.style.display='none';this.parentElement.textContent='LIEC'"></div>
+    <div><div class="wordmark"><span class="liec">LIEC</span> <span class="one">One</span></div><p class="tag">Education management • Front office & back office specification</p></div>
+  </div>
+  <div class="hero">
+    <h1>Implementation specification</h1>
+    <p>A consolidated handoff of the LIEC One prototype corrections, interface decisions, modules, roles, workflows, database and production requirements. Use this document as the implementation checklist for the frontend and backend.</p>
+  </div>
+</header>
+<main>
+<nav aria-label="Table of contents">
+<strong>Contents</strong>
+<a href="#overview">1. Scope & status</a>
+<a href="#branding">2. Design & branding</a>
+<a href="#login">3. Login screen</a>
+<a href="#front-office">4. Front office</a>
+<a href="#roles">5. Roles & permissions</a>
+<a href="#workflows">6. Core workflows</a>
+<a href="#back-office">7. Back office</a>
+<a href="#database">8. Database & entities</a>
+<a href="#api">9. API outline</a>
+<a href="#security">10. Security & privacy</a>
+<a href="#implementation">11. Build checklist</a>
+<a href="#files">12. Existing files</a>
+</nav>
+<article>
+<section class="intro" id="overview">
+<div class="eyebrow">Project overview</div>
+<h2>What LIEC One is for</h2>
+<p>LIEC One is an education-management application for student records, admissions, PREPA and training management, international student support, administration, documents and education-related finance.</p>
+<div class="grid">
+<div class="tile"><span class="pill">Included</span><h3>Education operations</h3><p>Students, admissions, education services, training cohorts, student support, partner requests, documents and administration.</p></div>
+<div class="tile"><span class="pill">Included</span><h3>Education finance</h3><p>Invoices, invoice items, payments, allocations, expenses, refunds and partner-service charges with a traceable history.</p></div>
+<div class="tile"><span class="pill">Not included</span><h3>IT consulting</h3><p>ServiceNow or unrelated IT consulting business operations are outside this application's scope.</p></div>
+<div class="tile"><span class="pill">Current state</span><h3>Prototype, not production</h3><p>The current HTML screens are a browser demo. Real authentication, database connections, secure document storage, email delivery and partner APIs still need implementation.</p></div>
+</div>
+</section>
+
+<section class="section" id="branding">
+<div class="eyebrow">Global UI rules</div><h2>Design & branding corrections</h2>
+<ul class="checklist">
+<li>Use the supplied LIEC logo and preserve its proportions; show the LIEC One wordmark with <b>LIEC in green</b> and <b>One in blue</b>.</li>
+<li>Use a modern, clean, responsive light interface with white surfaces and soft cyan, blue, turquoise, lime and yellow accents.</li>
+<li>Use Arial throughout with a 12px base font size for the application interface; allow larger headings for clear hierarchy.</li>
+<li>Clicking the logo or LIEC One title in the main application should return the user to the Dashboard.</li>
+<li>Keep buttons visually differentiated: “Add a task” uses a light-blue treatment; “New student” uses a yellow treatment.</li>
+<li>Make layouts responsive for desktop, tablet and mobile.</li>
+</ul>
+</section>
+
+<section class="section" id="login">
+<div class="eyebrow">Front-end correction</div><h2>Login page</h2>
+<p>Keep the original branding/background section and its original visual design. Do not replace it with a plain or unrelated background.</p>
+<ul class="checklist">
+<li>Maintain the original two-column composition, with the branding/background section retained on the left.</li>
+<li>Make the email/password login area slightly larger than the original version by widening its panel/card and increasing internal spacing, while preserving the overall split and balance.</li>
+<li>Keep the LIEC logo and green/blue wordmark visible.</li>
+<li>Use the welcome copy: <b>“Helping students build their future.”</b></li>
+<li>Use separate wording for the two entities: <b>“LIEC education consulting and PREPA training management”</b>. Do not combine “LIEC-France PREPA” as if it were one entity.</li>
+<li>Show the product features: student records and admissions tracking; LIEC education consulting and PREPA training management; international services and partner requests.</li>
+<li>Keep the page responsive. On narrow screens, stack the sections without clipping form controls.</li>
+</ul>
+<div class="warning"><b>Important:</b> the login page is currently visual only. Implement real authentication server-side, secure session handling, logout, password reset and rate limiting before production. Never store plain-text passwords in the browser or localStorage.</div>
+</section>
+
+<section class="section" id="front-office">
+<div class="eyebrow">Application UI</div><h2>Front office — main navigation & screens</h2>
+<p>The signed-in application should present the following sidebar modules. Each module needs a list/search view, a record detail view, clear create/edit actions permitted by role, validation and useful empty/loading/error states.</p>
+<table><thead><tr><th>Module</th><th>Purpose / key capabilities</th></tr></thead><tbody>
+<tr><td><b>Dashboard</b></td><td>Role-appropriate summary cards, tasks, recent activity, upcoming deadlines and shortcuts. Do not expose finance-sensitive totals to the Secretary role.</td></tr>
+<tr><td><b>Students</b></td><td>Student profile, contact details, education history, application status, assigned adviser, notes and linked records. Protect passport and other sensitive fields.</td></tr>
+<tr><td><b>Admissions</b></td><td>Application pipeline, target institution/program, required documents, submission dates, status history, missing items and follow-up tasks.</td></tr>
+<tr><td><b>PREPA & Training</b></td><td>Manage training cohorts, sessions, enrolments, attendance, training progress and related student communications. Keep PREPA presented as distinct from LIEC.</td></tr>
+<tr><td><b>Finance</b></td><td>Invoices, line items, payment records, payment allocations, expenses, refunds, partner charges, balances and reconciliation. Access restricted by role.</td></tr>
+<tr><td><b>International Student Services</b></td><td>Blocked Account Certificate requests and Accommodation Proof requests, with status, required data, partner tracking and history.</td></tr>
+<tr><td><b>Secretary & Admin</b></td><td>Operational tasks, appointments, checklists, incoming/outgoing correspondence and administrative follow-ups. Show only records the current role is permitted to access.</td></tr>
+<tr><td><b>Documents</b></td><td>Securely list and upload permitted documents, associate them with students/applications/requests, track type and status, and control download access.</td></tr>
+<tr><td><b>Reports</b></td><td>Role-scoped operational and finance reports. Finance-sensitive reports must be unavailable to roles without permission.</td></tr>
+<tr><td><b>Settings</b></td><td>Application configuration, user accounts, roles, permissions, reference lists and integration settings. Admin-only unless explicitly delegated.</td></tr>
+</tbody></table>
+<h3>Front-office interaction standards</h3>
+<ul class="checklist">
+<li>Use searchable, sortable and paginated tables for record-heavy screens.</li>
+<li>Include filters for status, assigned staff member, date range and relevant module-specific fields.</li>
+<li>Use confirmation prompts for destructive actions and display clear success/error feedback.</li>
+<li>Provide a visible record status and a timestamped activity/history panel on workflow records.</li>
+<li>Use consistent buttons and terminology; distinguish “Save draft”, “Submit”, “Approve”, “Reject”, “Send” and “Close”.</li>
+</ul>
+</section>
+
+<section class="section" id="roles">
+<div class="eyebrow">Access control</div><h2>Roles & permissions</h2>
+<p>Roles in the prototype: Admin/Director, Secretary, Finance Officer and Education Adviser. A development/demo role selector may preview these views, but production role assignment must come from authenticated server-side identity.</p>
+<table><thead><tr><th>Capability</th><th>Admin / Director</th><th>Secretary</th><th>Finance Officer</th><th>Education Adviser</th></tr></thead><tbody>
+<tr><td>Full oversight and user/role settings</td><td>Full</td><td>No</td><td>No</td><td>No</td></tr>
+<tr><td>Students and admissions</td><td>Full</td><td>Operational fields</td><td>Limited fields needed for billing</td><td>Assigned students / applications</td></tr>
+<tr><td>PREPA & Training</td><td>Full</td><td>Operational support</td><td>Billing-related view as needed</td><td>Assigned cohorts/students</td></tr>
+<tr><td>Finance transactions</td><td>Full</td><td>No financial dashboard or sensitive details</td><td>Full finance operations</td><td>No, except explicitly approved limited status</td></tr>
+<tr><td>International service requests</td><td>Full</td><td>Create/update operational requests</td><td>Charges/payment status only as needed</td><td>Assigned student requests</td></tr>
+<tr><td>Reports</td><td>All authorized reports</td><td>Operational reports only if explicitly granted</td><td>Finance reports</td><td>Education reports for assigned scope</td></tr>
+<tr><td>Settings</td><td>Full</td><td>No by default</td><td>No by default</td><td>No by default</td></tr>
+</tbody></table>
+<div class="warning"><b>Security requirement:</b> hiding a sidebar item is not authorization. The backend must check the user's permissions on every API request and record-level action, including direct URL/API access, exports, file downloads and finance operations. Default to least privilege.</div>
+</section>
+
+<section class="section" id="workflows">
+<div class="eyebrow">Operational workflows</div><h2>Core student and partner-service workflows</h2>
+<h3>Blocked Account Certificate</h3>
+<div class="flow"><span>Staff creates request</span><b>→</b><span>Validate student & details</span><b>→</b><span>Pending / manual processing</span><b>→</b><span>Record partner response</span><b>→</b><span>Complete / rejected / needs info</span></div>
+<ul class="checklist">
+<li>Capture the student, request date, provider/partner, required details, status, reference number and timeline.</li>
+<li>Initial operation may be manual. Keep the design ready for a future partner API adapter, but do not claim an API call was made until configured and verified.</li>
+<li>For future API integration, use server-side credentials, idempotency, retries, redacted request/response logs and error handling.</li>
+</ul>
+<h3>Accommodation Proof</h3>
+<div class="flow"><span>Create request</span><b>→</b><span>Validate details</span><b>→</b><span>Draft partner email</span><b>→</b><span>Explicit send action</span><b>→</b><span>Track reply & outcome</span></div>
+<ul class="checklist">
+<li>Store the partner contact, requested dates/location, student link, status and correspondence history.</li>
+<li>Initially, record requests locally or manually. Sending email requires a configured transactional email provider and confirmed partner recipient.</li>
+<li>Track queued, sent, failed, acknowledged and completed states where applicable; do not mark an email sent unless the provider confirms it.</li>
+</ul>
+<p class="muted">These services support a student's visa preparation process. Do not state that either document is universally required or guarantees visa approval; requirements vary by case and authority.</p>
+<h3>Finance workflow</h3>
+<div class="flow"><span>Create invoice</span><b>→</b><span>Add line items</span><b>→</b><span>Record payment</span><b>→</b><span>Allocate payment</span><b>→</b><span>Reconcile balance</span></div>
+<ul class="checklist">
+<li>Represent invoice items, payments and allocations separately so partial payments and multiple invoices can be handled correctly.</li>
+<li>Track whether money is paid to LIEC or a partner, and record the recipient, currency, reference and supporting evidence when applicable.</li>
+<li>Support expenses, refunds and partner-service charges with permission checks and audit history.</li>
+<li>Use database transactions to prevent duplicate allocations, over-allocation and inconsistent invoice balances.</li>
+<li>Do not assume the commercial arrangement for partner payments; confirm whether students pay LIEC, the partner, or either, then configure the flow accordingly.</li>
+</ul>
+</section>
+
+<section class="section" id="back-office">
+<div class="eyebrow">Back office</div><h2>Backend services & administration</h2>
+<div class="grid">
+<div class="tile"><h3>Authentication</h3><p>Login/logout, password reset, secure password hashing, session expiry, rate limiting, optional MFA and account lockout controls.</p></div>
+<div class="tile"><h3>Authorization</h3><p>Server-side RBAC plus record-level checks. Keep finance, settings, sensitive student data and documents least-privilege by default.</p></div>
+<div class="tile"><h3>API/service layer</h3><p>Validate all inputs, enforce business rules, return consistent error formats, log correlation IDs and avoid trusting client-provided roles.</p></div>
+<div class="tile"><h3>Document service</h3><p>Private object storage, access-controlled uploads/downloads, file type/size checks, malware scanning where available, short-lived signed URLs.</p></div>
+<div class="tile"><h3>Email service</h3><p>Transactional provider plus durable outbox, delivery/error status, retry handling and message templates. Keep secrets server-side.</p></div>
+<div class="tile"><h3>Partner integrations</h3><p>Adapter pattern for future blocked-account provider API. Configure only after official API documentation, credentials and test environment are available.</p></div>
+<div class="tile"><h3>Audit log</h3><p>Record actor, action, entity, timestamp, outcome and safe change metadata for sensitive actions. Never log passwords, tokens or full payment secrets.</p></div>
+<div class="tile"><h3>Operations</h3><p>Backups and restore tests, monitoring, migrations, error alerting, environment separation and documented incident response.</p></div>
+</div>
+<h3>Suggested stack</h3>
+<ul class="checklist">
+<li>Frontend: Next.js + TypeScript + Tailwind CSS (or adapt the existing static HTML into reusable components).</li>
+<li>Backend: server-side API routes or a dedicated service layer; never connect a browser directly to MySQL.</li>
+<li>Database: MySQL 8.4 LTS, InnoDB, <code>utf8mb4</code>, foreign keys, indexes and transactions.</li>
+<li>Money: <code>DECIMAL</code> columns, never floating-point numbers; define currency explicitly.</li>
+<li>Files: private object storage; database stores metadata and secure storage keys, not public file URLs.</li>
+</ul>
+</section>
+
+<section class="section" id="database">
+<div class="eyebrow">Data model</div><h2>Database entities & rules</h2>
+<p>The existing <code>database/schema.sql</code> is a starter schema, not a production migration. Review it against the final business rules before deployment.</p>
+<table><thead><tr><th>Domain</th><th>Core entities to support</th><th>Important rules</th></tr></thead><tbody>
+<tr><td>Identity</td><td>Users, roles, permissions, user-role assignments</td><td>Unique login identity, disabled-user handling, least privilege.</td></tr>
+<tr><td>Students</td><td>Students, contact details, assigned adviser, notes</td><td>Validate required fields; protect sensitive identity documents and personal data.</td></tr>
+<tr><td>Admissions</td><td>Applications, institutions/programs, checklist items, status history</td><td>Track stage changes and who made each change.</td></tr>
+<tr><td>Training</td><td>Training cohorts, sessions, enrolments, attendance</td><td>Prevent duplicate enrolments where business rules disallow them.</td></tr>
+<tr><td>International services</td><td>Service requests, request type, partner, status history, external reference</td><td>Keep provider calls and email delivery states truthful and auditable.</td></tr>
+<tr><td>Finance</td><td>Invoices, invoice items, payments, allocations, expenses, refunds, partner charges</td><td>DECIMAL money, explicit currency, transaction-safe allocations and audit trail.</td></tr>
+<tr><td>Documents</td><td>Document metadata, owner/entity link, storage key, access classification</td><td>Private storage; authorized access; retention and deletion rules.</td></tr>
+<tr><td>Operations</td><td>Tasks, notifications/outbox, audit events, integration events</td><td>Retries must be safe; do not duplicate sends or transactions.</td></tr>
+</tbody></table>
+<h3>Database baseline</h3>
+<pre>MySQL 8.4 LTS
+Engine: InnoDB
+Character set: utf8mb4
+Money fields: DECIMAL(precision, scale)
+Relationships: foreign keys
+Sensitive operations: transactions
+Queries: indexes on foreign keys, status, created_at and common filters
+Migrations: versioned and reviewed; never alter production schema manually without change control</pre>
+</section>
+
+<section class="section" id="api">
+<div class="eyebrow">Integration contract</div><h2>Suggested API outline</h2>
+<p>These are suggested resource groups for implementation, not existing live endpoints. Apply authentication, permission checks, input validation, pagination and audit logging consistently.</p>
+<table><thead><tr><th>Resource</th><th>Example operations</th></tr></thead><tbody>
+<tr><td><code>/api/auth</code></td><td>Sign in, sign out, current session, password reset.</td></tr>
+<tr><td><code>/api/students</code></td><td>List/search, create, view, update, archive subject to policy.</td></tr>
+<tr><td><code>/api/admissions</code></td><td>Create/update applications, update stage, manage checklist and history.</td></tr>
+<tr><td><code>/api/training</code></td><td>Manage cohorts, enrolments, sessions and attendance.</td></tr>
+<tr><td><code>/api/service-requests</code></td><td>Create/list requests, view history, transition status, record partner response.</td></tr>
+<tr><td><code>/api/finance/invoices</code></td><td>Create invoices/items, issue/cancel under policy, view balances.</td></tr>
+<tr><td><code>/api/finance/payments</code></td><td>Record payment, allocate/unallocate with transaction safeguards, record refunds.</td></tr>
+<tr><td><code>/api/documents</code></td><td>Request upload authorization, finalize upload, request authorized download.</td></tr>
+<tr><td><code>/api/reports</code></td><td>Generate role-scoped operational/finance reports and exports.</td></tr>
+<tr><td><code>/api/admin</code></td><td>Manage users, roles, reference data and integrations; admin permission required.</td></tr>
+</tbody></table>
+</section>
+
+<section class="section" id="security">
+<div class="eyebrow">Production readiness</div><h2>Security, privacy & compliance</h2>
+<ul class="checklist">
+<li>Enforce authorization in the backend for every route, record, report, export and document download.</li>
+<li>Use HTTPS, secure cookies, CSRF protection where applicable, output escaping and protection against injection.</li>
+<li>Validate and normalize all user inputs on the server. Apply upload size/type limits and secure file handling.</li>
+<li>Keep API keys, database passwords and email credentials in a secrets manager/environment configuration, never in HTML or client-side JavaScript.</li>
+<li>Minimize personal data collection. Define lawful purpose, privacy notices, retention periods, deletion/correction process and access logging in line with applicable GDPR obligations.</li>
+<li>Use test data in development. Do not enter real passports, bank details or sensitive student records into the current localStorage demo.</li>
+<li>Back up the database and files, test restoration, monitor failures and document incident response.</li>
+<li>Review finance, accounting, contract and data-protection obligations with appropriate professionals before go-live.</li>
+</ul>
+</section>
+
+<section class="section" id="implementation">
+<div class="eyebrow">Recommended order</div><h2>Implementation checklist</h2>
+<ol class="checklist">
+<li><b>Freeze interface requirements:</b> approve logo, palette, Arial typography, original login background, enlarged login panel, navigation and role-specific visibility.</li>
+<li><b>Set up the application:</b> create Next.js/TypeScript project structure, reusable layout/components, environment configuration and staging environment.</li>
+<li><b>Build identity and RBAC first:</b> implement real authentication, server-side permissions and automated permission tests before sensitive modules.</li>
+<li><b>Connect the database:</b> review schema, create migrations, seed non-sensitive test data, add indexes and backups.</li>
+<li><b>Implement student and admissions modules:</b> forms, search, validation, status history and assignment rules.</li>
+<li><b>Implement PREPA & Training:</b> cohorts, enrolments, attendance and progress tracking; keep entity naming distinct from LIEC.</li>
+<li><b>Implement service requests:</b> manual blocked-account workflow first; accommodation request tracking and email outbox after provider configuration.</li>
+<li><b>Implement finance safely:</b> invoices, items, payments, allocations, expenses, refunds, partner charges and reconciliation with transaction tests.</li>
+<li><b>Add documents, reports and settings:</b> private storage, permission-aware exports, audit trail and admin-only configuration.</li>
+<li><b>Test before launch:</b> responsive/browser tests, accessibility checks, permission matrix, finance edge cases, backup restore, email failure and API retry scenarios.</li>
+<li><b>Deploy:</b> configure production database, secrets, HTTPS, monitoring, backups, logging, support ownership and rollback plan.</li>
+</ol>
+<div class="good"><b>Definition of done:</b> a screen is production-ready only when its backend endpoint, database persistence, validation, permission enforcement, audit trail and failure states are implemented—not merely when the HTML looks correct.</div>
+</section>
+
+<section class="section" id="files">
+<div class="eyebrow">Current handoff</div><h2>Existing prototype files</h2>
+<ul class="checklist">
+<li><code>index.html</code> — interactive front-office UI prototype.</li>
+<li><code>login.html</code> — sign-in screen design; original branding background retained and login panel enlarged.</li>
+<li><code>assets/liec-logo.png</code> — supplied LIEC logo asset.</li>
+<li><code>database/schema.sql</code> — initial MySQL schema; review and adapt before production.</li>
+<li><code>README.md</code> — how to preview and known limitations.</li>
+<li><code>ARCHITECTURE.md</code> — target production architecture and integration notes.</li>
+<li><code>LIEC-One-Implementation-Specification.html</code> — this consolidated implementation handoff.</li>
+</ul>
+<p class="muted">Open this document in a browser. The logo is loaded from the relative <code>assets/liec-logo.png</code> path, so keep the file in the project folder alongside the <code>assets</code> directory. Use browser Print → Save as PDF if a PDF handoff is needed.</p>
+</section>
+</article>
+</main>
+<footer> LIEC One • Implementation handoff • Education management only • Current prototype is not a production system.</footer>
+</body>
+</html>
