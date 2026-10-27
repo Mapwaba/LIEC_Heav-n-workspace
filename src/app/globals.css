@@ -1,0 +1,156 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --navy: #092342;
+  --teal: #0c685a;
+  --mint: #2dd4bf;
+  --gold: #f4be37;
+  --bg: #f6f9fc;
+}
+
+body {
+  margin: 0;
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+  background-color: #f6f9fc;
+  color: #092342;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ============================================================================
+   Dark Mode Global Theme Overrides (Preserves LIEC Brand Accents)
+   ============================================================================ */
+html.dark body {
+  background-color: #07111f;
+  color: #f1f5f9;
+}
+
+html.dark .bg-\[\#f6f9fc\] {
+  background-color: #07111f !important;
+}
+
+html.dark .bg-white {
+  background-color: #0d1d33 !important;
+}
+
+html.dark .bg-\[\#f1f6fb\],
+html.dark .bg-\[\#f1f6fb\]\/90,
+html.dark .bg-\[\#f3f7fc\],
+html.dark .bg-\[\#f4f8fc\],
+html.dark .bg-\[\#f8fbff\],
+html.dark .bg-\[\#f8fafc\],
+html.dark .bg-\[\#f9fbfd\],
+html.dark .bg-\[\#f2f7fc\],
+html.dark .bg-\[\#f3f8fd\],
+html.dark .bg-\[\#eef4fb\] {
+  background-color: #132742 !important;
+}
+
+html.dark .bg-\[\#e9f2fc\],
+html.dark .bg-\[\#e6f0fa\],
+html.dark .bg-\[\#e6effa\],
+html.dark .bg-\[\#edf4fb\],
+html.dark .bg-\[\#edf3fb\] {
+  background-color: #1a3558 !important;
+}
+
+html.dark .bg-gradient-to-r.from-\[\#eefaf6\] {
+  background-image: linear-gradient(to right, #0c2928, #0f243c, #112844) !important;
+  border-color: #1d4d44 !important;
+}
+
+html.dark .bg-gradient-to-br.from-\[\#eefaf6\] {
+  background-image: linear-gradient(to bottom right, #081827, #07111f, #0b1d33) !important;
+}
+
+html.dark .border-\[\#e6eef6\],
+html.dark .border-\[\#e5eef6\],
+html.dark .border-\[\#e3edf7\],
+html.dark .border-\[\#e4edf7\],
+html.dark .border-\[\#e8eff7\],
+html.dark .border-\[\#eef3f8\],
+html.dark .border-slate-100,
+html.dark .border-slate-200 {
+  border-color: #1e3554 !important;
+}
+
+html.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #1a2f4c !important;
+}
+
+html.dark .text-\[\#092342\] {
+  color: #f1f5f9 !important;
+}
+
+html.dark .bg-\[\#f4be37\] .text-\[\#092342\],
+html.dark .bg-\[\#f4be37\].text-\[\#092342\],
+html.dark .bg-\[\#6ee7b7\].text-\[\#064e3b\] {
+  color: #092342 !important;
+}
+
+html.dark .text-slate-700,
+html.dark .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+
+html.dark .text-slate-500,
+html.dark .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+html.dark .text-\[\#0c685a\] {
+  color: #34d399 !important;
+}
+
+html.dark .bg-\[\#d5f0e8\],
+html.dark .bg-\[\#d8f6ea\],
+html.dark .bg-\[\#ccf5e5\],
+html.dark .bg-\[\#dcfce7\] {
+  background-color: rgba(16, 185, 129, 0.18) !important;
+}
+
+html.dark input:not([type='checkbox']):not([type='radio']),
+html.dark select,
+html.dark textarea {
+  background-color: #10233d !important;
+  color: #f1f5f9 !important;
+  border-color: #233f63 !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #64748b !important;
+}
+
+html.dark tr.hover\:bg-slate-50:hover,
+html.dark tr.hover\:bg-slate-50\/80:hover,
+html.dark tr.hover\:bg-\[\#f8fbff\]:hover {
+  background-color: #162e4d !important;
+}
+
+/* Custom subtle scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
