@@ -115,6 +115,37 @@ export async function POST(req: NextRequest) {
       body.message || 'Demande soumise depuis le portail web LIEC pour un recrutement à Lyon.'
     ).trim();
 
+    // Deduplication check: prevent duplicate submissions within 15 minutes
+    const recentDup = await db.query(
+      `SELECT * FROM demandes 
+       WHERE (LOWER(email) = LOWER($1) OR (phone = $2 AND length($2) > 6))
+         AND created_at > NOW() - INTERVAL '15 minutes'
+       ORDER BY id DESC LIMIT 1`,
+      [email, phone]
+    );
+
+    if (recentDup.rows && recentDup.rows.length > 0) {
+      const existingDem = recentDup.rows[0];
+      const existingCan = await db.query(
+        'SELECT ref FROM candidats WHERE LOWER(email) = LOWER($1) OR LOWER(full_name) = LOWER($2) LIMIT 1',
+        [email, fullName]
+      );
+      const canRef = existingCan.rows[0]?.ref || '#CAN-2025-043';
+
+      return NextResponse.json(
+        {
+          ok: true,
+          success: true,
+          ref: existingDem.ref,
+          demRef: existingDem.ref,
+          candidatRef: canRef,
+          demande: existingDem,
+          message: 'Candidature déjà enregistrée avec succès (dédoublonnée).',
+        },
+        { headers: corsHeaders() }
+      );
+    }
+
     const countRes = await db.query<{ count: string | number }>('SELECT COUNT(*) as count FROM demandes');
     let nextNum = 89 + Number(countRes.rows[0]?.count ?? 0);
     let ref = `#DEM-2025-${String(nextNum).padStart(3, '0')}`;
@@ -192,14 +223,24 @@ export async function POST(req: NextRequest) {
     );
 
     // Also register candidate record and prospect CRM entry linked to this application
-    const canCountRes = await db.query<{ count: string | number }>('SELECT COUNT(*) as count FROM candidats');
-    let nextCanNum = 43 + Number(canCountRes.rows[0]?.count ?? 0);
-    let canRef = `#CAN-2025-${String(nextCanNum).padStart(3, '0')}`;
-    while (true) {
-      const existingCan = await db.query('SELECT 1 FROM candidats WHERE ref = $1', [canRef]);
-      if (!existingCan.rows || existingCan.rows.length === 0) break;
-      nextCanNum++;
+    const existingCanCheck = await db.query(
+      'SELECT ref FROM candidats WHERE LOWER(email) = LOWER($1) OR LOWER(full_name) = LOWER($2) LIMIT 1',
+      [email, fullName]
+    );
+
+    let canRef = existingCanCheck.rows[0]?.ref;
+    const shouldInsertCandidate = !canRef;
+
+    if (!canRef) {
+      const canCountRes = await db.query<{ count: string | number }>('SELECT COUNT(*) as count FROM candidats');
+      let nextCanNum = 43 + Number(canCountRes.rows[0]?.count ?? 0);
       canRef = `#CAN-2025-${String(nextCanNum).padStart(3, '0')}`;
+      while (true) {
+        const existingCan = await db.query('SELECT 1 FROM candidats WHERE ref = $1', [canRef]);
+        if (!existingCan.rows || existingCan.rows.length === 0) break;
+        nextCanNum++;
+        canRef = `#CAN-2025-${String(nextCanNum).padStart(3, '0')}`;
+      }
     }
 
     const schoolCode = program.includes('ISCOM')
@@ -297,74 +338,82 @@ export async function POST(req: NextRequest) {
       },
     ];
 
-    // Insert Candidate profile under review (never marked as approved or admitted automatically)
-    await db.query(
-      `INSERT INTO candidats (
-        ref, initials, full_name, avatar_url, program, cities, adviser,
-        stage_badge, stage_badge_tone, progress_pct, status_left, status_right,
-        email, phone, parent_full_name, parent_phone, parent_email, parent_relation,
-        graduation_year, current_activity, final_year_university,
-        country, nationality, current_diploma, tcf_score, garant_info, interview_date,
-        admission_status, procedure_status, description, comments,
-        jalons_json, voeux_json, notes_json, pieces_json, history_json
-      ) VALUES (
-        $1,$2,$3,$4,$5,$6,$7,
-        $8,$9,$10,$11,$12,
-        $13,$14,$15,$16,$17,$18,
-        $19,$20,$21,
-        $22,$23,$24,$25,$26,$27,
-        $28,$29,$30,$31,
-        $32,$33,$34,$35,$36
-      )`,
-      [
-        canRef,
-        initials,
-        fullName.toUpperCase(),
-        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=160&auto=format&fit=crop&q=80',
-        program,
-        'Lyon (Campus Partenaire)',
-        'Barthelemy MAPWABA NTORO',
-        'Dossier Reçu',
-        'teal',
-        15,
-        'Dossier à 15%',
-        'J-60 Prépa',
-        email,
-        phone,
-        parentFullName || null,
-        parentPhone || null,
-        null,
-        'Parent',
-        graduationYear || null,
-        currentActivity || null,
-        finalYearUniversity || null,
-        countryName,
-        nationality,
-        currentLevel,
-        'À planifier',
-        'Dossier AVI YIMMILINE à initier',
-        'À fixer',
-        'Under Review — Pending Qualification',
-        'In Progress (Milestone 1)',
-        message,
-        `Candidature transmise via le formulaire public 2027–2028 (Demande: ${ref})`,
-        JSON.stringify(initialJalons),
-        JSON.stringify(initialVoeux),
-        JSON.stringify([{ author: 'Système', date: "À l'instant", text: `Demande web reçue (${ref})` }]),
-        JSON.stringify(initialPieces),
-        JSON.stringify(initialHistory),
-      ]
-    );
+    // Insert Candidate profile under review (if not already existing)
+    if (shouldInsertCandidate) {
+      await db.query(
+        `INSERT INTO candidats (
+          ref, initials, full_name, avatar_url, program, cities, adviser,
+          stage_badge, stage_badge_tone, progress_pct, status_left, status_right,
+          email, phone, parent_full_name, parent_phone, parent_email, parent_relation,
+          graduation_year, current_activity, final_year_university,
+          country, nationality, current_diploma, tcf_score, garant_info, interview_date,
+          admission_status, procedure_status, description, comments,
+          jalons_json, voeux_json, notes_json, pieces_json, history_json
+        ) VALUES (
+          $1,$2,$3,$4,$5,$6,$7,
+          $8,$9,$10,$11,$12,
+          $13,$14,$15,$16,$17,$18,
+          $19,$20,$21,
+          $22,$23,$24,$25,$26,$27,
+          $28,$29,$30,$31,
+          $32,$33,$34,$35,$36
+        )`,
+        [
+          canRef,
+          initials,
+          fullName.toUpperCase(),
+          'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=160&auto=format&fit=crop&q=80',
+          program,
+          'Lyon (Campus Partenaire)',
+          'Barthelemy MAPWABA NTORO',
+          'Dossier Reçu',
+          'teal',
+          15,
+          'Dossier à 15%',
+          'J-60 Prépa',
+          email,
+          phone,
+          parentFullName || null,
+          parentPhone || null,
+          null,
+          'Parent',
+          graduationYear || null,
+          currentActivity || null,
+          finalYearUniversity || null,
+          countryName,
+          nationality,
+          currentLevel,
+          'À planifier',
+          'Dossier AVI YIMMILINE à initier',
+          'À fixer',
+          'Under Review — Pending Qualification',
+          'In Progress (Milestone 1)',
+          message,
+          `Candidature transmise via le formulaire public 2027–2028 (Demande: ${ref})`,
+          JSON.stringify(initialJalons),
+          JSON.stringify(initialVoeux),
+          JSON.stringify([{ author: 'Système', date: "À l'instant", text: `Demande web reçue (${ref})` }]),
+          JSON.stringify(initialPieces),
+          JSON.stringify(initialHistory),
+        ]
+      );
+    }
 
-    // Also register in prospects CRM queue
-    await db.query(
-      `INSERT INTO prospects (
-        full_name, stage, badge_text, badge_tone, flag, country_city, program_tag,
-        program_tag_tone, highlight_box, meta_left, meta_right, meta_right_tone,
-        adviser_initials, adviser_name, adviser_color, estimated_value, is_urgent, is_prepa
-      ) VALUES ($1,'nouveau','Nouveau Web','cyan',$2,$3,$4,'mint',NULL,'2 800 € TTC','À qualifier','teal','BM','B. Mapwaba','navy',2800,FALSE,TRUE)`,
-      [fullName, countryMeta.flag, city, program]
+    // Also register in prospects CRM queue if not already present
+    const existingProspectCheck = await db.query(
+      'SELECT id FROM prospects WHERE LOWER(full_name) = LOWER($1) LIMIT 1',
+      [fullName]
     );
+    if (!existingProspectCheck.rows || existingProspectCheck.rows.length === 0) {
+      await db.query(
+        `INSERT INTO prospects (
+          full_name, stage, badge_text, badge_tone, flag, country_city, program_tag,
+          program_tag_tone, highlight_box, meta_left, meta_right, meta_right_tone,
+          adviser_initials, adviser_name, adviser_color, estimated_value, is_urgent, is_prepa
+        ) VALUES ($1,'nouveau','Nouveau Web','cyan',$2,$3,$4,'mint',NULL,'2 800 € TTC','À qualifier','teal','BM','B. Mapwaba','navy',2800,FALSE,TRUE)`,
+        [fullName, countryMeta.flag, city, program]
+      );
+    }
 
     return NextResponse.json({
       ok: true,
@@ -438,6 +487,25 @@ export async function PATCH(req: NextRequest) {
       }
 
       await db.query(`UPDATE demandes SET status = 'Convertie' WHERE ref = $1`, [ref]);
+
+      // Check if candidate already exists for this application
+      const existingCanRes = await db.query(
+        'SELECT ref FROM candidats WHERE LOWER(email) = LOWER($1) OR LOWER(full_name) = LOWER($2) LIMIT 1',
+        [dem.email, dem.full_name]
+      );
+      if (existingCanRes.rows && existingCanRes.rows.length > 0) {
+        const existingRef = existingCanRes.rows[0].ref;
+        await db.query(
+          `UPDATE candidats SET
+             stage_badge = 'En cours (Jalon 1)',
+             procedure_status = 'En cours (Jalon 1)',
+             progress_pct = 25,
+             status_right = 'Qualifié'
+           WHERE ref = $1`,
+          [existingRef]
+        );
+        return NextResponse.json({ ok: true, candidatRef: existingRef });
+      }
 
       const canCountRes = await db.query<{ count: string | number }>('SELECT COUNT(*) as count FROM candidats');
       let nextCanNum = 43 + Number(canCountRes.rows[0]?.count ?? 0);

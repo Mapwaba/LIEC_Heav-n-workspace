@@ -101,6 +101,7 @@ export default function LiecWorkspacePage() {
   const [rolePreview, setRolePreview] = useState<'admin' | 'secretary' | 'avi'>('admin');
   const [globalSearch, setGlobalSearch] = useState('');
   const [showNewDemandeModal, setShowNewDemandeModal] = useState(false);
+  const [isSubmittingDemande, setIsSubmittingDemande] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [selectedIntakeHeader, setSelectedIntakeHeader] = useState('2025–2026 Intake');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -404,7 +405,7 @@ export default function LiecWorkspacePage() {
 
   const handleNewDemandeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newDemName.trim()) return;
+    if (!newDemName.trim() || isSubmittingDemande) return;
 
     // Validate Candidate Phone / WhatsApp (max 14 digits)
     const candPhoneDigits = newDemPhone.replace(/\D/g, '');
@@ -448,34 +449,39 @@ export default function LiecWorkspacePage() {
       return;
     }
 
-    const createdRef = await handleCreateDemande({
-      full_name: newDemName.trim(),
-      email: newDemEmail.trim() || `${newDemName.trim().toLowerCase().replace(/\s+/g, '.')}@gmail.com`,
-      phone: newDemPhone.trim(),
-      country_name: newDemCountry,
-      city: `${newDemCity}, ${newDemCountry}`,
-      program: newDemProgram,
-      service_pole: newDemPole,
-      budget_range: newDemBudget,
-      parent_full_name: newDemParentName.trim(),
-      parent_phone: newDemParentPhone.trim(),
-      graduation_year: newDemGraduationYear,
-      current_activity: newDemCurrentActivity.trim(),
-      final_year_university: newDemFinalYearUni.trim(),
-    });
+    setIsSubmittingDemande(true);
+    try {
+      const createdRef = await handleCreateDemande({
+        full_name: newDemName.trim(),
+        email: newDemEmail.trim() || `${newDemName.trim().toLowerCase().replace(/\s+/g, '.')}@gmail.com`,
+        phone: newDemPhone.trim(),
+        country_name: newDemCountry,
+        city: `${newDemCity}, ${newDemCountry}`,
+        program: newDemProgram,
+        service_pole: newDemPole,
+        budget_range: newDemBudget,
+        parent_full_name: newDemParentName.trim(),
+        parent_phone: newDemParentPhone.trim(),
+        graduation_year: newDemGraduationYear,
+        current_activity: newDemCurrentActivity.trim(),
+        final_year_university: newDemFinalYearUni.trim(),
+      });
 
-    if (createdRef) {
-      setNewDemName('');
-      setNewDemEmail('');
-      setNewDemPhone(newDemCountry === 'RDC' ? '+243 ' : '+242 ');
-      setNewDemParentName('');
-      setNewDemParentPhone('');
-      setNewDemGraduationYear('2024');
-      setNewDemCurrentActivity('');
-      setNewDemFinalYearUni('');
-      setShowNewDemandeModal(false);
-      // Immediately navigate to demandes tab so the new applicant is shown at the top
-      setActiveTab('demandes');
+      if (createdRef) {
+        setNewDemName('');
+        setNewDemEmail('');
+        setNewDemPhone(newDemCountry === 'RDC' ? '+243 ' : '+242 ');
+        setNewDemParentName('');
+        setNewDemParentPhone('');
+        setNewDemGraduationYear('2024');
+        setNewDemCurrentActivity('');
+        setNewDemFinalYearUni('');
+        setShowNewDemandeModal(false);
+        // Immediately navigate to demandes tab so the new applicant is shown at the top
+        setActiveTab('demandes');
+      }
+    } finally {
+      setIsSubmittingDemande(false);
     }
   };
 
@@ -1763,9 +1769,12 @@ export default function LiecWorkspacePage() {
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-[#0c6358] hover:bg-[#094e45] text-white px-5 py-2 font-extrabold shadow-sm transition"
+                  disabled={isSubmittingDemande}
+                  className="rounded-xl bg-[#0c6358] hover:bg-[#094e45] text-white px-5 py-2 font-extrabold shadow-sm transition disabled:opacity-50"
                 >
-                  {isEn ? 'Create Application' : 'Créer la demande'}
+                  {isSubmittingDemande
+                    ? (isEn ? 'Creating...' : 'Création...')
+                    : (isEn ? 'Create Application' : 'Créer la demande')}
                 </button>
               </div>
             </form>

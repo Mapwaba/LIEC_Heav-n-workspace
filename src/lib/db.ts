@@ -414,10 +414,7 @@ async function initSchemaAndSeed(client: DBClient) {
       ('lh_finance', 'Finance & AVI Officer', 'Finance Officer', 'AVI and parent-financing operations, YIMMILINE desk calculations and loan requests.', 'Restrict to AVI-related functions and records; do not grant unrelated finance or system configuration access.', TRUE)
     ON CONFLICT (role_id) DO NOTHING;
 
-    -- Ensure only Admin exists
-    DELETE FROM user_roles;
-    DELETE FROM users;
-
+    -- Ensure Admin user exists with default credentials
     INSERT INTO users (id, name, email, business_profile, role, title, initials, active)
     VALUES (1, 'Barthelemy MAPWABA NTORO', 'bmapwabantoro@liecconsulting.com', 'Admin', 'admin', 'Platform Administrator & Managing Director', 'BM', TRUE)
     ON CONFLICT (email) DO UPDATE SET
@@ -516,24 +513,8 @@ async function initSchemaAndSeed(client: DBClient) {
     console.warn('Notice: accommodation seed check:', err);
   }
 
-  // Reset all demo data so tables remain clean and ready for live testing
+  // Ensure primary administrator account is present without affecting applicant data
   await client.exec(`
-    DELETE FROM demande_notes;
-    DELETE FROM demandes;
-    DELETE FROM prospects;
-    DELETE FROM candidats;
-    DELETE FROM priority_tasks;
-    DELETE FROM avi_requests;
-    DELETE FROM prepa_cohorts;
-    DELETE FROM invoices;
-    DELETE FROM audit_logs;
-    DELETE FROM accommodation_requests;
-    DELETE FROM parent_student_links;
-
-    -- Ensure Admin user
-    DELETE FROM user_roles WHERE user_id NOT IN (SELECT id FROM users WHERE LOWER(email) = 'bmapwabantoro@liecconsulting.com');
-    DELETE FROM users WHERE LOWER(email) != 'bmapwabantoro@liecconsulting.com';
-
     INSERT INTO users (id, name, email, business_profile, role, title, initials, active)
     VALUES (1, 'Barthelemy MAPWABA NTORO', 'bmapwabantoro@liecconsulting.com', 'Admin', 'admin', 'Platform Administrator & Managing Director', 'BM', TRUE)
     ON CONFLICT (email) DO UPDATE SET
