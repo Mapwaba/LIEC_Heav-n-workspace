@@ -131,7 +131,7 @@ export default function AccommodationScreen({
     'High-speed WiFi for coursework, close to Metro B or Tram T2, quiet study space.'
   );
   const [newSupportingDocs, setNewSupportingDocs] = useState('Passport, Admission Certificate, Financial Guarantee');
-  const [newAssignedAgent, setNewAssignedAgent] = useState(currentUser?.name || 'Sarah Mwamba');
+  const [newAssignedAgent, setNewAssignedAgent] = useState(currentUser?.name || 'Barthelemy MAPWABA NTORO');
   const [newNotes, setNewNotes] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
@@ -225,7 +225,7 @@ export default function AccommodationScreen({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-email': currentUser?.email || 'sarah.mwamba@liec-education.com',
+          'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
         },
         body: JSON.stringify({
           student_ref: newStudentRef,
@@ -277,7 +277,7 @@ export default function AccommodationScreen({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-email': currentUser?.email || 'sarah.mwamba@liec-education.com',
+          'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
         },
         body: JSON.stringify({
           ref: selectedRequest.ref,

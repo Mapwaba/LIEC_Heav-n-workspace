@@ -487,8 +487,8 @@ export default function DemandesScreen({
               <button
                 onClick={() => {
                   if (selectedDemande) {
-                    onUpdateStatus(selectedDemande.ref, selectedDemande.status || 'New', 'Sarah Mwamba');
-                    onNotify(`Advisor Sarah Mwamba assigned to ${selectedDemande.ref}.`);
+                    onUpdateStatus(selectedDemande.ref, selectedDemande.status || 'New', 'Barthelemy MAPWABA NTORO');
+                    onNotify(`Advisor Barthelemy MAPWABA NTORO assigned to ${selectedDemande.ref}.`);
                   }
                 }}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-[#092342] hover:bg-slate-50"

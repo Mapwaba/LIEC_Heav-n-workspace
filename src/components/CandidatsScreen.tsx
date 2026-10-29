@@ -230,7 +230,7 @@ export default function CandidatsScreen({
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-email': currentUser?.email || 'sarah.mwamba@liec-education.com',
+          'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
         },
         body: JSON.stringify({
           ref: selectedCandidat.ref,
@@ -303,7 +303,7 @@ export default function CandidatsScreen({
       const res = await fetch(url, {
         method: 'DELETE',
         headers: {
-          'x-user-email': currentUser?.email || 'sarah.mwamba@liec-education.com',
+          'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
         },
       });
 
@@ -370,7 +370,7 @@ export default function CandidatsScreen({
       program: newCandProgram,
       country: newCandCountry,
       cities: 'Lyon (Exclusive)',
-      adviser: currentUser?.name || 'Sarah Mwamba',
+      adviser: currentUser?.name || 'Barthelemy MAPWABA NTORO',
       parent_full_name: newCandParentName.trim(),
       parent_phone: newCandParentPhone.trim(),
       graduation_year: newCandGraduationYear,

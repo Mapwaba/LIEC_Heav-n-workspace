@@ -118,8 +118,8 @@ export default function LiecWorkspacePage() {
   const [roles, setRoles] = useState<any[]>([]);
   const [accommodationRequests, setAccommodationRequests] = useState<any[]>([]);
 
-  const [selectedDemandeRef, setSelectedDemandeRef] = useState('#DEM-2025-089');
-  const [selectedCandidatRef, setSelectedCandidatRef] = useState('#CAN-2025-042');
+  const [selectedDemandeRef, setSelectedDemandeRef] = useState('');
+  const [selectedCandidatRef, setSelectedCandidatRef] = useState('');
 
   // New Demande Modal Form State
   const [newDemName, setNewDemName] = useState('');
@@ -183,11 +183,7 @@ export default function LiecWorkspacePage() {
     try {
       const activeEmail =
         overrideEmail ||
-        (rolePreview === 'secretary'
-          ? 'marc.kouassi@liec-education.com'
-          : rolePreview === 'avi'
-          ? 'alain.kanza@liec-education.com'
-          : 'sarah.mwamba@liec-education.com');
+        (currentUser?.email || 'bmapwabantoro@liecconsulting.com');
 
       const res = await fetch(`/api/workspace?user_email=${encodeURIComponent(activeEmail)}`, {
         cache: 'no-store',
@@ -295,7 +291,7 @@ export default function LiecWorkspacePage() {
         ? 'marc.kouassi@liec-education.com'
         : nextRole === 'avi'
         ? 'alain.kanza@liec-education.com'
-        : 'sarah.mwamba@liec-education.com';
+        : 'bmapwabantoro@liecconsulting.com';
     fetchWorkspace(simEmail);
     if (!isNavVisible(activeTab, nextRole)) {
       setActiveTab(nextRole === 'avi' ? 'services' : 'overview');
@@ -362,11 +358,7 @@ export default function LiecWorkspacePage() {
     try {
       const activeEmail =
         currentUser?.email ||
-        (rolePreview === 'secretary'
-          ? 'marc.kouassi@liec-education.com'
-          : rolePreview === 'avi'
-          ? 'alain.kanza@liec-education.com'
-          : 'sarah.mwamba@liec-education.com');
+        (currentUser?.email || 'bmapwabantoro@liecconsulting.com');
 
       const res = await fetch('/api/demandes', {
         method: 'POST',
@@ -589,11 +581,7 @@ export default function LiecWorkspacePage() {
     try {
       const activeEmail =
         currentUser?.email ||
-        (rolePreview === 'secretary'
-          ? 'marc.kouassi@liec-education.com'
-          : rolePreview === 'avi'
-          ? 'alain.kanza@liec-education.com'
-          : 'sarah.mwamba@liec-education.com');
+        (currentUser?.email || 'bmapwabantoro@liecconsulting.com');
 
       const res = await fetch('/api/candidats', {
         method: 'POST',
@@ -685,11 +673,7 @@ export default function LiecWorkspacePage() {
 
   const handleCreateAvi = async (data: any) => {
     const activeEmail =
-      rolePreview === 'secretary'
-        ? 'marc.kouassi@liec-education.com'
-        : rolePreview === 'avi'
-        ? 'alain.kanza@liec-education.com'
-        : currentUser?.email || 'sarah.mwamba@liec-education.com';
+      currentUser?.email || 'bmapwabantoro@liecconsulting.com';
 
     const res = await fetch('/api/avi', {
       method: 'POST',
@@ -929,7 +913,7 @@ export default function LiecWorkspacePage() {
                     ? 'Marc Kouassi'
                     : rolePreview === 'avi'
                     ? 'Alain Kanza'
-                    : currentUser?.name || 'Sarah Mwamba'}
+                    : currentUser?.name || 'Barthelemy MAPWABA NTORO'}
                 </div>
                 <div className="text-[10.5px] text-slate-500 truncate">
                   {rolePreview === 'secretary'
@@ -1131,6 +1115,9 @@ export default function LiecWorkspacePage() {
                 <OverviewScreen
                   demandes={demandes}
                   priorityTasks={priorityTasks}
+                  candidats={candidats}
+                  prospects={prospects}
+                  prepaCohorts={prepaCohorts}
                   userName={
                     rolePreview === 'secretary' && currentUser?.role !== 'secretary'
                       ? 'Marc Kouassi'

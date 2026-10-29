@@ -143,7 +143,7 @@ export async function POST(req: NextRequest) {
         currentLevel,
         budgetRange,
         'Nouvelle',
-        'Sarah Mwamba',
+        'Barthelemy MAPWABA NTORO',
         expectedStart,
         message,
         nowLabel,
@@ -193,7 +193,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (action === 'add_note') {
-      const author = body.author || 'Sarah Mwamba (Conseillère)';
+      const author = body.author || 'Barthelemy MAPWABA NTORO (Administrateur)';
       const content = (body.content || '').trim();
       if (!content) {
         return NextResponse.json({ error: 'Contenu de note vide' }, { status: 400 });
@@ -225,7 +225,7 @@ export async function PATCH(req: NextRequest) {
       }
       await db.query(
         `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
-         VALUES ('Sarah Mwamba', $1, $2, 'Succès')`,
+         VALUES ('Barthelemy MAPWABA NTORO', $1, $2, 'Succès')`,
         [`Changement statut demande -> ${newStatus}`, ref]
       );
       return NextResponse.json({ ok: true, status: newStatus });
@@ -331,7 +331,7 @@ export async function PATCH(req: NextRequest) {
 
       const defaultNotes = [
         {
-          author: dem.adviser || 'Sarah Mwamba',
+          author: dem.adviser || 'Barthelemy MAPWABA NTORO',
           date: "Aujourd'hui",
           text: `Dossier candidat créé pour ${schoolName} suite à la qualification de la demande ${dem.ref} (${dem.city}).`,
         },
@@ -358,7 +358,7 @@ export async function PATCH(req: NextRequest) {
           '',
           dem.program,
           'Lyon (Campus Partenaire)',
-          dem.adviser || 'Sarah Mwamba',
+          dem.adviser || 'Barthelemy MAPWABA NTORO',
           'En cours (Jalon 1)',
           'teal',
           25,
@@ -395,7 +395,7 @@ export async function PATCH(req: NextRequest) {
 
       await db.query(
         `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
-         VALUES ('Sarah Mwamba', $1, $2, 'Succès')`,
+         VALUES ('Barthelemy MAPWABA NTORO', $1, $2, 'Succès')`,
         [`Qualification et conversion en Candidat Lyon (${canRef})`, ref]
       );
 
@@ -420,7 +420,7 @@ export async function DELETE(req: NextRequest) {
     await db.query(`UPDATE demandes SET status = 'Clôturée' WHERE ref = $1`, [ref]);
     await db.query(
       `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
-       VALUES ('Sarah Mwamba', 'Archivage demande', $1, 'Succès')`,
+       VALUES ('Barthelemy MAPWABA NTORO', 'Archivage demande', $1, 'Succès')`,
       [ref]
     );
     return NextResponse.json({ ok: true });

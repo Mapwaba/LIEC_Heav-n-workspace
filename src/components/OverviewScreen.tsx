@@ -25,6 +25,9 @@ import { Lang } from './ServicesAndOtherScreens';
 interface OverviewScreenProps {
   demandes: any[];
   priorityTasks: any[];
+  candidats?: any[];
+  prospects?: any[];
+  prepaCohorts?: any[];
   onNavigate: (tab: string) => void;
   onOpenNewDemande: () => void;
   onSelectDemande: (ref: string) => void;
@@ -40,6 +43,9 @@ interface OverviewScreenProps {
 export default function OverviewScreen({
   demandes,
   priorityTasks,
+  candidats = [],
+  prospects = [],
+  prepaCohorts = [],
   onNavigate,
   onOpenNewDemande,
   onSelectDemande,
@@ -97,9 +103,14 @@ export default function OverviewScreen({
   const completedTasksCount = priorityTasks.filter((t) => t.completed).length;
   const urgentTasksCount = priorityTasks.filter((t) => !t.completed).length;
 
-  const extraAddedCount = Math.max(0, demandes.length - 11);
-  const totalDemandesCount = 142 + extraAddedCount;
-  const newDemandesCount = 14 + extraAddedCount;
+  const totalDemandesCount = demandes.length;
+  const newDemandesCount = demandes.filter((d) => {
+    const s = (d.status || '').toLowerCase();
+    return s.includes('nouv') || s.includes('new');
+  }).length;
+  const prospectsCount = prospects.length;
+  const candidatsCount = candidats.length;
+  const prepaCount = prepaCohorts.reduce((acc: number, c: any) => acc + (c.enrolled_count || 0), 0) || prepaCohorts.length;
 
   const formatDisplayRef = (ref: string) => ref.replace(/-[A-Z]$/, '');
 
@@ -234,7 +245,7 @@ export default function OverviewScreen({
               </span>
             </div>
             <div className="mt-3 flex items-baseline gap-1.5">
-              <span className="text-2xl font-extrabold text-[#092342]">38</span>
+              <span className="text-2xl font-extrabold text-[#092342]">{prospectsCount}</span>
               <span className="text-[10.5px] font-medium text-slate-500 leading-tight">
                 Scheduled
                 <br />
@@ -260,7 +271,7 @@ export default function OverviewScreen({
               </span>
             </div>
             <div className="mt-3 flex items-baseline gap-1.5">
-              <span className="text-2xl font-extrabold text-[#092342]">56</span>
+              <span className="text-2xl font-extrabold text-[#092342]">{candidatsCount}</span>
               <span className="text-[10.5px] font-bold text-[#0c685a] leading-tight">
                 Campus
                 <br />
@@ -288,7 +299,7 @@ export default function OverviewScreen({
               </span>
             </div>
             <div className="mt-3 flex items-center gap-1.5">
-              <span className="text-2xl font-extrabold text-[#092342]">24</span>
+              <span className="text-2xl font-extrabold text-[#092342]">{prepaCount}</span>
               <span className="rounded bg-[#fef4d6] px-1.5 py-0.5 text-[9.5px] font-bold text-[#b87c08] leading-tight">
                 Kinshasa
                 <br />& Lyon
@@ -324,7 +335,7 @@ export default function OverviewScreen({
 
         <div className="mt-1.5 flex justify-end items-center gap-1 text-[10.5px] italic text-slate-400">
           <Info className="w-3 h-3" />
-          <span>Illustrative metrics from demonstration environment</span>
+          <span>Live Workspace Metrics</span>
         </div>
       </div>
 

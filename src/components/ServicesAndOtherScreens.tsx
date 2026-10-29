@@ -478,12 +478,7 @@ export function ServicesAviScreen({
       }
     });
 
-    // 4. Default seed links for safety and instant testing
-    addLink('Jean-Claude Mutombo', 'Gloire Mutombo', '+243 82 491 0023', 'MyDigitalSchool Lyon — Web Development, Digital Creation, Webmarketing & UX/UI Design', 'gloire.mutombo@gmail.com');
-    addLink('Jean-Pierre Kabangele', 'Dieudonné Kabangele', '+243 81 900 12 34', 'MyDigitalSchool Lyon — Web Dev & UX/UI Design', 'd.kabangele@unikin.ac.cd');
-    addLink('Jean-Pierre Kabangele', 'Sarah Kabangele', '+243 81 900 12 34', 'ISCOM Lyon — Communication, Publicité & Marketing', 'sarah.k@unikin.ac.cd');
-    addLink('Pauline Makosso', 'Brice Makosso', '+242 06 611 22 33', 'ISCOM Lyon — Communication, Advertising & Marketing', 'b.makosso@escom.cg');
-    addLink('Théophile Bopili', 'Aïcha Bopili', '+242 05 302 19 00', 'IHECF Lyon — Accounting, Audit & Finance', 'aicha.bopili@brazza-univ.cg');
+    // 4. No demo seed links (clean workspace)
 
     return Array.from(map.values());
   }, [parentStudentLinks, aviRequests, demandes]);
@@ -2381,12 +2376,7 @@ export function ParametresGovernanceScreen({
 
   const fetchUsersAndRoles = useCallback(async () => {
     try {
-      const activeEmail =
-        rolePreview === 'secretary'
-          ? 'marc.kouassi@liec-education.com'
-          : rolePreview === 'avi'
-          ? 'alain.kanza@liec-education.com'
-          : currentUser?.email || 'sarah.mwamba@liec-education.com';
+      const activeEmail = currentUser?.email || 'bmapwabantoro@liecconsulting.com';
 
       const res = await fetch('/api/users', {
         headers: { 'x-user-email': activeEmail },
@@ -2418,6 +2408,54 @@ export function ParametresGovernanceScreen({
     setTimeout(() => setFeedbackMsg(null), 5000);
   };
 
+  const handleDeleteUser = async (targetUser: any) => {
+    if (
+      targetUser.email === currentUser?.email ||
+      targetUser.email === 'bmapwabantoro@liecconsulting.com' ||
+      targetUser.business_profile === 'Admin'
+    ) {
+      showFeedback(
+        isEn
+          ? 'Cannot delete the primary administrator account.'
+          : 'Impossible de supprimer le compte administrateur principal.'
+      );
+      return;
+    }
+
+    const confirmMsg = isEn
+      ? `Are you sure you want to permanently delete user account '${targetUser.name}' (${targetUser.email})?`
+      : `Êtes-vous sûr de vouloir supprimer définitivement le compte '${targetUser.name}' (${targetUser.email}) ?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    setLoadingAction(true);
+    try {
+      const res = await fetch(`/api/users?userId=${targetUser.id}`, {
+        method: 'DELETE',
+        headers: {
+          'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
+        },
+      });
+
+      if (res.ok) {
+        await fetchUsersAndRoles();
+        onRefreshWorkspace?.();
+        showFeedback(
+          isEn
+            ? `User account '${targetUser.name}' deleted successfully.`
+            : `Compte utilisateur '${targetUser.name}' supprimé avec succès.`
+        );
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showFeedback(err.error || (isEn ? 'Failed to delete user' : 'Erreur lors de la suppression'));
+      }
+    } catch {
+      showFeedback(isEn ? 'Network error during user deletion' : 'Erreur réseau lors de la suppression');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
   const handleToggleSuspend = async (targetUser: any) => {
     setLoadingAction(true);
     try {
@@ -2425,7 +2463,7 @@ export function ParametresGovernanceScreen({
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-email': currentUser?.email || 'sarah.mwamba@liec-education.com',
+          'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
         },
         body: JSON.stringify({
           userId: targetUser.id,
@@ -2474,7 +2512,7 @@ export function ParametresGovernanceScreen({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-email': currentUser?.email || 'sarah.mwamba@liec-education.com',
+          'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
           'x-user-lang': isEn ? 'en' : 'fr',
         },
         body: JSON.stringify({
@@ -2542,7 +2580,7 @@ export function ParametresGovernanceScreen({
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-email': currentUser?.email || 'sarah.mwamba@liec-education.com',
+          'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
         },
         body: JSON.stringify({
           userId: editingUser.id,
@@ -2606,11 +2644,11 @@ export function ParametresGovernanceScreen({
         {/* Current User RBAC Identity Card */}
         <div className="rounded-2xl border border-[#d8f6ea] bg-[#f0faf7] p-3 flex items-center gap-3 shrink-0">
           <div className="h-10 w-10 rounded-full bg-[#0c685a] text-white flex items-center justify-center font-extrabold text-sm shadow-xs">
-            {currentUser?.initials || 'SM'}
+            {currentUser?.initials || 'BM'}
           </div>
           <div>
             <div className="text-xs font-extrabold text-[#092342] flex items-center gap-1.5">
-              <span>{currentUser?.name || 'Sarah Mwamba'}</span>
+              <span>{currentUser?.name || 'Barthelemy MAPWABA NTORO'}</span>
               <span className="rounded-full bg-[#0c685a] text-white px-2 py-0.2 text-[9.5px] font-extrabold">
                 {currentUser?.business_profile || 'Admin'}
               </span>
@@ -2790,6 +2828,18 @@ export function ParametresGovernanceScreen({
                                 >
                                   {isEn ? 'Edit roles' : 'Modifier rôles'}
                                 </button>
+                                {u.email !== currentUser?.email &&
+                                  u.email !== 'bmapwabantoro@liecconsulting.com' &&
+                                  u.business_profile !== 'Admin' && (
+                                    <button
+                                      onClick={() => handleDeleteUser(u)}
+                                      disabled={loadingAction}
+                                      title={isEn ? 'Delete user account' : 'Supprimer le compte'}
+                                      className="rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 px-2.5 py-1 text-[11px] font-extrabold transition"
+                                    >
+                                      {isEn ? 'Delete' : 'Supprimer'}
+                                    </button>
+                                  )}
                                 <button
                                   onClick={() => handleToggleSuspend(u)}
                                   disabled={loadingAction || u.email === currentUser?.email}

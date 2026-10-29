@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
 
     await db.query(
       `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
-       VALUES ('Sarah Mwamba', $1, $2, 'Succès')`,
+       VALUES ('Barthelemy MAPWABA NTORO', $1, $2, 'Succès')`,
       [`Ajout prospect pipeline Lyon (${fullName})`, `PROSPECT-${res.rows[0]?.id}`]
     );
 
@@ -83,7 +83,7 @@ export async function PATCH(req: NextRequest) {
     await db.query(`UPDATE prospects SET stage = $1 WHERE id = $2`, [stage, id]);
     await db.query(
       `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
-       VALUES ('Sarah Mwamba', $1, $2, 'Succès')`,
+       VALUES ('Barthelemy MAPWABA NTORO', $1, $2, 'Succès')`,
       [`Avancement pipeline prospect -> ${stage}`, `PROSPECT-${id}`]
     );
 

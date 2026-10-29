@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
       'MyDigitalSchool Lyon — Dév. Web & UX/UI'
     ).trim();
     const cities = (body.cities || 'Lyon (Campus Part-Dieu)').trim();
-    const adviser = (body.adviser || currentUser?.name || 'Sarah Mwamba').trim();
+    const adviser = (body.adviser || currentUser?.name || 'Barthelemy MAPWABA NTORO').trim();
 
     // 2. Parent / Tutor Information
     const parentFullName = (
@@ -630,7 +630,7 @@ export async function PATCH(req: NextRequest) {
     if (action === 'add_note') {
       const notes = JSON.parse(cand.notes_json || '[]');
       const newNote = {
-        author: body.author || 'Sarah Mwamba',
+        author: body.author || 'Barthelemy MAPWABA NTORO',
         date: "Aujourd'hui, à l'instant",
         text: (body.text || '').trim(),
       };
@@ -677,7 +677,7 @@ export async function PATCH(req: NextRequest) {
       const history = JSON.parse(cand.history_json || '[]');
       history.unshift({
         timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-        author: body.author || 'Sarah Mwamba',
+        author: body.author || 'Barthelemy MAPWABA NTORO',
         activity_type: 'SCHOOL_APPLICATION_ADDED',
         details: `Partner school application added: ${newVoeu.university} (${newVoeu.program}).`,
       });
@@ -707,7 +707,7 @@ export async function PATCH(req: NextRequest) {
       const history = JSON.parse(cand.history_json || '[]');
       history.unshift({
         timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-        author: body.author || 'Sarah Mwamba',
+        author: body.author || 'Barthelemy MAPWABA NTORO',
         activity_type: 'MILESTONE_ADVANCED',
         details: `Milestone advanced to Jalon ${jalonNum} (Progress: ${nextPct}%).`,
       });

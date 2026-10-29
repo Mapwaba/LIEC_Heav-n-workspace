@@ -55,18 +55,15 @@ export default function LoginPage() {
   const OFFLINE_STAFF_CREDENTIALS = [
     {
       role: 'admin' as const,
-      email: 'admin@liec-education.com',
+      email: 'bmapwabantoro@liecconsulting.com',
       password: 'Admin@LIEC2026!',
+      passwords: ['Admin@LIEC2026!', 'ReRxpnn@%9tX5ro#'],
     },
     {
-      role: 'secretary' as const,
-      email: 'secretary@liec-education.com',
-      password: 'Secretary@LIEC2026!',
-    },
-    {
-      role: 'avi' as const,
-      email: 'avi@liec-education.com',
-      password: 'AviOfficer@LIEC2026!',
+      role: 'admin' as const,
+      email: 'admin@liecconsulting.com',
+      password: 'Admin@LIEC2026!',
+      passwords: ['Admin@LIEC2026!', 'ReRxpnn@%9tX5ro#'],
     },
   ];
 
@@ -78,8 +75,11 @@ export default function LoginPage() {
     try {
       const res = await fetch('/api/auth', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), password: password.trim(), remember }),
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-lang': 'en',
+        },
+        body: JSON.stringify({ email: email.trim(), password: password.trim(), remember, lang: 'en' }),
       });
       const data = await res.json();
 
@@ -104,7 +104,7 @@ export default function LoginPage() {
         document.cookie = `liec_user_email=${encodeURIComponent(data.user.email)}; path=/; max-age=604800; SameSite=Lax`;
         router.push('/');
       } else {
-        setError(data.error || 'Identifiants invalides. Vérifiez votre email et mot de passe.');
+        setError(data.error || 'Invalid credentials. Please check your email and password.');
       }
     } catch {
       // Offline fallback validation
@@ -114,30 +114,20 @@ export default function LoginPage() {
       const matched = OFFLINE_STAFF_CREDENTIALS.find(
         (t) =>
           (t.email.toLowerCase() === lower ||
-            (t.role === 'admin' && lower === 'sarah.mwamba@liec-education.com') ||
-            (t.role === 'secretary' && lower === 'marc.kouassi@liec-education.com') ||
-            (t.role === 'avi' && lower === 'alain.kanza@liec-education.com')) &&
-          t.password === pass
+            lower === 'bmapwabantoro@liecconsulting.com' ||
+            lower === 'admin@liecconsulting.com' ||
+            lower === 'admin@liecconsulting.com') &&
+          (t.passwords ? t.passwords.includes(pass) : t.password === pass)
       );
 
       if (matched) {
         const fallbackUser = {
-          id: matched.role === 'admin' ? 1 : matched.role === 'secretary' ? 2 : 3,
-          name:
-            matched.role === 'admin'
-              ? 'Sarah Mwamba'
-              : matched.role === 'secretary'
-              ? 'Marc Kouassi'
-              : 'Alain Kanza',
-          email: matched.email,
-          role: matched.role,
-          title:
-            matched.role === 'admin'
-              ? 'Senior Lyon Advisor & Platform Admin'
-              : matched.role === 'secretary'
-              ? 'DRC Admissions Secretary'
-              : 'Officier Financement AVI',
-          initials: matched.role === 'admin' ? 'SM' : matched.role === 'secretary' ? 'MK' : 'AK',
+          id: 1,
+          name: 'Barthelemy MAPWABA NTORO',
+          email: 'bmapwabantoro@liecconsulting.com',
+          role: 'admin',
+          title: 'Platform Administrator & Managing Director',
+          initials: 'BM',
         };
 
         localStorage.setItem('liec_user', JSON.stringify(fallbackUser));
@@ -145,7 +135,7 @@ export default function LoginPage() {
         document.cookie = `liec_user_email=${encodeURIComponent(fallbackUser.email)}; path=/; max-age=604800; SameSite=Lax`;
         router.push('/');
       } else {
-        setError('Identifiants invalides. Vérifiez l’adresse email et le mot de passe.');
+        setError('Invalid credentials. Please check your email address and password.');
       }
     } finally {
       setLoading(false);
@@ -808,7 +798,7 @@ export default function LoginPage() {
                       id="email"
                       name="email"
                       type="email"
-                      placeholder="you@liec-education.com"
+                      placeholder="you@liecconsulting.com"
                       autoComplete="username"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}

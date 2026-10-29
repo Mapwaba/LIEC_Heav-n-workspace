@@ -215,3 +215,48 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  const auth = await enforceRbac(req, 'users_roles_config', 'Delete User');
+  if (!auth.allowed) return auth.response;
+
+  const { db, user: adminUser } = auth;
+
+  try {
+    const userId = Number(req.nextUrl.searchParams.get('userId'));
+    if (!userId) {
+      return NextResponse.json({ error: 'Valid userId is required' }, { status: 400 });
+    }
+
+    const userCheck = await db.query('SELECT * FROM users WHERE id = $1', [userId]);
+    const targetUser = userCheck.rows[0];
+    if (!targetUser) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    if (
+      targetUser.email === adminUser.email ||
+      targetUser.email === 'bmapwabantoro@liecconsulting.com' ||
+      targetUser.business_profile === 'Admin'
+    ) {
+      return NextResponse.json({ error: 'Cannot delete the primary administrator' }, { status: 400 });
+    }
+
+    await db.query('DELETE FROM user_roles WHERE user_id = $1', [userId]);
+    await db.query('DELETE FROM users WHERE id = $1', [userId]);
+
+    await db.query(
+      `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+       VALUES ($1, 'DELETE_USER', $2, 'SUCCESS', $3)`,
+      [
+        adminUser.name,
+        `USER-${userId}`,
+        `Deleted user account '${targetUser.name}' (${targetUser.email})`,
+      ]
+    );
+
+    return NextResponse.json({ success: true, deletedUserId: userId });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}

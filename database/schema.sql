@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS demandes (
   current_level VARCHAR(200) DEFAULT 'Licence 3 - Mention Bien',
   budget_range VARCHAR(120) DEFAULT '8 500 € – 10 000 € / an',
   status VARCHAR(50) NOT NULL DEFAULT 'Nouvelle',
-  adviser VARCHAR(120) DEFAULT 'Sarah Mwamba',
+  adviser VARCHAR(120) DEFAULT 'Barthelemy MAPWABA NTORO',
   expected_start VARCHAR(50) DEFAULT 'Septembre 2025',
   message TEXT,
   submitted_at VARCHAR(100) NOT NULL DEFAULT 'Soumis le 25 Octobre 2025 à 16:42',
@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS candidats (
   avatar_url VARCHAR(255),
   program VARCHAR(180) NOT NULL,
   cities VARCHAR(140) NOT NULL,
-  adviser VARCHAR(120) NOT NULL DEFAULT 'Sarah Mwamba',
+  adviser VARCHAR(120) NOT NULL DEFAULT 'Barthelemy MAPWABA NTORO',
   stage_badge VARCHAR(60) NOT NULL DEFAULT 'En cours (Jalon 2)',
   stage_badge_tone VARCHAR(30) NOT NULL DEFAULT 'teal',
   progress_pct INTEGER NOT NULL DEFAULT 65,
@@ -298,33 +298,24 @@ INSERT INTO roles (role_id, role_name, business_profile, description, safeguards
   ('lh_finance', 'Finance & AVI Officer', 'Finance Officer', 'AVI and parent-financing operations, YIMMILINE desk calculations and loan requests.', 'Restrict to AVI-related functions and records; do not grant unrelated finance or system configuration access.', TRUE)
 ON CONFLICT (role_id) DO NOTHING;
 
--- Seed Initial Users with Business Profiles
+-- Seed Initial Users with Business Profiles (Admin only)
 INSERT INTO users (name, email, business_profile, role, title, initials, active) VALUES
-  ('Sarah Mwamba', 'sarah.mwamba@liec-education.com', 'Admin', 'admin', 'Senior Lyon Advisor & Platform Admin', 'SM', TRUE),
-  ('Marc Kouassi', 'marc.kouassi@liec-education.com', 'Secretary', 'secretary', 'DRC Admissions Secretary', 'MK', TRUE),
-  ('Alain Kanza', 'alain.kanza@liec-education.com', 'Finance Officer', 'avi', 'Head of AVI Desk', 'AK', TRUE),
-  ('Aïcha Diallo', 'aicha.diallo@liec-education.com', 'Secretary', 'secretary', 'Lyon Partner Schools Advisor', 'AD', TRUE)
-ON CONFLICT (email) DO NOTHING;
+  ('Barthelemy MAPWABA NTORO', 'bmapwabantoro@liecconsulting.com', 'Admin', 'admin', 'Platform Administrator', 'BM', TRUE)
+ON CONFLICT (email) DO UPDATE SET
+  name = EXCLUDED.name,
+  business_profile = EXCLUDED.business_profile,
+  role = EXCLUDED.role,
+  title = EXCLUDED.title,
+  initials = EXCLUDED.initials,
+  active = TRUE;
 
 -- Seed Technical Role Assignments
 INSERT INTO user_roles (user_id, role_id, assigned_by)
-SELECT u.id, 'admin', 'System Initializer' FROM users u WHERE LOWER(u.email) = 'sarah.mwamba@liec-education.com'
+SELECT u.id, 'admin', 'System Initializer' FROM users u WHERE LOWER(u.email) = 'bmapwabantoro@liecconsulting.com'
 ON CONFLICT (user_id, role_id) DO NOTHING;
 
 INSERT INTO user_roles (user_id, role_id, assigned_by)
-SELECT u.id, 'lh_security_admin', 'System Initializer' FROM users u WHERE LOWER(u.email) = 'sarah.mwamba@liec-education.com'
-ON CONFLICT (user_id, role_id) DO NOTHING;
-
-INSERT INTO user_roles (user_id, role_id, assigned_by)
-SELECT u.id, 'lh_internal', 'Sarah Mwamba (Admin)' FROM users u WHERE LOWER(u.email) = 'marc.kouassi@liec-education.com'
-ON CONFLICT (user_id, role_id) DO NOTHING;
-
-INSERT INTO user_roles (user_id, role_id, assigned_by)
-SELECT u.id, 'ITIL', 'Sarah Mwamba (Admin)' FROM users u WHERE LOWER(u.email) = 'marc.kouassi@liec-education.com'
-ON CONFLICT (user_id, role_id) DO NOTHING;
-
-INSERT INTO user_roles (user_id, role_id, assigned_by)
-SELECT u.id, 'lh_finance', 'Sarah Mwamba (Admin)' FROM users u WHERE LOWER(u.email) = 'alain.kanza@liec-education.com'
+SELECT u.id, 'lh_security_admin', 'System Initializer' FROM users u WHERE LOWER(u.email) = 'bmapwabantoro@liecconsulting.com'
 ON CONFLICT (user_id, role_id) DO NOTHING;
 
 -- Schema Alterations for ServiceNow Student Record and Accommodation Link
@@ -338,57 +329,3 @@ ALTER TABLE candidats ADD COLUMN IF NOT EXISTS history_json TEXT DEFAULT '[]';
 
 ALTER TABLE avi_requests ADD COLUMN IF NOT EXISTS student_ref VARCHAR(50);
 UPDATE avi_requests SET student_ref = '#CAN-2025-042' WHERE student_name ILIKE '%Kabangele%' AND (student_ref IS NULL OR student_ref = '');
-
--- Seed Sample Accommodation Request for Testing and Demo
-INSERT INTO accommodation_requests (
-  ref,
-  student_ref,
-  student_name,
-  student_email,
-  student_phone,
-  student_nationality,
-  student_location,
-  parent_name,
-  parent_phone,
-  parent_email,
-  parent_relation,
-  admission_status,
-  procedure_status,
-  preferred_location,
-  accommodation_type,
-  arrival_date,
-  departure_date,
-  budget,
-  special_requirements,
-  supporting_docs,
-  status,
-  assigned_agent,
-  notes,
-  history_json
-) VALUES (
-  '#ACC-2025-001',
-  '#CAN-2025-042',
-  'Dieudonné KABANGELE',
-  'd.kabangele@unikin.ac.cd',
-  '+243 81 552 1904',
-  'Congolaise (RDC)',
-  'RDC (Kinshasa)',
-  'Jean-Pierre Kabangele',
-  '+243 81 900 12 34',
-  'jp.kabangele@gmail.com',
-  'Father',
-  'Admitted — MyDigitalSchool Lyon',
-  'Milestone 2 — Academic Records',
-  'Lyon 7e (Jean Macé / Guillotière)',
-  'Studio Meublé (Résidence Étudiante)',
-  '2025-09-01',
-  '2026-06-30',
-  '550 € / month',
-  'High-speed WiFi for web development coursework, near Metro B or Tram T2, quiet environment.',
-  'ID Passport DRC, Admission Attestation MDS Lyon, Garant Income Proof',
-  'Draft',
-  'Sarah Mwamba',
-  'Initial draft prepared following Milestone 1 validation. Ready for partner dispatch upon final review.',
-  '[{"timestamp":"2025-10-20 14:30:00","author":"Sarah Mwamba (Admin)","action":"CREATED","details":"Accommodation request initiated from Student Record #CAN-2025-042."}]'
-) ON CONFLICT (ref) DO NOTHING;
-

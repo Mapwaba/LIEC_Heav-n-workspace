@@ -88,94 +88,44 @@ export interface AuthenticatedUserContext {
 
 // Fallback seed definitions if DB lookup encounters delay
 export const PRECONFIGURED_USERS_RBAC: Record<string, AuthenticatedUserContext> = {
-  'sarah.mwamba@liec-education.com': {
+  'bmapwabantoro@liecconsulting.com': {
     id: 1,
-    name: 'Sarah Mwamba',
-    email: 'sarah.mwamba@liec-education.com',
+    name: 'Barthelemy MAPWABA NTORO',
+    email: 'bmapwabantoro@liecconsulting.com',
     business_profile: 'Admin',
     technical_roles: ['admin', 'lh_security_admin'],
-    title: 'Senior Lyon Advisor & Platform Admin',
-    initials: 'SM',
-    active: true,
-  },
-  'admin@liec-education.com': {
-    id: 1,
-    name: 'Sarah Mwamba',
-    email: 'sarah.mwamba@liec-education.com',
-    business_profile: 'Admin',
-    technical_roles: ['admin', 'lh_security_admin'],
-    title: 'Senior Lyon Advisor & Platform Admin',
-    initials: 'SM',
+    title: 'Platform Administrator & Managing Director',
+    initials: 'BM',
     active: true,
   },
   'admin@liecconsulting.com': {
     id: 1,
-    name: 'Sarah Mwamba',
-    email: 'sarah.mwamba@liec-education.com',
+    name: 'Barthelemy MAPWABA NTORO',
+    email: 'bmapwabantoro@liecconsulting.com',
     business_profile: 'Admin',
     technical_roles: ['admin', 'lh_security_admin'],
-    title: 'Senior Lyon Advisor & Platform Admin',
-    initials: 'SM',
+    title: 'Platform Administrator & Managing Director',
+    initials: 'BM',
     active: true,
   },
-  'sarah.mwamba@liecconsulting.com': {
+  'admin@liec-education.com': {
     id: 1,
-    name: 'Sarah Mwamba',
-    email: 'sarah.mwamba@liec-education.com',
+    name: 'Barthelemy MAPWABA NTORO',
+    email: 'bmapwabantoro@liecconsulting.com',
     business_profile: 'Admin',
     technical_roles: ['admin', 'lh_security_admin'],
-    title: 'Senior Lyon Advisor & Platform Admin',
-    initials: 'SM',
+    title: 'Platform Administrator & Managing Director',
+    initials: 'BM',
     active: true,
   },
-  'marc.kouassi@liec-education.com': {
-    id: 2,
-    name: 'Marc Kouassi',
-    email: 'marc.kouassi@liec-education.com',
-    business_profile: 'Secretary',
-    technical_roles: ['lh_internal', 'ITIL'],
-    title: 'Admissions & Intake Secretary',
-    initials: 'MK',
-    active: true,
-  },
-  'secretary@liec-education.com': {
-    id: 2,
-    name: 'Marc Kouassi',
-    email: 'marc.kouassi@liec-education.com',
-    business_profile: 'Secretary',
-    technical_roles: ['lh_internal', 'ITIL'],
-    title: 'Admissions & Intake Secretary',
-    initials: 'MK',
-    active: true,
-  },
-  'alain.kanza@liec-education.com': {
-    id: 3,
-    name: 'Alain Kanza',
-    email: 'alain.kanza@liec-education.com',
-    business_profile: 'Finance Officer',
-    technical_roles: ['lh_finance'],
-    title: 'Head of Lyon Visa & AVI Desk',
-    initials: 'AK',
-    active: true,
-  },
-  'avi@liec-education.com': {
-    id: 3,
-    name: 'Alain Kanza',
-    email: 'alain.kanza@liec-education.com',
-    business_profile: 'Finance Officer',
-    technical_roles: ['lh_finance'],
-    title: 'Head of Lyon Visa & AVI Desk',
-    initials: 'AK',
-    active: true,
-  },
-  'officer.avi@liec-education.com': {
-    id: 3,
-    name: 'Alain Kanza',
-    email: 'alain.kanza@liec-education.com',
-    business_profile: 'Finance Officer',
-    technical_roles: ['lh_finance'],
-    title: 'Head of Lyon Visa & AVI Desk',
-    initials: 'AK',
+  'sarah.mwamba@liec-education.com': {
+    id: 1,
+    name: 'Barthelemy MAPWABA NTORO',
+    email: 'bmapwabantoro@liecconsulting.com',
+    business_profile: 'Admin',
+    technical_roles: ['admin', 'lh_security_admin'],
+    title: 'Platform Administrator & Managing Director',
+    initials: 'BM',
     active: true,
   },
 };
@@ -183,33 +133,15 @@ export const PRECONFIGURED_USERS_RBAC: Record<string, AuthenticatedUserContext> 
 export function canonicalizeUserEmail(rawEmail?: string | null): string {
   const e = (rawEmail || '').trim().toLowerCase();
   if (
+    e === 'bmapwabantoro@liecconsulting.com' ||
+    e === 'admin@liecconsulting.com' ||
     e === 'admin@liec-education.com' ||
     e === 'admin@liec.com' ||
-    e === 'admin@liecconsulting.com' ||
     e === 'sarah.mwamba@liecconsulting.com' ||
     e === 'sarah@liecconsulting.com' ||
     e === 'sarah.mwamba@liec-education.com'
   ) {
-    return 'sarah.mwamba@liec-education.com';
-  }
-  if (
-    e === 'secretary@liec-education.com' ||
-    e === 'secretaire@liec-education.com' ||
-    e === 'secretary@liecconsulting.com' ||
-    e === 'marc.kouassi@liecconsulting.com' ||
-    e === 'marc.kouassi@liec-education.com'
-  ) {
-    return 'marc.kouassi@liec-education.com';
-  }
-  if (
-    e === 'avi@liec-education.com' ||
-    e === 'officer.avi@liec-education.com' ||
-    e === 'finance@liec-education.com' ||
-    e === 'avi@liecconsulting.com' ||
-    e === 'alain.kanza@liecconsulting.com' ||
-    e === 'alain.kanza@liec-education.com'
-  ) {
-    return 'alain.kanza@liec-education.com';
+    return 'bmapwabantoro@liecconsulting.com';
   }
   return e;
 }
@@ -425,6 +357,7 @@ export async function authenticateServerRequest(
       const isRoleAdmin =
         r.role === 'admin' ||
         r.business_profile === 'Admin' ||
+        r.email === 'bmapwabantoro@liecconsulting.com' ||
         r.email === 'sarah.mwamba@liec-education.com';
       user = {
         id: r.id,
