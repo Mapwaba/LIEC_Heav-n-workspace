@@ -120,6 +120,8 @@ export default function LiecWorkspacePage() {
   const [users, setUsers] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [accommodationRequests, setAccommodationRequests] = useState<any[]>([]);
+  const [prepaPayments, setPrepaPayments] = useState<any[]>([]);
+  const [prepaReceipts, setPrepaReceipts] = useState<any[]>([]);
 
   const [selectedDemandeRef, setSelectedDemandeRef] = useState('');
   const [selectedCandidatRef, setSelectedCandidatRef] = useState('');
@@ -218,6 +220,8 @@ export default function LiecWorkspacePage() {
       if (data.roles) setRoles(data.roles);
       if (data.parentStudentLinks) setParentStudentLinks(data.parentStudentLinks);
       if (data.accommodationRequests) setAccommodationRequests(data.accommodationRequests);
+      if (data.prepaPayments) setPrepaPayments(data.prepaPayments);
+      if (data.prepaReceipts) setPrepaReceipts(data.prepaReceipts);
     } catch (err) {
       console.error('Failed to fetch workspace:', err);
     } finally {
@@ -1321,7 +1325,11 @@ export default function LiecWorkspacePage() {
                 <RapportsFinanceScreen
                   invoices={invoices}
                   candidats={candidats}
+                  prepaPayments={prepaPayments}
+                  prepaReceipts={prepaReceipts}
                   currentRole={rolePreview}
+                  currentUser={currentUser}
+                  onRefreshWorkspace={fetchWorkspace}
                   onNotify={showToast}
                   lang={lang}
                 />

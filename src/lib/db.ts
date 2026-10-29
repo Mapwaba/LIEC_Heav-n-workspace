@@ -307,6 +307,54 @@ async function initSchemaAndSeed(client: DBClient) {
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS prepa_payments (
+      id SERIAL PRIMARY KEY,
+      payment_ref VARCHAR(80) UNIQUE NOT NULL,
+      candidate_ref VARCHAR(80) NOT NULL,
+      candidate_name VARCHAR(150) NOT NULL,
+      candidate_email VARCHAR(160),
+      academic_intake VARCHAR(80) DEFAULT '2025–2026',
+      program VARCHAR(100) DEFAULT 'LIEC-France PREPA',
+      instalment_number INT NOT NULL,
+      instalment_label VARCHAR(50) NOT NULL,
+      instalment_percentage NUMERIC(5,2) NOT NULL,
+      amount NUMERIC(10,2) NOT NULL,
+      payment_method VARCHAR(80) DEFAULT 'Bank Wire (Virement)',
+      transaction_ref VARCHAR(100),
+      proof_file_url TEXT,
+      proof_filename VARCHAR(255),
+      status VARCHAR(50) NOT NULL DEFAULT 'Pending',
+      validated_by VARCHAR(150),
+      validated_at TIMESTAMP WITH TIME ZONE,
+      expected_next_date TIMESTAMP WITH TIME ZONE,
+      notes TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS prepa_receipts (
+      id SERIAL PRIMARY KEY,
+      receipt_number VARCHAR(80) UNIQUE NOT NULL,
+      payment_id INT REFERENCES prepa_payments(id),
+      payment_ref VARCHAR(80) NOT NULL,
+      candidate_ref VARCHAR(80) NOT NULL,
+      candidate_name VARCHAR(150) NOT NULL,
+      instalment_number INT NOT NULL,
+      amount_paid NUMERIC(10,2) NOT NULL,
+      cumulative_paid NUMERIC(10,2) NOT NULL,
+      outstanding_balance NUMERIC(10,2) NOT NULL,
+      issue_date_paris VARCHAR(30) NOT NULL,
+      issue_time_paris VARCHAR(30) NOT NULL,
+      timezone VARCHAR(30) DEFAULT 'Europe/Paris',
+      verification_ref VARCHAR(100) UNIQUE NOT NULL,
+      is_reissue BOOLEAN DEFAULT FALSE,
+      reissue_count INT DEFAULT 0,
+      generated_by VARCHAR(150) NOT NULL,
+      generated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      receipt_pdf_url TEXT,
+      metadata JSONB DEFAULT '{}'::jsonb
+    );
   `);
 
   // Ensure RBAC schema columns and tables exist
