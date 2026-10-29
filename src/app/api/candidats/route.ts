@@ -126,8 +126,8 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Academic & Procedure Status
-    const admissionStatus = (body.admission_status || 'Admitted — Partner School Lyon').trim();
-    const procedureStatus = (body.procedure_status || 'In Progress (Milestone 2)').trim();
+    const admissionStatus = (body.admission_status || 'Under Review — Pending Qualification').trim();
+    const procedureStatus = (body.procedure_status || 'In Progress (Milestone 1)').trim();
     const description = (body.description || '').trim();
     const comments = (body.comments || body.message || '').trim();
 

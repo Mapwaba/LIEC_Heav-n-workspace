@@ -1,6 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 
+function corsHeaders() {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-email, x-user-lang',
+  };
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: corsHeaders(),
+  });
+}
+
+
 const COUNTRY_MAP: Record<string, { code: string; flag: string }> = {
   RDC: { code: 'CD', flag: '🇨🇩' },
   'Congo (RDC)': { code: 'CD', flag: '🇨🇩' },
@@ -51,7 +67,7 @@ export async function POST(req: NextRequest) {
     const graduationYear = String(body.graduation_year || '').trim();
     if (graduationYear) {
       const gradNum = parseInt(graduationYear, 10);
-      if (isNaN(gradNum) || gradNum < 2010 || gradNum > 2026) {
+      if (isNaN(gradNum) || gradNum < 2010 || gradNum > 2030) {
         return NextResponse.json(
           { error: 'Year of Graduation must be between 2010 and 2026.' },
           { status: 400 }
@@ -175,7 +191,190 @@ export async function POST(req: NextRequest) {
       ['Portail Web / API', `Création nouvelle demande (${fullName} - ${program})`, ref]
     );
 
-    return NextResponse.json({ demande: insertRes.rows[0], ref });
+    // Also register candidate record and prospect CRM entry linked to this application
+    const canCountRes = await db.query<{ count: string | number }>('SELECT COUNT(*) as count FROM candidats');
+    let nextCanNum = 43 + Number(canCountRes.rows[0]?.count ?? 0);
+    let canRef = `#CAN-2025-${String(nextCanNum).padStart(3, '0')}`;
+    while (true) {
+      const existingCan = await db.query('SELECT 1 FROM candidats WHERE ref = $1', [canRef]);
+      if (!existingCan.rows || existingCan.rows.length === 0) break;
+      nextCanNum++;
+      canRef = `#CAN-2025-${String(nextCanNum).padStart(3, '0')}`;
+    }
+
+    const schoolCode = program.includes('ISCOM')
+      ? 'ISCO'
+      : program.includes('Tunon')
+      ? 'TUNO'
+      : program.includes('IHECF')
+      ? 'IHEC'
+      : program.includes('Ipac')
+      ? 'IPAC'
+      : program.includes('MBway')
+      ? 'MBW'
+      : 'MDS';
+
+    const schoolName = program.includes('ISCOM')
+      ? 'ISCOM Lyon'
+      : program.includes('Tunon')
+      ? 'École Internationale Tunon Lyon'
+      : program.includes('IHECF')
+      ? 'IHECF Lyon'
+      : program.includes('Ipac')
+      ? 'Ipac Bachelor Factory Lyon'
+      : program.includes('MBway')
+      ? 'MBway Lyon'
+      : 'MyDigitalSchool Lyon';
+
+    const initialJalons = [
+      {
+        num: 1,
+        label: 'JALON 1',
+        title: 'Orientation & Dossier',
+        status: 'EN COURS',
+        tone: 'active',
+        description: `Candidature reçue depuis le site web pour ${schoolName}. Qualification en cours.`,
+        footer: 'Dossier en examen',
+      },
+      {
+        num: 2,
+        label: 'JALON 2',
+        title: 'Pièces Académiques',
+        status: 'À VENIR',
+        tone: 'upcoming',
+        description: 'Collecte et certification des relevés de notes et pièces justificatives.',
+        footer: 'À planifier',
+      },
+      {
+        num: 3,
+        label: 'JALON 3',
+        title: 'Dépôt Officiel',
+        status: 'ATTENTE',
+        tone: 'pending',
+        description: `Soumission Campus France et portail ${schoolName}.`,
+        footer: 'Session 2027–2028',
+      },
+      {
+        num: 4,
+        label: 'JALON 4',
+        title: 'Visa & Installation',
+        status: 'ATTENTE',
+        tone: 'pending',
+        description: 'Attestation bancaire YimmiLine AVI et réservation de logement à Lyon.',
+        footer: 'Dès admission',
+      },
+    ];
+
+    const initialVoeux = [
+      {
+        code: schoolCode,
+        codeBg: 'navy',
+        university: schoolName,
+        rankBadge: 'Vœu n°1',
+        rankTone: 'mint',
+        program: program.includes('—') ? program.split('—')[1].trim() : program,
+        location: 'Campus Lyon',
+        meta: 'École Partenaire LIEC Lyon',
+        statusBadge: 'Dossier Reçu',
+        statusTone: 'teal',
+        statusSub: 'En attente qualification',
+      },
+    ];
+
+    const initialPieces = [
+      { name: 'Passeport biométrique', meta: 'En attente', status: 'pending' },
+      { name: 'Relevés de notes L1/L2 ou Bac', meta: 'À vérifier', status: 'pending' },
+      { name: 'Attestation TCF B2', meta: 'Non requis', status: 'pending' },
+    ];
+
+    const nowIso = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const initialHistory = [
+      {
+        timestamp: nowIso,
+        author: 'Portail Web (demarrer-mon-projet)',
+        activity_type: 'WEB_APPLICATION_RECEIVED',
+        details: `Application submitted on public website. Assigned Demande ${ref} and Candidate Ref ${canRef}.`,
+      },
+    ];
+
+    // Insert Candidate profile under review (never marked as approved or admitted automatically)
+    await db.query(
+      `INSERT INTO candidats (
+        ref, initials, full_name, avatar_url, program, cities, adviser,
+        stage_badge, stage_badge_tone, progress_pct, status_left, status_right,
+        email, phone, parent_full_name, parent_phone, parent_email, parent_relation,
+        graduation_year, current_activity, final_year_university,
+        country, nationality, current_diploma, tcf_score, garant_info, interview_date,
+        admission_status, procedure_status, description, comments,
+        jalons_json, voeux_json, notes_json, pieces_json, history_json
+      ) VALUES (
+        $1,$2,$3,$4,$5,$6,$7,
+        $8,$9,$10,$11,$12,
+        $13,$14,$15,$16,$17,$18,
+        $19,$20,$21,
+        $22,$23,$24,$25,$26,$27,
+        $28,$29,$30,$31,
+        $32,$33,$34,$35,$36
+      )`,
+      [
+        canRef,
+        initials,
+        fullName.toUpperCase(),
+        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=160&auto=format&fit=crop&q=80',
+        program,
+        'Lyon (Campus Partenaire)',
+        'Barthelemy MAPWABA NTORO',
+        'Dossier Reçu',
+        'teal',
+        15,
+        'Dossier à 15%',
+        'J-60 Prépa',
+        email,
+        phone,
+        parentFullName || null,
+        parentPhone || null,
+        null,
+        'Parent',
+        graduationYear || null,
+        currentActivity || null,
+        finalYearUniversity || null,
+        countryName,
+        nationality,
+        currentLevel,
+        'À planifier',
+        'Dossier AVI YIMMILINE à initier',
+        'À fixer',
+        'Under Review — Pending Qualification',
+        'In Progress (Milestone 1)',
+        message,
+        `Candidature transmise via le formulaire public 2027–2028 (Demande: ${ref})`,
+        JSON.stringify(initialJalons),
+        JSON.stringify(initialVoeux),
+        JSON.stringify([{ author: 'Système', date: "À l'instant", text: `Demande web reçue (${ref})` }]),
+        JSON.stringify(initialPieces),
+        JSON.stringify(initialHistory),
+      ]
+    );
+
+    // Also register in prospects CRM queue
+    await db.query(
+      `INSERT INTO prospects (
+        full_name, stage, badge_text, badge_tone, flag, country_city, program_tag,
+        program_tag_tone, highlight_box, meta_left, meta_right, meta_right_tone,
+        adviser_initials, adviser_name, adviser_color, estimated_value, is_urgent, is_prepa
+      ) VALUES ($1,'nouveau','Nouveau Web','cyan',$2,$3,$4,'mint',NULL,'2 800 € TTC','À qualifier','teal','BM','B. Mapwaba','navy',2800,FALSE,TRUE)`,
+      [fullName, countryMeta.flag, city, program]
+    );
+
+    return NextResponse.json({
+      ok: true,
+      success: true,
+      ref,
+      demRef: ref,
+      candidatRef: canRef,
+      demande: insertRes.rows[0],
+      message: 'Candidature enregistrée avec succès dans le Workspace LIEC Heav’n.',
+    }, { headers: corsHeaders() });
   } catch (error: any) {
     console.error('Error creating demande:', error);
     return NextResponse.json({ error: error?.message || 'Erreur création demande' }, { status: 500 });

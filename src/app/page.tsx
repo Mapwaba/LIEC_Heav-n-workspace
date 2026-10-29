@@ -43,6 +43,7 @@ import {
   ParametresGovernanceScreen,
   Lang,
 } from '@/components/ServicesAndOtherScreens';
+import { KnowledgeBaseScreen } from '@/components/KnowledgeBaseScreen';
 
 type NavTab =
   | 'overview'
@@ -70,7 +71,7 @@ const TAB_LABELS_EN: Record<NavTab, string> = {
   rapports: 'Finance & Analytics',
   notifications: 'Notifications',
   parametres: 'Settings & Security',
-  aide: 'Help & Knowledge Base',
+  aide: 'Help, Support & LIEC Heav’n Knowledge Base',
 };
 
 const TAB_LABELS_FR: Record<NavTab, string> = {
@@ -85,7 +86,7 @@ const TAB_LABELS_FR: Record<NavTab, string> = {
   rapports: 'Rapports & stats',
   notifications: 'Notifications',
   parametres: 'Paramètres & sécurité',
-  aide: 'Aide & support',
+  aide: 'Aide, Support & Base de Connaissances',
 };
 
 export default function LiecWorkspacePage() {
@@ -1400,33 +1401,11 @@ export default function LiecWorkspacePage() {
               )}
 
               {activeTab === 'aide' && (
-                <div className="space-y-4">
-                  <h1 className="text-[28px] font-extrabold text-[#092342]">
-                    {isEn ? 'Help, Support & LIEC Heav’n Knowledge Base' : 'Aide, Support & Documentation LIEC Heav’n'}
-                  </h1>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="rounded-2xl border border-[#e6eef6] bg-white p-6 shadow-card space-y-2">
-                      <h3 className="text-base font-extrabold text-[#092342]">
-                        {isEn ? 'LIEC Advisor User Guide' : "Guide d'utilisation Conseillers LIEC"}
-                      </h3>
-                      <p className="text-xs text-slate-500 leading-relaxed">
-                        {isEn
-                          ? 'Procedures for public application qualification, Campus France support, and YIMMILINE AVI financing simulations (€150 LIEC cut).'
-                          : "Retrouvez les procédures de qualification des demandes publiques, d'accompagnement Campus France et de simulation des offres AVI YIMMILINE (150 € LIEC)."}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-[#e6eef6] bg-white p-6 shadow-card space-y-2">
-                      <h3 className="text-base font-extrabold text-[#092342]">
-                        {isEn ? 'Technical Support & PostgreSQL Engine' : 'Support Technique & Base PostgreSQL'}
-                      </h3>
-                      <p className="text-xs text-slate-500 leading-relaxed">
-                        {isEn
-                          ? `Relational database active (${dbEngine}). To configure an external production PostgreSQL instance, set DATABASE_URL in .env.local.`
-                          : `Base de données relationnelle active (${dbEngine}). Pour configurer une instance PostgreSQL externe, renseignez DATABASE_URL dans .env.local.`}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                <KnowledgeBaseScreen
+                  lang={lang}
+                  currentRole={rolePreview}
+                  onNavigate={(tab) => setActiveTab(tab as NavTab)}
+                />
               )}
             </>
           )}
