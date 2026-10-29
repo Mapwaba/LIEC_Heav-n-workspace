@@ -48,32 +48,24 @@ const STAGES = [
     label: 'New Lead',
     dot: 'bg-[#092342]',
     badgeBg: 'bg-[#dce7f5] text-[#092342]',
-    defaultCount: 14,
-    totalVal: '€25.2k',
   },
   {
     key: 'premier_contact',
     label: 'First Contact',
     dot: 'bg-[#0c685a]',
     badgeBg: 'bg-[#ccf5e5] text-[#0c685a]',
-    defaultCount: 18,
-    totalVal: '€32.4k',
   },
   {
     key: 'diagnostic',
     label: 'Eligibility Check',
     dot: 'bg-[#f59e0b]',
     badgeBg: 'bg-[#fde6b8] text-[#92400e]',
-    defaultCount: 16,
-    totalVal: '€28.8k',
   },
   {
     key: 'qualifie',
     label: 'Qualified',
     dot: 'bg-[#092342]',
     badgeBg: 'bg-[#dce7f5] text-[#092342]',
-    defaultCount: 18,
-    totalVal: '€32.4k',
   },
 ];
 
@@ -213,9 +205,9 @@ export default function ProspectsScreen({
               </span>
               <div className="mt-2 flex items-baseline gap-1.5">
                 <span className="text-3xl font-extrabold text-[#092342]">
-                  {78 + Math.max(0, prospects.length - 8)}
+                  {prospects.length}
                 </span>
-                <span className="text-xs font-bold text-[#0c685a]">↗ +12%</span>
+                <span className="text-xs font-bold text-[#0c685a]">CRM Live</span>
               </div>
             </div>
             <div className="h-12 w-12 rounded-2xl bg-[#e6eef9] text-[#092342] flex items-center justify-center shrink-0">
@@ -224,11 +216,14 @@ export default function ProspectsScreen({
           </div>
           <div className="mt-4">
             <div className="flex items-center justify-between text-[11px] mb-1.5">
-              <span className="text-slate-500 font-medium">Monthly Target: 95</span>
-              <span className="font-extrabold text-[#092342]">82% achieved</span>
+              <span className="text-slate-500 font-medium">Pipeline Intake</span>
+              <span className="font-extrabold text-[#092342]">2025–2026</span>
             </div>
             <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-              <div className="h-full w-[82%] rounded-full bg-[#092342]" />
+              <div
+                className="h-full rounded-full bg-[#092342]"
+                style={{ width: `${Math.min(100, prospects.length > 0 ? (prospects.length / 50) * 100 : 0)}%` }}
+              />
             </div>
           </div>
         </div>
@@ -243,7 +238,9 @@ export default function ProspectsScreen({
                 OUTREACH
               </span>
               <div className="mt-2 flex items-baseline gap-1.5">
-                <span className="text-3xl font-extrabold text-[#452702]">19</span>
+                <span className="text-3xl font-extrabold text-[#452702]">
+                  {prospects.filter((p) => p.is_urgent).length}
+                </span>
                 <span className="text-xs font-bold text-red-600 inline-flex items-center gap-0.5">
                   <Clock className="w-3 h-3" /> &lt; 24h
                 </span>
@@ -256,18 +253,19 @@ export default function ProspectsScreen({
           <div className="mt-4">
             <div className="flex items-center justify-between text-[11px] mb-1.5">
               <span className="text-slate-500 font-medium leading-tight">
-                7 Direct Leads
-                <br />
-                WhatsApp
+                Urgent Follow-ups
               </span>
               <span className="font-extrabold text-red-600 text-right leading-tight">
-                High
-                <br />
-                Urgency
+                High Priority
               </span>
             </div>
             <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-              <div className="h-full w-[65%] rounded-full bg-[#f4be37]" />
+              <div
+                className="h-full rounded-full bg-[#f4be37]"
+                style={{
+                  width: `${prospects.length > 0 ? Math.min(100, (prospects.filter((p) => p.is_urgent).length / prospects.length) * 100) : 0}%`,
+                }}
+              />
             </div>
           </div>
         </div>
@@ -280,7 +278,9 @@ export default function ProspectsScreen({
                 ACTIVE DIAGNOSTICS
               </span>
               <div className="mt-3 flex items-baseline gap-1.5">
-                <span className="text-3xl font-extrabold text-[#0c685a]">35</span>
+                <span className="text-3xl font-extrabold text-[#0c685a]">
+                  {prospects.filter((p) => p.stage === 'diagnostic').length}
+                </span>
                 <span className="text-xs font-bold text-[#0c685a]">🔍 In Review</span>
               </div>
             </div>
@@ -291,18 +291,19 @@ export default function ProspectsScreen({
           <div className="mt-4">
             <div className="flex items-center justify-between text-[11px] mb-1.5">
               <span className="text-slate-500 font-medium leading-tight">
-                Grades &amp;
-                <br />
-                Budget Check
+                Grades &amp; Budget Check
               </span>
               <span className="font-extrabold text-[#0c685a] text-right leading-tight">
-                Avg. Turnaround
-                <br />
-                48h
+                Eligibility
               </span>
             </div>
             <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-              <div className="h-full w-[48%] rounded-full bg-[#0c685a]" />
+              <div
+                className="h-full rounded-full bg-[#0c685a]"
+                style={{
+                  width: `${prospects.length > 0 ? Math.min(100, (prospects.filter((p) => p.stage === 'diagnostic').length / prospects.length) * 100) : 0}%`,
+                }}
+              />
             </div>
           </div>
         </div>
@@ -317,7 +318,9 @@ export default function ProspectsScreen({
                 PREPA &amp; APPLICATION
               </span>
               <div className="mt-2 flex items-baseline gap-1.5">
-                <span className="text-3xl font-extrabold text-[#092342]">24</span>
+                <span className="text-3xl font-extrabold text-[#092342]">
+                  {prospects.filter((p) => p.stage === 'qualifie').length}
+                </span>
                 <span className="text-xs font-bold text-[#092342]">☆ Ready</span>
               </div>
             </div>
@@ -328,18 +331,19 @@ export default function ProspectsScreen({
           <div className="mt-4">
             <div className="flex items-center justify-between text-[11px] mb-1.5">
               <span className="text-slate-500 font-medium leading-tight">
-                Potential Pipeline:
-                <br />
-                €43,200
+                Potential Value:
               </span>
               <span className="font-extrabold text-[#092342] text-right leading-tight">
-                Conv. Rate
-                <br />
-                38%
+                €{(prospects.filter((p) => p.stage === 'qualifie').length * 2800).toLocaleString()}
               </span>
             </div>
             <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-              <div className="h-full w-[38%] rounded-full bg-[#092342]" />
+              <div
+                className="h-full rounded-full bg-[#092342]"
+                style={{
+                  width: `${prospects.length > 0 ? Math.min(100, (prospects.filter((p) => p.stage === 'qualifie').length / prospects.length) * 100) : 0}%`,
+                }}
+              />
             </div>
           </div>
         </div>
@@ -385,7 +389,7 @@ export default function ProspectsScreen({
                   : 'bg-[#f1f6fb] text-slate-600 hover:bg-slate-200/70'
               }`}
             >
-              All ({78 + Math.max(0, prospects.length - 8)})
+              All ({prospects.length})
             </button>
             <button
               onClick={() => setQuickFilter('urgent')}
@@ -396,7 +400,7 @@ export default function ProspectsScreen({
               }`}
             >
               <span className="h-2 w-2 rounded-full bg-red-600" />
-              <span>Urgent &lt;24h (19)</span>
+              <span>Urgent &lt;24h ({prospects.filter((p) => p.is_urgent).length})</span>
             </button>
             <button
               onClick={() => setQuickFilter('prepa')}
@@ -406,7 +410,7 @@ export default function ProspectsScreen({
                   : 'bg-[#f1f6fb] text-[#092342] hover:bg-slate-200/70'
               }`}
             >
-              PREPA 2025 (32)
+              PREPA 2025 ({prospects.filter((p) => p.is_prepa).length})
             </button>
           </div>
         </div>
@@ -427,13 +431,13 @@ export default function ProspectsScreen({
           </div>
           <button
             onClick={() => onNotify('CRM Pipeline report exported.')}
-            className="p-2 rounded-xl hover:bg-slate-100 text-slate-600"
+            className="p-2 rounded-xl hover:bg-slate-100 text-slate-600 cursor-pointer"
           >
             <Download className="w-4 h-4" />
           </button>
           <button
             onClick={onRefresh}
-            className="p-2 rounded-xl hover:bg-slate-100 text-slate-600"
+            className="p-2 rounded-xl hover:bg-slate-100 text-slate-600 cursor-pointer"
           >
             <RotateCw className="w-4 h-4" />
           </button>
@@ -445,6 +449,7 @@ export default function ProspectsScreen({
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
           {STAGES.map((stage) => {
             const stageCards = filteredProspects.filter((p) => p.stage === stage.key);
+            const stageTotalEur = stageCards.length * 1800;
             return (
               <div
                 key={stage.key}
@@ -458,15 +463,22 @@ export default function ProspectsScreen({
                     <span
                       className={`rounded-md px-2 py-0.5 text-[10.5px] font-extrabold ${stage.badgeBg}`}
                     >
-                      {stage.defaultCount + Math.max(0, stageCards.length - 2)}
+                      {stageCards.length}
                     </span>
                   </div>
-                  <span className="text-xs font-bold text-slate-500">{stage.totalVal}</span>
+                  <span className="text-xs font-bold text-slate-500">
+                    {stageCards.length > 0 ? `€${stageTotalEur.toLocaleString()}` : '€0'}
+                  </span>
                 </div>
 
                 {/* Cards */}
                 <div className="space-y-3">
-                  {stageCards.map((card, cardIdx) => {
+                  {stageCards.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-white/50 p-4 text-center text-xs text-slate-400">
+                      No prospects in this stage
+                    </div>
+                  ) : (
+                    stageCards.map((card, cardIdx) => {
                     const topBorderClass =
                       stage.key === 'nouveau' || stage.key === 'qualifie'
                         ? 'border-t-[3px] border-t-[#092342]'
@@ -621,7 +633,8 @@ export default function ProspectsScreen({
                         </div>
                       </div>
                     );
-                  })}
+                  })
+                )}
                 </div>
 
                 {/* Add to stage button */}
@@ -654,29 +667,37 @@ export default function ProspectsScreen({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredProspects.map((p) => (
-                <tr key={p.id} className="hover:bg-slate-50">
-                  <td className="py-3.5 px-4 font-extrabold text-[#092342]">{p.full_name}</td>
-                  <td className="py-3.5 px-4">
-                    {p.flag} {p.country_city}
-                  </td>
-                  <td className="py-3.5 px-4 font-semibold text-[#0c685a]">{p.program_tag}</td>
-                  <td className="py-3.5 px-4">
-                    <span className="rounded-full bg-[#eef4fb] px-2.5 py-1 text-[10.5px] font-bold text-[#092342] uppercase">
-                      {p.stage.replace('_', ' ')}
-                    </span>
-                  </td>
-                  <td className="py-3.5 px-4 font-bold text-slate-700">{p.adviser_name}</td>
-                  <td className="py-3.5 px-4">
-                    <button
-                      onClick={() => onMoveProspect(p.id, getNextStage(p.stage))}
-                      className="rounded-lg bg-[#092342] text-white px-3 py-1 text-[11px] font-bold hover:bg-[#12365a]"
-                    >
-                      Advance stage →
-                    </button>
+              {filteredProspects.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-xs text-slate-400">
+                    No prospects found. Click &apos;+ New Prospect&apos; to create an advisory lead.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredProspects.map((p) => (
+                  <tr key={p.id} className="hover:bg-slate-50">
+                    <td className="py-3.5 px-4 font-extrabold text-[#092342]">{p.full_name}</td>
+                    <td className="py-3.5 px-4">
+                      {p.flag} {p.country_city}
+                    </td>
+                    <td className="py-3.5 px-4 font-semibold text-[#0c685a]">{p.program_tag}</td>
+                    <td className="py-3.5 px-4">
+                      <span className="rounded-full bg-[#eef4fb] px-2.5 py-1 text-[10.5px] font-bold text-[#092342] uppercase">
+                        {p.stage.replace('_', ' ')}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 font-bold text-slate-700">{p.adviser_name}</td>
+                    <td className="py-3.5 px-4">
+                      <button
+                        onClick={() => onMoveProspect(p.id, getNextStage(p.stage))}
+                        className="rounded-lg bg-[#092342] text-white px-3 py-1 text-[11px] font-bold hover:bg-[#12365a] cursor-pointer"
+                      >
+                        Advance stage →
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

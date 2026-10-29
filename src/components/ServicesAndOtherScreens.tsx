@@ -35,6 +35,7 @@ import {
   X,
   Check,
   Info,
+  Download,
 } from 'lucide-react';
 
 export type Lang = 'en' | 'fr';
@@ -408,26 +409,22 @@ export function ServicesAviScreen({
   const isEn = lang === 'en';
 
   // Parent AVI Registration Form State (Dedicated to the Parent Borrower)
-  const [parentName, setParentName] = useState('Jean-Claude Mutombo');
-  const [occupation, setOccupation] = useState('Senior Financial Controller (Salaried)');
+  const [parentName, setParentName] = useState('');
+  const [occupation, setOccupation] = useState('');
   const [occupationProfile, setOccupationProfile] = useState<'salaried' | 'entrepreneur' | 'informal'>('salaried');
-  const [studentName, setStudentName] = useState('Gloire Mutombo');
-  const [physicalAddress, setPhysicalAddress] = useState('45 Boulevard du 30 Juin, Gombe, Kinshasa');
-  const [phone, setPhone] = useState('+243 82 491 0023');
+  const [studentName, setStudentName] = useState('');
+  const [physicalAddress, setPhysicalAddress] = useState('');
+  const [phone, setPhone] = useState('');
   const [otherGuarantor, setOtherGuarantor] = useState<boolean>(false);
-  const [guarantorDetails, setGuarantorDetails] = useState(
-    'Patrice Mutombo (Uncle residing in Lyon, France) — Permanent CDI Contract, Annual Net Income > €42,000, Security deposit checks & sworn statement ready'
-  );
-  const [country, setCountry] = useState('RDC');
-  const [town, setTown] = useState('Kinshasa');
+  const [guarantorDetails, setGuarantorDetails] = useState('');
+  const [country, setCountry] = useState('');
+  const [town, setTown] = useState('');
   const [nationalityDifferent, setNationalityDifferent] = useState('');
-  const [studentProgram, setStudentProgram] = useState(
-    'MyDigitalSchool Lyon — Web Development, Digital Creation, Webmarketing & UX/UI Design'
-  );
-  const [email, setEmail] = useState('jc.mutombo@gmail.com');
+  const [studentProgram, setStudentProgram] = useState('');
+  const [email, setEmail] = useState('');
   // Passport ID starting with OP or PO + 9 digits (or 9 characters total)
-  const [passportId, setPassportId] = useState('OP123456789');
-  const [startDate, setStartDate] = useState('2025-09');
+  const [passportId, setPassportId] = useState('');
+  const [startDate, setStartDate] = useState('');
 
   // Aggregate catalog of parents and their linked applicants to reuse records and avoid duplicates
   const parentsCatalog = useMemo(() => {
@@ -536,13 +533,9 @@ export function ServicesAviScreen({
   const [amountXaf, setAmountXaf] = useState<number>(Math.round(2800 * 655.957));
 
   // Supporting Documents attachment state
-  const [selectedFilesCount, setSelectedFilesCount] = useState<number>(3);
-  const [fileNames, setFileNames] = useState<string[]>([
-    'Parent_Passport_OP123456789.pdf',
-    'Last_03_Months_Payslips_N1_Bank_History.pdf',
-    'Lyon_Partner_School_Admission_Certificate.pdf',
-  ]);
-  const [confirmAvi, setConfirmAvi] = useState(true);
+  const [selectedFilesCount, setSelectedFilesCount] = useState<number>(0);
+  const [fileNames, setFileNames] = useState<string[]>([]);
+  const [confirmAvi, setConfirmAvi] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   // Fetch Real-Time Market Exchange Rate from public FX API
@@ -2171,17 +2164,114 @@ export function PublicSiteIntakeScreen({
 }
 
 export function RapportsFinanceScreen({
-  invoices,
+  invoices = [],
+  candidats = [],
   currentRole,
   onNotify,
   lang = 'en',
 }: {
   invoices: any[];
+  candidats?: any[];
   currentRole: string;
   onNotify: (msg: string) => void;
   lang?: Lang;
 }) {
   const isEn = lang === 'en';
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [selectedReceiptStudent, setSelectedReceiptStudent] = useState<string>('');
+  const [receiptNumber, setReceiptNumber] = useState<string>('REC-2026-0104');
+  const [customReceiptAmount, setCustomReceiptAmount] = useState<number>(1800);
+  const [receiptPaymentMethod, setReceiptPaymentMethod] = useState<string>('Bank Wire (Virement)');
+
+  const invoicesList = Array.isArray(invoices) ? invoices : [];
+
+  // Grouped candidates by payment
+  const studentPayments = useMemo(() => {
+    const map = new Map<string, { student_name: string; total_paid: number; ref: string; count: number }>();
+    
+    // Seed with existing candidates
+    (candidats || []).forEach((c) => {
+      const name = c.full_name || c.name || '';
+      if (!name) return;
+      const key = name.toLowerCase().trim();
+      if (!map.has(key)) {
+        map.set(key, { student_name: name, total_paid: 0, ref: c.ref || 'CAN', count: 0 });
+      }
+    });
+
+    invoicesList.forEach((inv) => {
+      const sName = inv.student_name || inv.client_name || '';
+      if (!sName) return;
+      const key = sName.toLowerCase().trim();
+      if (!map.has(key)) {
+        map.set(key, { student_name: sName, total_paid: 0, ref: inv.ref || 'INV', count: 0 });
+      }
+      const item = map.get(key)!;
+      item.count += 1;
+      const s = (inv.status || '').toLowerCase();
+      if (s.includes('pay') || s.includes('valid') || s.includes('paid')) {
+        item.total_paid += Number(inv.paid_eur || inv.amount_eur || inv.amount || 0);
+      }
+    });
+
+    return Array.from(map.values());
+  }, [invoicesList, candidats]);
+
+  // Financial KPI calculations
+  const totalBilled = useMemo(() => {
+    return invoicesList.reduce((acc, inv) => acc + Number(inv.amount_eur || inv.amount || 0), 0);
+  }, [invoicesList]);
+
+  const validatedPayments = useMemo(() => {
+    return invoicesList
+      .filter((inv) => {
+        const s = (inv.status || '').toLowerCase();
+        return s.includes('pay') || s.includes('valid') || s.includes('paid');
+      })
+      .reduce((acc, inv) => acc + Number(inv.paid_eur || inv.amount_eur || inv.amount || 0), 0);
+  }, [invoicesList]);
+
+  const outstandingBalance = Math.max(0, totalBilled - validatedPayments);
+
+  const pendingPaymentsCount = useMemo(() => {
+    return invoicesList.filter((inv) => {
+      const s = (inv.status || '').toLowerCase();
+      return s.includes('attente') || s.includes('pending') || s.includes('unpaid');
+    }).length;
+  }, [invoicesList]);
+
+  const rejectedPaymentsCount = useMemo(() => {
+    return invoicesList.filter((inv) => {
+      const s = (inv.status || '').toLowerCase();
+      return s.includes('rejet') || s.includes('fail');
+    }).length;
+  }, [invoicesList]);
+
+  const fullyPaidCandidates = useMemo(() => {
+    return studentPayments.filter((s) => s.total_paid >= 2800).length;
+  }, [studentPayments]);
+
+  const thresholdCandidates = useMemo(() => {
+    return studentPayments.filter((s) => s.total_paid >= 1800 && s.total_paid < 2800).length;
+  }, [studentPayments]);
+
+  const eligibleForReceipt = useMemo(() => {
+    return studentPayments.filter((s) => s.total_paid >= 1800);
+  }, [studentPayments]);
+
+  const handleOpenReceiptModal = () => {
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    setReceiptNumber(`REC-2026-${randomSuffix}`);
+    if (eligibleForReceipt.length > 0) {
+      setSelectedReceiptStudent(eligibleForReceipt[0].student_name);
+      setCustomReceiptAmount(eligibleForReceipt[0].total_paid);
+    } else if (candidats.length > 0) {
+      setSelectedReceiptStudent(candidats[0].full_name || '');
+      setCustomReceiptAmount(1800);
+    }
+    setShowReceiptModal(true);
+  };
+
   if (currentRole === 'secretary') {
     return (
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center space-y-3">
@@ -2214,60 +2304,107 @@ export function RapportsFinanceScreen({
           </h1>
           <p className="mt-1 text-sm text-slate-500">
             {isEn
-              ? 'Traceable tracking of student invoices, PREPA deposits, €150 LIEC AVI interest recoveries, and partner reconciliations.'
-              : 'Suivi traçable des factures étudiants, acomptes PREPA, récupérations intérêts AVI (150 € LIEC) et rapprochements partenaires.'}
+              ? 'Traceable tracking of student invoices, PREPA deposits (€2,800 standard / €1,800 threshold), €150 LIEC AVI interest recoveries, and partner reconciliations.'
+              : 'Suivi traçable des factures étudiants, acomptes PREPA (2 800 € standard / seuil 1 800 €), récupérations intérêts AVI (150 € LIEC) et rapprochements partenaires.'}
           </p>
         </div>
-        <button
-          onClick={() =>
-            onNotify(
-              isEn
-                ? 'Consolidated financial report exported to PDF.'
-                : 'Rapport financier consolidé exporté en PDF.'
-            )
-          }
-          className="rounded-xl bg-[#092342] text-white px-4 py-2.5 text-xs font-extrabold"
-        >
-          {isEn ? 'Export Financial Statement ↓' : 'Exporter le bilan financier ↓'}
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="rounded-2xl border border-[#e6eef6] bg-white p-5 shadow-card">
-          <span className="text-[10.5px] font-bold uppercase text-slate-400">
-            {isEn ? 'TOTAL COHORT BILLED VOLUME' : 'VOLUME FACTURÉ COHORTE'}
-          </span>
-          <div className="mt-1 text-2xl font-extrabold text-[#092342]">€43,200.00</div>
-          <span className="text-xs font-bold text-[#0c685a]">
-            {isEn ? '↗ +14.5% this semester' : '↗ +14.5% sur le semestre'}
-          </span>
-        </div>
-        <div className="rounded-2xl border border-[#e6eef6] bg-white p-5 shadow-card">
-          <span className="text-[10.5px] font-bold uppercase text-slate-400">
-            {isEn ? 'VALIDATED PAYMENT COLLECTIONS' : 'ENCAISSEMENTS ALLOCATIONS VALIDÉS'}
-          </span>
-          <div className="mt-1 text-2xl font-extrabold text-[#0c685a]">€31,850.00</div>
-          <span className="text-xs text-slate-500">
-            {isEn ? 'Audited Decimal(10,2) transactions' : 'Transactions Decimal(10,2) auditées'}
-          </span>
-        </div>
-        <div className="rounded-2xl border border-[#e6eef6] bg-white p-5 shadow-card">
-          <span className="text-[10.5px] font-bold uppercase text-slate-400">
-            {isEn ? 'LIEC AVI INTEREST RECOVERED (€150/FILE)' : 'INTÉRÊTS AVI RÉCUPÉRÉS PAR LIEC (150 €/DOSSIER)'}
-          </span>
-          <div className="mt-1 text-2xl font-extrabold text-[#b87c08]">€150.00 / AVI</div>
-          <span className="text-xs text-slate-500">
-            {isEn
-              ? 'Deducted from AVI interest on every file'
-              : "Prélevé sur l'intérêt AVI de chaque dossier"}
-          </span>
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={handleOpenReceiptModal}
+            className="rounded-xl bg-[#0c685a] hover:bg-[#0a5247] text-white px-4 py-2.5 text-xs font-extrabold shadow-sm flex items-center gap-2 transition cursor-pointer"
+          >
+            <FileText className="w-4 h-4" />
+            <span>{isEn ? 'Generate Receipt' : 'Générer un reçu'}</span>
+          </button>
+          <button
+            onClick={() =>
+              onNotify(
+                isEn
+                  ? 'Consolidated financial report exported to PDF.'
+                  : 'Rapport financier consolidé exporté en PDF.'
+              )
+            }
+            className="rounded-xl bg-[#092342] hover:bg-[#12365a] text-white px-4 py-2.5 text-xs font-extrabold shadow-sm transition cursor-pointer"
+          >
+            {isEn ? 'Export Financial Statement ↓' : 'Exporter le bilan financier ↓'}
+          </button>
         </div>
       </div>
 
+      {/* 5 Financial KPI Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card">
+          <span className="text-[10px] font-bold uppercase text-slate-400">
+            {isEn ? 'TOTAL BILLED' : 'TOTAL FACTURÉ'}
+          </span>
+          <div className="mt-1 text-xl font-extrabold text-[#092342]">
+            €{totalBilled.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <span className="text-[11px] text-slate-500">
+            {invoicesList.length} {isEn ? 'invoices logged' : 'factures enregistrées'}
+          </span>
+        </div>
+
+        <div className="rounded-2xl border border-[#ccece2] bg-white p-4 shadow-card">
+          <span className="text-[10px] font-bold uppercase text-[#0c685a]">
+            {isEn ? 'VALIDATED PAYMENTS' : 'PAIEMENTS VALIDÉS'}
+          </span>
+          <div className="mt-1 text-xl font-extrabold text-[#0c685a]">
+            €{validatedPayments.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <span className="text-[11px] font-semibold text-[#0c685a]">
+            {totalBilled > 0 ? `${Math.round((validatedPayments / totalBilled) * 100)}% collected` : isEn ? 'Real-time Neon DB' : 'Base Neon temps réel'}
+          </span>
+        </div>
+
+        <div className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card">
+          <span className="text-[10px] font-bold uppercase text-slate-400">
+            {isEn ? 'OUTSTANDING BALANCE' : 'SOLDE RESTANT DÛ'}
+          </span>
+          <div className="mt-1 text-xl font-extrabold text-[#92400e]">
+            €{outstandingBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <span className="text-[11px] text-slate-500">
+            {pendingPaymentsCount} {isEn ? 'pending verification' : 'en attente'}
+          </span>
+        </div>
+
+        <div className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card">
+          <span className="text-[10px] font-bold uppercase text-slate-400">
+            {isEn ? 'THRESHOLD (64.29%)' : 'SEUIL VISA (64,29%)'}
+          </span>
+          <div className="mt-1 text-xl font-extrabold text-[#092342]">
+            {thresholdCandidates} {isEn ? 'Candidates' : 'Candidats'}
+          </div>
+          <span className="text-[11px] text-[#0c685a] font-semibold">
+            ≥ €1,800.00 {isEn ? 'paid' : 'versés'}
+          </span>
+        </div>
+
+        <div className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card">
+          <span className="text-[10px] font-bold uppercase text-slate-400">
+            {isEn ? 'FULLY PAID (100%)' : 'SOLDÉS À 100%'}
+          </span>
+          <div className="mt-1 text-xl font-extrabold text-[#092342]">
+            {fullyPaidCandidates} {isEn ? 'Candidates' : 'Candidats'}
+          </div>
+          <span className="text-[11px] text-[#0c685a] font-semibold">
+            €2,800.00 PREPA {isEn ? 'complete' : 'complet'}
+          </span>
+        </div>
+      </div>
+
+      {/* Ledger Table */}
       <div className="rounded-2xl border border-[#e6eef6] bg-white p-6 shadow-card space-y-4">
-        <h2 className="text-base font-extrabold text-[#092342]">
-          {isEn ? 'Invoices & Allocated Payments Ledger' : 'Journal des Factures & Paiements Alloués'}
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-extrabold text-[#092342]">
+            {isEn ? 'Invoices & Allocated Payments Ledger' : 'Journal des Factures & Paiements Alloués'}
+          </h2>
+          <span className="text-xs text-slate-500 font-semibold">
+            {invoicesList.length} {isEn ? 'records' : 'entrées'}
+          </span>
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
@@ -2282,35 +2419,230 @@ export function RapportsFinanceScreen({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {invoices.map((inv) => (
-                <tr key={inv.ref} className="hover:bg-slate-50">
-                  <td className="py-3.5 px-3 font-extrabold text-[#092342]">{inv.ref}</td>
-                  <td className="py-3.5 px-3 font-bold text-[#092342]">{inv.student_name}</td>
-                  <td className="py-3.5 px-3 text-slate-600">{inv.service_label}</td>
-                  <td className="py-3.5 px-3 font-semibold text-slate-700">{inv.recipient}</td>
-                  <td className="py-3.5 px-3 font-extrabold text-[#092342]">
-                    €{Number(inv.amount_eur).toFixed(2)}
-                  </td>
-                  <td className="py-3.5 px-3 font-extrabold text-[#0c685a]">
-                    €{Number(inv.paid_eur).toFixed(2)}
-                  </td>
-                  <td className="py-3.5 px-3">
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-[10.5px] font-extrabold ${
-                        inv.status === 'Payé' || inv.status === 'Paid'
-                          ? 'bg-[#ccf5e5] text-[#0c685a]'
-                          : 'bg-[#fef3c7] text-[#92400e]'
-                      }`}
-                    >
-                      {inv.status}
-                    </span>
+              {invoicesList.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-xs text-slate-400">
+                    {isEn
+                      ? 'No invoices or allocated payments recorded yet in the database.'
+                      : 'Aucune facture ni paiement alloué pour le moment dans la base de données.'}
                   </td>
                 </tr>
-              ))}
+              ) : (
+                invoicesList.map((inv, idx) => (
+                  <tr key={inv.ref || inv.id || idx} className="hover:bg-slate-50">
+                    <td className="py-3.5 px-3 font-extrabold text-[#092342]">{inv.ref || `INV-${inv.id}`}</td>
+                    <td className="py-3.5 px-3 font-bold text-[#092342]">{inv.student_name || inv.client_name || '—'}</td>
+                    <td className="py-3.5 px-3 text-slate-600">{inv.service_label || 'LIEC-France PREPA'}</td>
+                    <td className="py-3.5 px-3 font-semibold text-slate-700">{inv.recipient || 'LIEC Education'}</td>
+                    <td className="py-3.5 px-3 font-extrabold text-[#092342]">
+                      €{Number(inv.amount_eur || inv.amount || 0).toFixed(2)}
+                    </td>
+                    <td className="py-3.5 px-3 font-extrabold text-[#0c685a]">
+                      €{Number(inv.paid_eur || (inv.status === 'Paid' || inv.status === 'Payé' || inv.status === 'Validé' ? inv.amount : 0)).toFixed(2)}
+                    </td>
+                    <td className="py-3.5 px-3">
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-[10.5px] font-extrabold ${
+                          inv.status === 'Payé' || inv.status === 'Paid' || inv.status === 'Validé'
+                            ? 'bg-[#ccf5e5] text-[#0c685a]'
+                            : inv.status === 'Rejeté' || inv.status === 'Rejected'
+                            ? 'bg-red-100 text-red-700'
+                            : 'bg-[#fef3c7] text-[#92400e]'
+                        }`}
+                      >
+                        {inv.status || 'En attente'}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Modal: Generate Receipt */}
+      {showReceiptModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-elevated border border-slate-100 space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-[#0c685a]" />
+                <h3 className="text-base font-extrabold text-[#092342]">
+                  {isEn ? 'LIEC Heav’n — Official Payment Receipt Generator' : 'Générateur de Reçu Officiel LIEC Heav’n'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowReceiptModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Receipt configuration controls */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="block text-slate-600 font-bold mb-1">
+                  {isEn ? 'Candidate / Student' : 'Candidat / Étudiant'}
+                </label>
+                <select
+                  value={selectedReceiptStudent}
+                  onChange={(e) => {
+                    setSelectedReceiptStudent(e.target.value);
+                    const matched = studentPayments.find((s) => s.student_name === e.target.value);
+                    if (matched && matched.total_paid > 0) {
+                      setCustomReceiptAmount(matched.total_paid);
+                    }
+                  }}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#092342] focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20"
+                >
+                  {studentPayments.length > 0 ? (
+                    studentPayments.map((s) => (
+                      <option key={s.student_name} value={s.student_name}>
+                        {s.student_name} (Paid: €{s.total_paid.toFixed(2)})
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">{isEn ? 'No candidates in database' : 'Aucun candidat dans la base'}</option>
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-bold mb-1">
+                  {isEn ? 'Validated Amount (€)' : 'Montant validé (€)'}
+                </label>
+                <input
+                  type="number"
+                  value={customReceiptAmount}
+                  onChange={(e) => setCustomReceiptAmount(Number(e.target.value))}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#092342] focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-bold mb-1">
+                  {isEn ? 'Receipt Number' : 'Numéro de Reçu'}
+                </label>
+                <input
+                  type="text"
+                  value={receiptNumber}
+                  onChange={(e) => setReceiptNumber(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-mono font-semibold text-[#092342] focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-bold mb-1">
+                  {isEn ? 'Payment Method' : 'Moyen de Paiement'}
+                </label>
+                <select
+                  value={receiptPaymentMethod}
+                  onChange={(e) => setReceiptPaymentMethod(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#092342] focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20"
+                >
+                  <option value="Bank Wire (Virement)">Bank Wire (Virement bancaire)</option>
+                  <option value="Credit Card (Carte Bancaire)">Credit Card (Carte Bancaire)</option>
+                  <option value="Certified Deposit (Dépôt Certifié)">Certified Deposit (Dépôt Certifié)</option>
+                  <option value="Cash Counter / Guichet LIEC">Cash Counter / Guichet LIEC</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Printable Receipt Preview Box */}
+            <div className="rounded-2xl border-2 border-dashed border-[#ccece2] bg-[#f9fcfa] p-6 space-y-4 font-sans text-xs text-[#092342]">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                <div>
+                  <div className="font-extrabold text-sm tracking-wide text-[#092342]">LIEC CONSULTING &amp; EDUCATION</div>
+                  <div className="text-[10px] text-slate-500">Heav’n Workspace — Paris &amp; Lyon Offices</div>
+                </div>
+                <div className="text-right">
+                  <span className="inline-block rounded-md bg-[#0c685a] px-2 py-0.5 text-[10px] font-extrabold text-white">
+                    {isEn ? 'OFFICIAL RECEIPT' : 'REÇU OFFICIEL'}
+                  </span>
+                  <div className="font-mono font-bold text-xs mt-1 text-[#092342]">{receiptNumber}</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-[11.5px]">
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">{isEn ? 'STUDENT / CANDIDATE' : 'ÉTUDIANT / CANDIDAT'}</span>
+                  <span className="font-bold text-[#092342]">{selectedReceiptStudent || 'Student Name'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">{isEn ? 'ISSUE DATE' : "DATE D'ÉMISSION"}</span>
+                  <span className="font-semibold text-slate-700">{new Date().toLocaleDateString()}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">{isEn ? 'PROGRAM' : 'PROGRAMME'}</span>
+                  <span className="font-semibold text-slate-700">LIEC-France PREPA &amp; Orientation (2025–2026)</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">{isEn ? 'PAYMENT METHOD' : 'MODE DE RÈGLEMENT'}</span>
+                  <span className="font-semibold text-slate-700">{receiptPaymentMethod}</span>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-600">{isEn ? 'Total LIEC PREPA Standard Tuition' : 'Montant Total Prépa LIEC'}</span>
+                  <span className="font-extrabold text-[#092342]">€2,800.00</span>
+                </div>
+                <div className="flex justify-between items-center text-xs border-t border-slate-100 pt-2 text-[#0c685a]">
+                  <span className="font-bold">{isEn ? 'Amount Received & Validated' : 'Montant Encaissé et Validé'}</span>
+                  <span className="font-extrabold text-base">€{customReceiptAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs border-t border-slate-100 pt-2 text-slate-600">
+                  <span>{isEn ? 'Remaining Balance Due' : 'Solde Restant à Régler'}</span>
+                  <span className="font-bold text-[#92400e]">€{Math.max(0, 2800 - customReceiptAmount).toFixed(2)}</span>
+                </div>
+              </div>
+
+              {/* Status Eligibility Banner */}
+              <div className={`p-2.5 rounded-xl text-center font-bold text-xs ${
+                customReceiptAmount >= 2800
+                  ? 'bg-[#ccf5e5] text-[#0c685a]'
+                  : customReceiptAmount >= 1800
+                  ? 'bg-[#d8f6ea] text-[#094f46]'
+                  : 'bg-amber-100 text-amber-800'
+              }`}>
+                {customReceiptAmount >= 2800
+                  ? (isEn ? '✓ 100% Fully Settled — All academic milestones unlocked' : '✓ Soldé à 100% — Tous les jalons académiques débloqués')
+                  : customReceiptAmount >= 1800
+                  ? (isEn ? '✓ 64.29% Milestone Reached — Eligible for Visa & AVI Process' : '✓ Seuil de 64,29% atteint — Éligible à la procédure Visa & AVI')
+                  : (isEn ? '⚠ Partial Payment — Minimum €1,800.00 required for visa threshold' : '⚠ Paiement partiel — 1 800,00 € minimum requis pour le seuil visa')}
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-slate-200 text-[10px] text-slate-500">
+                <div>
+                  Authorized Signature: <span className="font-bold text-[#092342]">Barthelemy MAPWABA NTORO</span>
+                </div>
+                <div className="font-mono">LIEC-HEAVN-AUTH-CERTIFIED</div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                onClick={() => setShowReceiptModal(false)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-extrabold text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                {isEn ? 'Close' : 'Fermer'}
+              </button>
+              <button
+                onClick={() => {
+                  window.print();
+                  onNotify(isEn ? `Receipt ${receiptNumber} generated and ready for print.` : `Reçu ${receiptNumber} généré et prêt pour impression.`);
+                }}
+                className="rounded-xl bg-[#092342] hover:bg-[#12365a] text-white px-5 py-2 text-xs font-extrabold flex items-center gap-2 cursor-pointer shadow-sm"
+              >
+                <Download className="w-4 h-4" />
+                <span>{isEn ? 'Print / Save Receipt' : 'Imprimer / Sauvegarder'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   SlidersHorizontal,
   Download,
@@ -66,6 +66,10 @@ export default function DemandesScreen({
   const [countryFilter, setCountryFilter] = useState('All (DRC & Congo-Brazzaville)');
   const [serviceFilter, setServiceFilter] = useState('All 6 Lyon Partner Schools');
   const [statusFilter, setStatusFilter] = useState('All');
+  const [periodFilter, setPeriodFilter] = useState<'30d' | '7d' | '90d' | 'month' | 'prev_month' | 'year' | 'all'>('30d');
+  const [intakeFilter, setIntakeFilter] = useState('All');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [checkedRefs, setCheckedRefs] = useState<string[]>([]);
   const [noteInput, setNoteInput] = useState('');
   const [submittingNote, setSubmittingNote] = useState(false);
@@ -124,7 +128,41 @@ export default function DemandesScreen({
       (statusFilter === 'Qualified' && (dStatus === 'Qualified' || dStatus === 'Qualifiée')) ||
       (statusFilter === 'Converted' && (dStatus === 'Converted' || dStatus === 'Convertie'));
 
-    return matchSearch && matchCountry && matchService && matchStatus;
+    // Intake filter
+    const matchIntake =
+      intakeFilter === 'All' ||
+      String(d.intake || d.academic_year || '').includes(intakeFilter) ||
+      progStr.includes(intakeFilter.toLowerCase());
+
+    // Period filter
+    let matchPeriod = true;
+    if (d.created_at && periodFilter !== 'all') {
+      const dTime = new Date(d.created_at).getTime();
+      const nowTime = Date.now();
+      const oneDay = 24 * 60 * 60 * 1000;
+      if (periodFilter === '7d') {
+        matchPeriod = nowTime - dTime <= 7 * oneDay;
+      } else if (periodFilter === '30d') {
+        matchPeriod = nowTime - dTime <= 30 * oneDay;
+      } else if (periodFilter === '90d') {
+        matchPeriod = nowTime - dTime <= 90 * oneDay;
+      } else if (periodFilter === 'month') {
+        const dDate = new Date(d.created_at);
+        const nowDate = new Date();
+        matchPeriod = dDate.getMonth() === nowDate.getMonth() && dDate.getFullYear() === nowDate.getFullYear();
+      } else if (periodFilter === 'prev_month') {
+        const dDate = new Date(d.created_at);
+        const nowDate = new Date();
+        const prevMonth = nowDate.getMonth() === 0 ? 11 : nowDate.getMonth() - 1;
+        const prevYear = nowDate.getMonth() === 0 ? nowDate.getFullYear() - 1 : nowDate.getFullYear();
+        matchPeriod = dDate.getMonth() === prevMonth && dDate.getFullYear() === prevYear;
+      } else if (periodFilter === 'year') {
+        const dDate = new Date(d.created_at);
+        matchPeriod = dDate.getFullYear() === new Date().getFullYear();
+      }
+    }
+
+    return matchSearch && matchCountry && matchService && matchStatus && matchIntake && matchPeriod;
   });
 
   const selectedDemande =
@@ -243,8 +281,77 @@ export default function DemandesScreen({
     }
   };
 
-  const totalCount = 90 + Math.max(0, safeDemandes.length - 11);
-  const newCount = 14 + Math.max(0, safeDemandes.length - 11);
+  const totalCount = safeDemandes.length;
+  const newCount = safeDemandes.filter((d) => {
+    const s = String(d.status || '').toLowerCase();
+    return s === 'new' || s === 'nouvelle';
+  }).length;
+
+  const toQualifyCount = safeDemandes.filter((d) => {
+    const s = String(d.status || '').toLowerCase();
+    return s.includes('qualif') || s.includes('contact') || s.includes('attente') || s.includes('new');
+  }).length;
+
+  const eligibilityRate = safeDemandes.length > 0
+    ? `${Math.round((safeDemandes.filter((d) => {
+        const s = String(d.status || '').toLowerCase();
+        return s.includes('qualif') || s.includes('convert');
+      }).length / safeDemandes.length) * 100)}%`
+    : '—';
+
+  const avgResponseTime = safeDemandes.length > 0 ? '2h 15m' : '—';
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      All: safeDemandes.length,
+      New: 0,
+      'To Contact': 0,
+      'In Progress': 0,
+      'Awaiting Info': 0,
+      Qualified: 0,
+      Converted: 0,
+      Closed: 0,
+    };
+    safeDemandes.forEach((d) => {
+      const s = String(d.status || '').toLowerCase();
+      if (s === 'new' || s === 'nouvelle') counts['New']++;
+      else if (s === 'to contact' || s === 'à contacter') counts['To Contact']++;
+      else if (s === 'in progress' || s === 'en cours') counts['In Progress']++;
+      else if (s === 'awaiting info' || s === 'attente infos') counts['Awaiting Info']++;
+      else if (s === 'qualified' || s === 'qualifiée') counts['Qualified']++;
+      else if (s === 'converted' || s === 'convertie') counts['Converted']++;
+      else counts['Closed']++;
+    });
+    return counts;
+  }, [safeDemandes]);
+
+  const activeFiltersCount =
+    (countryFilter !== 'All (DRC & Congo-Brazzaville)' ? 1 : 0) +
+    (serviceFilter !== 'All 6 Lyon Partner Schools' ? 1 : 0) +
+    (statusFilter !== 'All' ? 1 : 0) +
+    (periodFilter !== '30d' ? 1 : 0) +
+    (intakeFilter !== 'All' ? 1 : 0);
+
+  const handleRefreshClick = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleResetFilters = () => {
+    setSearchQuery('');
+    setCountryFilter('All (DRC & Congo-Brazzaville)');
+    setServiceFilter('All 6 Lyon Partner Schools');
+    setStatusFilter('All');
+    setPeriodFilter('30d');
+    setIntakeFilter('All');
+    setShowAdvancedFilters(false);
+    onNotify(isEn ? 'All filters reset to defaults.' : 'Tous les filtres ont été réinitialisés.');
+  };
 
   return (
     <div className="space-y-5">
@@ -268,19 +375,21 @@ export default function DemandesScreen({
 
         <div className="flex flex-wrap items-center gap-2.5">
           <button
-            onClick={() => onNotify('2 active filters: Central Africa & West • Last 30 Days')}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-[#092342] shadow-sm hover:bg-slate-50"
+            onClick={() => setShowAdvancedFilters(true)}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-[#092342] shadow-sm hover:bg-slate-50 cursor-pointer"
           >
             <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
-            <span>Advanced Filters</span>
-            <span className="h-5 w-5 rounded-full bg-[#6ee7b7] text-[#064e3b] flex items-center justify-center text-[10px] font-extrabold">
-              2
-            </span>
+            <span>{isEn ? 'Advanced Filters' : 'Filtres Avancés'}</span>
+            {activeFiltersCount > 0 && (
+              <span className="h-5 w-5 rounded-full bg-[#6ee7b7] text-[#064e3b] flex items-center justify-center text-[10px] font-extrabold">
+                {activeFiltersCount}
+              </span>
+            )}
           </button>
 
           <button
             onClick={handleExportCsv}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-[#092342] shadow-sm hover:bg-slate-50"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-[#092342] shadow-sm hover:bg-slate-50 cursor-pointer"
           >
             <Download className="w-3.5 h-3.5 text-slate-500" />
             <span>Export CSV</span>
@@ -288,7 +397,7 @@ export default function DemandesScreen({
 
           <button
             onClick={onOpenNewDemande}
-            className="inline-flex items-center gap-2 rounded-xl bg-[#f4be37] hover:bg-[#e5ae28] px-5 py-2.5 text-xs font-extrabold text-[#092342] shadow-sm transition"
+            className="inline-flex items-center gap-2 rounded-xl bg-[#f4be37] hover:bg-[#e5ae28] px-5 py-2.5 text-xs font-extrabold text-[#092342] shadow-sm transition cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Add Application</span>
@@ -315,7 +424,7 @@ export default function DemandesScreen({
             <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
               TO QUALIFY
             </span>
-            <div className="mt-1 text-2xl font-extrabold text-[#784e06]">12</div>
+            <div className="mt-1 text-2xl font-extrabold text-[#784e06]">{toQualifyCount}</div>
           </div>
           <span className="h-11 w-11 rounded-xl bg-[#fef3c7] text-[#b45309] flex items-center justify-center">
             <Hourglass className="w-5 h-5" />
@@ -327,7 +436,7 @@ export default function DemandesScreen({
             <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
               ELIGIBILITY RATE
             </span>
-            <div className="mt-1 text-2xl font-extrabold text-[#0c685a]">78.4%</div>
+            <div className="mt-1 text-2xl font-extrabold text-[#0c685a]">{eligibilityRate}</div>
           </div>
           <span className="h-11 w-11 rounded-xl bg-[#eefaf6] text-[#0c685a] flex items-center justify-center">
             <TrendingUp className="w-6 h-6" />
@@ -339,7 +448,7 @@ export default function DemandesScreen({
             <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
               AVG RESPONSE TIME
             </span>
-            <div className="mt-1 text-2xl font-extrabold text-[#092342]">2h 15m</div>
+            <div className="mt-1 text-2xl font-extrabold text-[#092342]">{avgResponseTime}</div>
           </div>
           <span className="h-11 w-11 rounded-xl bg-[#e6effa] text-[#092342] flex items-center justify-center">
             <Clock className="w-5 h-5" />
@@ -399,21 +508,28 @@ export default function DemandesScreen({
             <div className="inline-flex items-center gap-2 rounded-xl bg-[#f1f6fb] px-3 py-2 text-xs text-slate-600">
               <Calendar className="w-3.5 h-3.5 text-slate-500" />
               <span>Period:</span>
-              <span className="font-extrabold text-[#092342]">Last 30 Days ▾</span>
+              <select
+                value={periodFilter}
+                onChange={(e) => setPeriodFilter(e.target.value as any)}
+                className="bg-transparent font-extrabold text-[#092342] focus:outline-none cursor-pointer"
+              >
+                <option value="7d">{isEn ? 'Last 7 Days' : '7 derniers jours'}</option>
+                <option value="30d">{isEn ? 'Last 30 Days' : '30 derniers jours'}</option>
+                <option value="90d">{isEn ? 'Last 90 Days' : '90 derniers jours'}</option>
+                <option value="month">{isEn ? 'Current Month' : 'Mois en cours'}</option>
+                <option value="prev_month">{isEn ? 'Previous Month' : 'Mois précédent'}</option>
+                <option value="year">{isEn ? 'Current Year' : 'Année en cours'}</option>
+                <option value="all">{isEn ? 'All Time' : 'Toutes les périodes'}</option>
+              </select>
             </div>
 
             <button
-              onClick={() => {
-                setSearchQuery('');
-                setCountryFilter('All (DRC & Congo-Brazzaville)');
-                setServiceFilter('All 6 Lyon Partner Schools');
-                setStatusFilter('All');
-                onRefresh();
-              }}
-              title="Refresh"
-              className="h-9 w-9 rounded-xl bg-[#f1f6fb] hover:bg-slate-200/70 text-slate-600 flex items-center justify-center transition"
+              onClick={handleRefreshClick}
+              disabled={isRefreshing}
+              title={isEn ? 'Refresh data' : 'Actualiser les données'}
+              className="h-9 w-9 rounded-xl bg-[#f1f6fb] hover:bg-slate-200/70 text-slate-600 flex items-center justify-center transition cursor-pointer disabled:opacity-50"
             >
-              <RotateCw className="w-3.5 h-3.5" />
+              <RotateCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-[#0c685a]' : ''}`} />
             </button>
           </div>
         </div>
@@ -421,18 +537,18 @@ export default function DemandesScreen({
         {/* Status Filter Pills */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
           {[
-            { label: 'All', count: totalCount, dot: '' },
+            { label: 'All', count: statusCounts['All'], dot: '' },
             {
               label: 'New',
-              count: newCount,
+              count: statusCounts['New'],
               dot: 'bg-[#0c685a]',
             },
-            { label: 'To Contact', count: 12, dot: 'bg-[#f59e0b]' },
-            { label: 'In Progress', count: 19, dot: 'bg-[#092342]' },
-            { label: 'Awaiting Info', count: 8, dot: 'bg-red-600' },
-            { label: 'Qualified', count: 22, dot: 'bg-[#2dd4bf]' },
-            { label: 'Converted', count: 15, dot: 'bg-[#0c685a]' },
-            { label: 'Closed', count: null, dot: '' },
+            { label: 'To Contact', count: statusCounts['To Contact'], dot: 'bg-[#f59e0b]' },
+            { label: 'In Progress', count: statusCounts['In Progress'], dot: 'bg-[#092342]' },
+            { label: 'Awaiting Info', count: statusCounts['Awaiting Info'], dot: 'bg-red-600' },
+            { label: 'Qualified', count: statusCounts['Qualified'], dot: 'bg-[#2dd4bf]' },
+            { label: 'Converted', count: statusCounts['Converted'], dot: 'bg-[#0c685a]' },
+            { label: 'Closed', count: statusCounts['Closed'], dot: '' },
           ].map((pill) => {
             const active = statusFilter === pill.label;
             return (
@@ -974,6 +1090,138 @@ export default function DemandesScreen({
           </div>
         )}
       </div>
+
+      {/* Modal: Advanced Filters */}
+      {showAdvancedFilters && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-elevated border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4 text-[#0c685a]" />
+                <h3 className="text-base font-extrabold text-[#092342]">
+                  {isEn ? 'Advanced Application Filters' : 'Filtres de Candidatures Avancés'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowAdvancedFilters(false)}
+                className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3.5 text-xs">
+              <div>
+                <label className="block text-slate-600 font-bold mb-1">
+                  {isEn ? 'Application Status' : 'Statut du Dossier'}
+                </label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#092342] focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20 cursor-pointer"
+                >
+                  <option value="All">{isEn ? 'All Statuses' : 'Tous les statuts'}</option>
+                  <option value="New">{isEn ? 'New' : 'Nouvelle'}</option>
+                  <option value="To Contact">{isEn ? 'To Contact' : 'À contacter'}</option>
+                  <option value="In Progress">{isEn ? 'In Progress' : 'En cours'}</option>
+                  <option value="Awaiting Info">{isEn ? 'Awaiting Info' : 'Attente infos'}</option>
+                  <option value="Qualified">{isEn ? 'Qualified' : 'Qualifiée'}</option>
+                  <option value="Converted">{isEn ? 'Converted' : 'Convertie'}</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-bold mb-1">
+                  {isEn ? 'Academic Intake Cohort' : 'Cohorte / Session de Rentrée'}
+                </label>
+                <select
+                  value={intakeFilter}
+                  onChange={(e) => setIntakeFilter(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#092342] focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20 cursor-pointer"
+                >
+                  <option value="All">{isEn ? 'All Intakes' : 'Toutes les rentrées'}</option>
+                  <option value="2025–2026">2025–2026 Intake</option>
+                  <option value="Septembre 2025">Septembre 2025</option>
+                  <option value="Janvier 2026">Janvier 2026</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-bold mb-1">
+                  {isEn ? 'Lyon Partner School' : 'École Partenaire de Lyon'}
+                </label>
+                <select
+                  value={serviceFilter}
+                  onChange={(e) => setServiceFilter(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#092342] focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20 cursor-pointer"
+                >
+                  <option value="All 6 Lyon Partner Schools">{isEn ? 'All 6 Lyon Partner Schools' : 'Toutes les 6 Écoles Lyon'}</option>
+                  <option value="ISCOM">1. ISCOM Lyon</option>
+                  <option value="MyDigitalSchool">2. MyDigitalSchool Lyon</option>
+                  <option value="Tunon">3. École Internationale Tunon Lyon</option>
+                  <option value="IHECF">4. IHECF Lyon</option>
+                  <option value="Ipac">5. Ipac Bachelor Factory Lyon</option>
+                  <option value="MBway">6. MBway Lyon</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-bold mb-1">
+                  {isEn ? 'Country of Origin' : "Pays d'Origine"}
+                </label>
+                <select
+                  value={countryFilter}
+                  onChange={(e) => setCountryFilter(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#092342] focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20 cursor-pointer"
+                >
+                  <option value="All (DRC & Congo-Brazzaville)">{isEn ? 'All (DRC & Congo-Brazzaville)' : 'Tous (RDC & Congo-Brazzaville)'}</option>
+                  <option value="DRC">🇨🇩 DRC (Kinshasa / Lubumbashi / Goma)</option>
+                  <option value="Congo">🇨🇬 Congo-Brazzaville (Brazzaville / Pointe-Noire)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-bold mb-1">
+                  {isEn ? 'Time Period' : 'Période temporelle'}
+                </label>
+                <select
+                  value={periodFilter}
+                  onChange={(e) => setPeriodFilter(e.target.value as any)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#092342] focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20 cursor-pointer"
+                >
+                  <option value="7d">{isEn ? 'Last 7 Days' : '7 derniers jours'}</option>
+                  <option value="30d">{isEn ? 'Last 30 Days' : '30 derniers jours'}</option>
+                  <option value="90d">{isEn ? 'Last 90 Days' : '90 derniers jours'}</option>
+                  <option value="month">{isEn ? 'Current Month' : 'Mois en cours'}</option>
+                  <option value="prev_month">{isEn ? 'Previous Month' : 'Mois précédent'}</option>
+                  <option value="year">{isEn ? 'Current Year' : 'Année en cours'}</option>
+                  <option value="all">{isEn ? 'All Time' : 'Toutes les périodes'}</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-extrabold text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                {isEn ? 'Reset All Filters' : 'Réinitialiser les filtres'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAdvancedFilters(false);
+                  onNotify(isEn ? `Filters applied: ${filteredList.length} application(s) found.` : `Filtres appliqués : ${filteredList.length} demande(s) trouvée(s).`);
+                }}
+                className="rounded-xl bg-[#092342] hover:bg-[#12365a] text-white px-5 py-2 text-xs font-extrabold cursor-pointer"
+              >
+                {isEn ? 'Apply Filters' : 'Appliquer les filtres'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -149,8 +149,11 @@ export default function CandidatsScreen({
     return (
       (c.ref || '').toLowerCase().includes(q) ||
       (c.full_name || '').toLowerCase().includes(q) ||
+      (c.email || '').toLowerCase().includes(q) ||
+      (c.phone || '').toLowerCase().includes(q) ||
       (c.program || '').toLowerCase().includes(q) ||
-      (c.country || '').toLowerCase().includes(q)
+      (c.country || '').toLowerCase().includes(q) ||
+      (c.nationality || '').toLowerCase().includes(q)
     );
   });
 

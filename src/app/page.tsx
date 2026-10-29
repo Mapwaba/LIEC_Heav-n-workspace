@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   LayoutGrid,
@@ -26,6 +26,7 @@ import {
   Moon,
   Globe,
   Home,
+  RotateCw,
 } from 'lucide-react';
 
 import OverviewScreen from '@/components/OverviewScreen';
@@ -99,6 +100,8 @@ export default function LiecWorkspacePage() {
   const [rolePreview, setRolePreview] = useState<'admin' | 'secretary' | 'avi'>('admin');
   const [globalSearch, setGlobalSearch] = useState('');
   const [showNewDemandeModal, setShowNewDemandeModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [selectedIntakeHeader, setSelectedIntakeHeader] = useState('2025–2026 Intake');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [darkMode, setDarkMode] = useState(false);
 
@@ -698,7 +701,56 @@ export default function LiecWorkspacePage() {
   };
 
 
-  const newDemandesBadgeCount = 14 + Math.max(0, demandes.length - 11);
+  const newDemandesBadgeCount = (demandes || []).filter((d) => {
+    const s = String(d.status || '').toLowerCase();
+    return s === 'new' || s === 'nouvelle';
+  }).length;
+
+  const notificationsList = useMemo(() => {
+    const list: { title: string; desc: string; time: string; tab: NavTab }[] = [];
+
+    // 1. From recent incoming applications
+    (demandes || []).slice(0, 5).forEach((d) => {
+      const refStr = d.ref || `DEM-${d.id}`;
+      list.push({
+        title: isEn
+          ? `Application Received (#${refStr})`
+          : `Demande reçue (#${refStr})`,
+        desc: isEn
+          ? `${d.full_name || 'Candidate'} submitted application for ${d.program || 'partner school'}.`
+          : `${d.full_name || 'Candidat'} a soumis une candidature pour ${d.program || 'école partenaire'}.`,
+        time: d.created_at ? new Date(d.created_at).toLocaleDateString() : (isEn ? 'Recent' : 'Récent'),
+        tab: 'demandes',
+      });
+    });
+
+    // 2. From candidate procedures
+    (candidats || []).slice(0, 3).forEach((c) => {
+      const refStr = c.ref || `CAN-${c.id}`;
+      list.push({
+        title: isEn
+          ? `Candidate Milestone: ${c.full_name || 'Candidate'} (#${refStr})`
+          : `Jalon Candidat : ${c.full_name || 'Candidat'} (#${refStr})`,
+        desc: isEn
+          ? `Status: ${c.procedure_status || c.admission_status || 'In Progress'}. Campus France file tracked.`
+          : `Statut : ${c.procedure_status || c.admission_status || 'En cours'}. Suivi Campus France actif.`,
+        time: c.created_at ? new Date(c.created_at).toLocaleDateString() : (isEn ? 'Recent' : 'Récent'),
+        tab: 'candidats',
+      });
+    });
+
+    // 3. From system audit logs
+    (auditLogs || []).slice(0, 5).forEach((l) => {
+      list.push({
+        title: l.action || (isEn ? 'Security Audit Log' : 'Journal de sécurité'),
+        desc: `${l.actor ? l.actor + ' — ' : ''}${l.details || l.entity_ref || ''}`,
+        time: l.created_at ? new Date(l.created_at).toLocaleDateString() : (isEn ? 'Recent' : 'Récent'),
+        tab: 'parametres',
+      });
+    });
+
+    return list;
+  }, [demandes, candidats, auditLogs, isEn]);
 
   const platformItems: {
     id: NavTab;
@@ -712,7 +764,7 @@ export default function LiecWorkspacePage() {
       id: 'demandes',
       label: tabLabels.demandes,
       icon: Inbox,
-      badge: newDemandesBadgeCount,
+      badge: newDemandesBadgeCount > 0 ? newDemandesBadgeCount : undefined,
       badgeTone: 'mint',
     },
     { id: 'prospects', label: tabLabels.prospects, icon: Contact },
@@ -721,7 +773,7 @@ export default function LiecWorkspacePage() {
       id: 'prepa',
       label: tabLabels.prepa,
       icon: CheckSquare,
-      badge: 3,
+      badge: prepaCohorts.length > 0 ? prepaCohorts.length : undefined,
       badgeTone: 'gold',
     },
     { id: 'services', label: tabLabels.services, icon: Share2 },
@@ -736,7 +788,12 @@ export default function LiecWorkspacePage() {
     icon: React.ComponentType<{ className?: string }>;
     badge?: number;
   }[] = [
-    { id: 'notifications', label: tabLabels.notifications, icon: Bell, badge: 5 },
+    {
+      id: 'notifications',
+      label: tabLabels.notifications,
+      icon: Bell,
+      badge: notificationsList.length > 0 ? notificationsList.length : undefined,
+    },
     { id: 'parametres', label: tabLabels.parametres, icon: SlidersHorizontal },
     { id: 'aide', label: tabLabels.aide, icon: HelpCircle },
   ];
@@ -1039,11 +1096,19 @@ export default function LiecWorkspacePage() {
               </div>
             )}
 
-            {/* Cohort Pill */}
-            <div className="hidden sm:inline-flex items-center gap-1.5 rounded-xl bg-[#f1f6fb] px-3 py-2 text-xs font-bold text-[#092342]">
+            {/* Cohort Pill Selector */}
+            <div className="hidden sm:inline-flex items-center gap-1.5 rounded-xl bg-[#f1f6fb] px-3 py-1.5 text-xs font-bold text-[#092342] border border-[#e6eef6]">
               <Calendar className="w-3.5 h-3.5 text-[#0c685a]" />
-              <span>{isEn ? '2025–2026 Intake' : 'Rentrée 2025–2026'}</span>
-              <span className="text-[10px] text-slate-400">▾</span>
+              <select
+                value={selectedIntakeHeader}
+                onChange={(e) => setSelectedIntakeHeader(e.target.value)}
+                className="bg-transparent font-extrabold text-[#092342] focus:outline-none cursor-pointer"
+              >
+                <option value="All Intakes">{isEn ? 'All Intakes' : 'Toutes les rentrées'}</option>
+                <option value="2025–2026 Intake">2025–2026 Intake</option>
+                <option value="Septembre 2025">Septembre 2025</option>
+                <option value="Janvier 2026">Janvier 2026</option>
+              </select>
             </div>
 
             {/* Light / Dark Mode Toggle */}
@@ -1054,7 +1119,7 @@ export default function LiecWorkspacePage() {
                   ? isEn ? 'Switch to Light mode' : 'Passer en mode clair'
                   : isEn ? 'Switch to Dark mode' : 'Passer en mode sombre'
               }
-              className="inline-flex items-center gap-1.5 rounded-xl border border-[#e6eef6] bg-[#f1f6fb] hover:bg-slate-200/70 px-3 py-2 text-xs font-extrabold text-[#092342] transition"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[#e6eef6] bg-[#f1f6fb] hover:bg-slate-200/70 px-3 py-2 text-xs font-extrabold text-[#092342] transition cursor-pointer"
             >
               {darkMode ? (
                 <>
@@ -1072,16 +1137,19 @@ export default function LiecWorkspacePage() {
             {/* Notification Bell */}
             <button
               onClick={() => setActiveTab('notifications')}
-              className="relative h-9 w-9 rounded-xl hover:bg-slate-100 flex items-center justify-center text-[#092342] transition"
+              title={isEn ? 'Notifications' : 'Notifications'}
+              className="relative h-9 w-9 rounded-xl hover:bg-slate-100 flex items-center justify-center text-[#092342] transition cursor-pointer"
             >
               <Bell className="w-4 h-4" />
-              <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-[#10b981] ring-2 ring-white" />
+              {notificationsList.length > 0 && (
+                <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-[#10b981] ring-2 ring-white" />
+              )}
             </button>
 
             {/* Public Portal Button */}
             <button
               onClick={() => setActiveTab('contenus')}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-[#092342] hover:bg-[#12365a] text-white px-3.5 py-2 text-xs font-bold shadow-xs transition"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-[#092342] hover:bg-[#12365a] text-white px-3.5 py-2 text-xs font-bold shadow-xs transition cursor-pointer"
             >
               <span>{isEn ? 'View Public Site' : 'Voir le site public'}</span>
               <ExternalLink className="w-3 h-3" />
@@ -1089,9 +1157,9 @@ export default function LiecWorkspacePage() {
 
             {/* User Avatar Circle */}
             <button
-              onClick={() => router.push('/login')}
-              title={isEn ? 'Profile & Login' : 'Profil & Connexion'}
-              className="h-9 w-9 rounded-full bg-[#092342] text-white flex items-center justify-center hover:opacity-90 transition shrink-0"
+              onClick={() => setShowProfileModal(true)}
+              title={isEn ? 'View Profile & Session' : 'Voir mon profil'}
+              className="h-9 w-9 rounded-full bg-[#092342] text-white flex items-center justify-center hover:opacity-90 transition shrink-0 cursor-pointer shadow-xs"
             >
               <User className="w-4 h-4" />
             </button>
@@ -1252,6 +1320,7 @@ export default function LiecWorkspacePage() {
               {activeTab === 'rapports' && (
                 <RapportsFinanceScreen
                   invoices={invoices}
+                  candidats={candidats}
                   currentRole={rolePreview}
                   onNotify={showToast}
                   lang={lang}
@@ -1273,76 +1342,51 @@ export default function LiecWorkspacePage() {
 
               {activeTab === 'notifications' && (
                 <div className="space-y-4">
-                  <h1 className="text-[28px] font-extrabold text-[#092342]">
-                    {isEn ? 'Notification Center (5)' : 'Centre de Notifications (5)'}
-                  </h1>
+                  <div className="flex items-center justify-between">
+                    <h1 className="text-[28px] font-extrabold text-[#092342]">
+                      {isEn
+                        ? `Notification Center (${notificationsList.length})`
+                        : `Centre de Notifications (${notificationsList.length})`}
+                    </h1>
+                    <button
+                      onClick={() => fetchWorkspace()}
+                      className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer shadow-xs transition"
+                    >
+                      <RotateCw className="w-3.5 h-3.5 text-slate-500" />
+                      <span>{isEn ? 'Refresh' : 'Actualiser'}</span>
+                    </button>
+                  </div>
+
                   <div className="rounded-2xl border border-[#e6eef6] bg-white divide-y divide-slate-100 shadow-card">
-                    {[
-                      {
-                        title: isEn
-                          ? 'New DRC Qualified Lead (#DEM-2025-089)'
-                          : 'Nouvelle demande qualifiée RDC (#DEM-2025-089)',
-                        desc: isEn
-                          ? 'Gloire Mutombo submitted application for MyDigitalSchool Lyon with verified WhatsApp.'
-                          : 'Gloire Mutombo a soumis son dossier MyDigitalSchool Lyon avec WhatsApp vérifié.',
-                        time: isEn ? '8 min ago' : 'Il y a 8 min',
-                        tab: 'demandes',
-                      },
-                      {
-                        title: isEn
-                          ? 'PREPA Kinshasa Oral Interviews D-4'
-                          : 'Entrevues orales PREPA Kinshasa J–4',
-                        desc: isEn
-                          ? '18 candidates scheduled for Lyon partner school admission tests.'
-                          : '18 candidats convoqués aux tests d’admission scientifiques Lyon.',
-                        time: isEn ? '1h ago' : 'Il y a 1h',
-                        tab: 'prepa',
-                      },
-                      {
-                        title: isEn
-                          ? 'Milestone 2 In Progress: Dieudonné KABANGELE (#CAN-2025-042)'
-                          : 'Jalon 2 en cours : Dieudonné KABANGELE (#CAN-2025-042)',
-                        desc: isEn
-                          ? 'TCF B2 (540 pts) verified. Cover letter V2 ready for review.'
-                          : 'Attestation TCF B2 (540 pts) vérifiée. Lettre de motivation V2 prête pour relecture.',
-                        time: isEn ? '2h ago' : 'Il y a 2h',
-                        tab: 'candidats',
-                      },
-                      {
-                        title: isEn
-                          ? 'AVI Quote Sent: David Lukoki (Goma, DRC)'
-                          : 'Devis AVI envoyé : David Lukoki (Goma, RDC)',
-                        desc: isEn
-                          ? 'Awaiting contract signature for Visa Pack + PREPA.'
-                          : 'En attente de signature du contrat Pack Premium Visa + PREPA.',
-                        time: isEn ? '4h ago' : 'Il y a 4h',
-                        tab: 'prospects',
-                      },
-                      {
-                        title: isEn
-                          ? 'Campus France Synchronization Completed'
-                          : 'Synchronisation Campus France effectuée',
-                        desc: isEn
-                          ? 'Etudes en France files synchronized without error.'
-                          : 'Dossiers Études en France synchronisés sans erreur.',
-                        time: isEn ? 'Today, 11:42' : 'Aujourd’hui, 11:42',
-                        tab: 'candidats',
-                      },
-                    ].map((n, idx) => (
-                      <div
-                        key={idx}
-                        onClick={() => setActiveTab(n.tab as NavTab)}
-                        className="p-4 hover:bg-slate-50 cursor-pointer flex items-center justify-between gap-4"
-                      >
-                        <div className="space-y-0.5">
-                          <div className="text-xs font-extrabold text-[#092342]">{n.title}</div>
-                          <div className="text-xs text-slate-500">{n.desc}</div>
+                    {notificationsList.length === 0 ? (
+                      <div className="p-12 text-center text-xs text-slate-400 space-y-2">
+                        <Bell className="w-8 h-8 text-slate-300 mx-auto" />
+                        <div className="font-bold text-slate-600">
+                          {isEn ? 'No notifications yet' : 'Aucune notification pour le moment'}
                         </div>
-                        <span className="text-[11px] font-bold text-[#0c685a] shrink-0">
-                          {n.time} →
-                        </span>
+                        <p className="max-w-md mx-auto text-slate-400">
+                          {isEn
+                            ? 'New incoming applications, student milestone progressions, and AVI transactions will be dynamically published here.'
+                            : 'Les nouvelles candidatures, jalons étudiants et dossiers AVI apparaîtront ici en temps réel.'}
+                        </p>
                       </div>
-                    ))}
+                    ) : (
+                      notificationsList.map((n: any, idx: number) => (
+                        <div
+                          key={idx}
+                          onClick={() => setActiveTab(n.tab as NavTab)}
+                          className="p-4 hover:bg-slate-50 cursor-pointer flex items-center justify-between gap-4 transition"
+                        >
+                          <div className="space-y-0.5">
+                            <div className="text-xs font-extrabold text-[#092342]">{n.title}</div>
+                            <div className="text-xs text-slate-500">{n.desc}</div>
+                          </div>
+                          <span className="text-[11px] font-bold text-[#0c685a] shrink-0">
+                            {n.time} →
+                          </span>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
               )}
@@ -1738,6 +1782,108 @@ export default function LiecWorkspacePage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Authenticated User Profile */}
+      {showProfileModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-elevated border border-slate-100 space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="h-9 w-9 rounded-full bg-[#092342] text-white flex items-center justify-center font-extrabold text-xs">
+                  {currentUser?.initials || 'BM'}
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-[#092342]">
+                    {currentUser?.name || 'Barthelemy MAPWABA NTORO'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    {currentUser?.email || 'bmapwabantoro@liecconsulting.com'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowProfileModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="rounded-xl border border-slate-200 bg-[#f8fbff] p-3 space-y-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  {isEn ? 'ACTIVE ROLE & PRIVILEGES' : 'RÔLE ACTIF & PRIVILÈGES'}
+                </span>
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-[#092342]">
+                    {userRole === 'admin'
+                      ? isEn
+                        ? '👑 Super Administrator (Full Matrix)'
+                        : '👑 Super Administrateur (Matrice Complète)'
+                      : userRole === 'secretary'
+                      ? isEn
+                        ? '📋 Orientation Secretary'
+                        : '📋 Secrétaire Orientation'
+                      : isEn
+                      ? '✈️ AVI Officer'
+                      : '✈️ Officier AVI'}
+                  </span>
+                  <span className="rounded-full bg-[#ccf5e5] px-2 py-0.5 text-[10px] font-extrabold text-[#0c685a]">
+                    Active Session
+                  </span>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 p-3 space-y-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  {isEn ? 'TECHNICAL ROLES & SCOPES' : 'RÔLES TECHNIQUES & PÉRIMÈTRE'}
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {['lh_admin', 'lh_intake', 'lh_finance', 'lh_governance'].map((roleKey) => (
+                    <span
+                      key={roleKey}
+                      className="rounded-md bg-slate-100 px-2 py-0.5 text-[10.5px] font-mono font-semibold text-slate-700"
+                    >
+                      {roleKey}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 p-3 flex items-center justify-between text-slate-600">
+                <span className="font-semibold">{isEn ? 'Database Engine' : 'Moteur de base de données'}</span>
+                <span className="font-bold text-[#0c685a] flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-[#10b981]" />
+                  Neon PostgreSQL
+                </span>
+              </div>
+            </div>
+
+            <div className="border-t border-slate-100 pt-3 flex items-center justify-between gap-3">
+              <button
+                onClick={() => {
+                  localStorage.removeItem('liec_user');
+                  localStorage.removeItem('liec_role');
+                  document.cookie = 'liec_user_email=; path=/; max-age=0; SameSite=Lax';
+                  setShowProfileModal(false);
+                  router.replace('/login');
+                }}
+                className="rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-4 py-2 text-xs font-extrabold flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>{isEn ? 'Sign Out' : 'Se déconnecter'}</span>
+              </button>
+
+              <button
+                onClick={() => setShowProfileModal(false)}
+                className="rounded-xl bg-[#092342] hover:bg-[#12365a] text-white px-5 py-2 text-xs font-extrabold transition cursor-pointer"
+              >
+                {isEn ? 'Done' : 'Terminer'}
+              </button>
+            </div>
           </div>
         </div>
       )}
