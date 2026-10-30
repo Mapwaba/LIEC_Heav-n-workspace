@@ -351,3 +351,40 @@ ALTER TABLE candidats ADD COLUMN IF NOT EXISTS history_json TEXT DEFAULT '[]';
 
 ALTER TABLE avi_requests ADD COLUMN IF NOT EXISTS student_ref VARCHAR(50);
 UPDATE avi_requests SET student_ref = '#CAN-2025-042' WHERE student_name ILIKE '%Kabangele%' AND (student_ref IS NULL OR student_ref = '');
+
+-- Enhancements: Guided tour tracking per user
+ALTER TABLE users ADD COLUMN IF NOT EXISTS tour_completed BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Enhancements: Prospect Calls (Schedule a Call)
+CREATE TABLE IF NOT EXISTS prospect_calls (
+  id SERIAL PRIMARY KEY,
+  prospect_id INTEGER NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+  scheduled_date VARCHAR(40) NOT NULL,
+  scheduled_time VARCHAR(20) NOT NULL,
+  subject VARCHAR(180) NOT NULL,
+  assigned_to VARCHAR(120) NOT NULL,
+  notes TEXT,
+  status VARCHAR(30) NOT NULL DEFAULT 'Scheduled',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Enhancements: Prospect Comments & Internal Notes
+CREATE TABLE IF NOT EXISTS prospect_notes (
+  id SERIAL PRIMARY KEY,
+  prospect_id INTEGER NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+  author_name VARCHAR(120) NOT NULL,
+  author_email VARCHAR(160),
+  author_role VARCHAR(60) DEFAULT 'Staff',
+  content TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Enhancements: User Notification Read Tracking
+CREATE TABLE IF NOT EXISTS user_notification_reads (
+  id SERIAL PRIMARY KEY,
+  user_email VARCHAR(160) NOT NULL,
+  notification_id VARCHAR(100) NOT NULL,
+  read_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_email, notification_id)
+);
+

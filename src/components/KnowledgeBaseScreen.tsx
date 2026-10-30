@@ -30,9 +30,23 @@ import {
 
 export type Lang = 'fr' | 'en';
 
+export type KBCategory =
+  | 'all'
+  | 'getting_started'
+  | 'dashboard_reports'
+  | 'prospects_crm'
+  | 'student_management'
+  | 'advisor'
+  | 'finance_payments'
+  | 'prefinancing'
+  | 'accommodation'
+  | 'technical'
+  | 'workflows';
+
 interface KnowledgeArticle {
   id: string;
-  category: 'advisor' | 'technical' | 'prefinancing';
+  category: KBCategory;
+  categoryLabel?: string;
   stepNum?: number;
   title: string;
   titleEn: string;
@@ -48,14 +62,16 @@ export function KnowledgeBaseScreen({
   lang = 'en',
   currentRole = 'admin',
   onNavigate,
+  onStartTour,
 }: {
   lang?: Lang;
   currentRole?: string;
   onNavigate?: (tab: string) => void;
+  onStartTour?: () => void;
 }) {
   const isEn = lang === 'en';
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<'all' | 'advisor' | 'technical' | 'prefinancing'>('all');
+  const [selectedCategory, setSelectedCategory] = useState<KBCategory>('all');
   const [activeArticleId, setActiveArticleId] = useState<string | null>(null);
 
   // 11 Programme Steps from "PROGRAMME ET PARCOURS DES ELITES LIEC – FRANCE PRÉPA 28.pdf"
@@ -914,6 +930,372 @@ export function KnowledgeBaseScreen({
         </div>
       ),
     },
+    // =========================================================================
+    // CATEGORY A — GETTING STARTED
+    // =========================================================================
+    {
+      id: 'cat-a-getting-started',
+      category: 'getting_started',
+      categoryLabel: 'Category A',
+      title: 'Catégorie A — Prise en Main & Navigation dans LIEC Heav’n',
+      titleEn: 'Category A — Getting Started & Platform Navigation',
+      summary: 'Guide d’introduction : tableau de bord, profils staff, notifications, recherche globale et calendrier des rentrées.',
+      summaryEn: 'Introduction guide: workspace dashboard, staff roles, notification center, global search, and intake calendar.',
+      tags: ['Démarrage', 'Navigation', 'Rôles', 'Notifications', 'Rentrées'],
+      roleRestriction: 'all',
+      contentFr: (
+        <div className="space-y-4 text-xs text-slate-700 leading-relaxed">
+          <div className="bg-[#f0f6fe] p-3.5 rounded-xl border border-[#d6e4f7] space-y-1">
+            <span className="font-extrabold text-[#092342] text-sm block">Bienvenue dans LIEC Heav’n Workspace</span>
+            <p>LIEC Heav’n est l’espace de travail numérique unifié pour la gestion des candidatures étudiantes et l’accompagnement d’excellence vers les écoles partenaires de Lyon et le programme LIEC-France Prépa.</p>
+          </div>
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-[#092342] uppercase text-xs">Articles de la Catégorie A</h4>
+            <ul className="list-disc pl-5 space-y-1.5">
+              <li><strong>Introduction à LIEC Heav’n :</strong> Découverte des modules opérationnels (Tableau de bord, Demandes, CRM Prospects, Candidats, Finance & Règlements, Caution AVI, Logement, Paramètres et Base de Connaissances).</li>
+              <li><strong>Gestion du profil & Sécurité :</strong> Authentification sécurisée, politique de mot de passe fort et déconnexion automatique de session (10 à 30 min).</li>
+              <li><strong>Rôles & Permissions (RBAC) :</strong> Profils métiers (Administrateur, Secrétariat, Officier AVI/Finance) avec restrictions strictes et garde-fous de conformité.</li>
+              <li><strong>Centre de Notifications :</strong> Cliquez sur une notification pour ouvrir son contenu complet, déflagger son statut « non lu », actualiser le compteur en temps réel et naviguer vers le dossier associé.</li>
+              <li><strong>Recherche Globale :</strong> Retrouvez instantanément un dossier par référence (#DEM, #CAN, #AVI), nom d’étudiant, email ou numéro de téléphone.</li>
+              <li><strong>Calendrier des Rentrées Académiques :</strong> LIEC organise 2 rentrées par an (Septembre et Janvier). Une « Session Complète » regroupe Septembre à Janvier (ex. Session Complète 2026 = Septembre 2026 à Janvier 2027).</li>
+            </ul>
+          </div>
+        </div>
+      ),
+      contentEn: (
+        <div className="space-y-4 text-xs text-slate-700 leading-relaxed">
+          <div className="bg-[#f0f6fe] p-3.5 rounded-xl border border-[#d6e4f7] space-y-1">
+            <span className="font-extrabold text-[#092342] text-sm block">Welcome to LIEC Heav’n Workspace</span>
+            <p>Unified digital workspace for recruitment operations from DRC and Congo-Brazzaville to prestigious Lyon partner schools and the LIEC-France PREPA programme.</p>
+          </div>
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-[#092342] uppercase text-xs">Category A Articles</h4>
+            <ul className="list-disc pl-5 space-y-1.5">
+              <li><strong>Introduction to LIEC Heav’n:</strong> Overview of all modules (Dashboard, Applications, Prospects CRM, Students, Finance, AVI Desk, Accommodation, Settings, and Knowledge Base).</li>
+              <li><strong>Profile Management & Security:</strong> Secure authentication, password policy, and admin-managed session timeout (10 to 30 min).</li>
+              <li><strong>Staff Roles & Permissions (RBAC):</strong> Business profiles (Administrator, Secretary, Finance Officer) with strict privilege separation.</li>
+              <li><strong>Notification Center:</strong> Click any notification to read full content, mark it as read in database, decrement counter immediately, and jump to the associated record.</li>
+              <li><strong>Global Search:</strong> Find records instantly by reference code (#DEM, #CAN, #AVI), student name, email, or telephone.</li>
+              <li><strong>Academic Intake Calendar:</strong> LIEC operates 2 intakes per academic year (September & January). A "Full Session" covers September through January (e.g., Full 2026 Session includes September 2026 to January 2027).</li>
+            </ul>
+          </div>
+        </div>
+      ),
+    },
+    // =========================================================================
+    // CATEGORY B — DASHBOARD & REPORTING
+    // =========================================================================
+    {
+      id: 'cat-b-dashboard-reporting',
+      category: 'dashboard_reports',
+      categoryLabel: 'Category B',
+      title: 'Catégorie B — Tableau de Bord & Graphique Répartition par Service',
+      titleEn: 'Category B — Dashboard Metrics & Breakdown by Service Chart',
+      summary: 'Comprendre les indicateurs de performance, le survol/clic interactif du Donut de services et le filtrage par rentrée.',
+      summaryEn: 'Understanding KPIs, interactive hover/click Breakdown by Service donut chart, and academic intake filtering.',
+      tags: ['Dashboard', 'Donut Chart', 'Rapports', 'Services', 'Filtres'],
+      roleRestriction: 'all',
+      contentFr: (
+        <div className="space-y-4 text-xs text-slate-700 leading-relaxed">
+          <p>Le tableau de bord centralise en temps réel les flux entrants de candidatures et l’état d’avancement des cohortes académiques.</p>
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-[#092342] uppercase text-xs">Indicateurs Clés de Performance (KPIs)</h4>
+            <ul className="list-disc pl-5 space-y-1">
+              <li><strong>Nouvelles candidatures reçues :</strong> Dossiers soumis en ligne via le portail public nécessitant une prise de contact sous 24h.</li>
+              <li><strong>Candidats à qualifier :</strong> Prospects dont le profil académique et le budget sont en cours de vérification méthodologique.</li>
+              <li><strong>Taux de conversion & Délai moyen :</strong> Suivi des délais de qualification et de contractualisation.</li>
+            </ul>
+          </div>
+          <div className="bg-[#eefaf6] p-3.5 rounded-xl border border-[#ccece2] space-y-1">
+            <span className="font-extrabold text-[#0c685a] block text-xs uppercase">Graphique Interactif : Répartition par Service</span>
+            <p>Le graphique en anneau (Donut Chart) calcule dynamiquement le volume des dossiers par pôle de service :</p>
+            <ul className="list-disc pl-4 space-y-1 mt-1 text-[11px]">
+              <li><strong>Comportement au survol :</strong> Le segment survolé s’épaissit et affiche le libellé du service, le nombre de dossiers, le pourcentage du volume global et la valeur financière sous-jacente.</li>
+              <li><strong>Comportement au clic :</strong> Ouvre une fenêtre détaillée listant l'intégralité des dossiers réels de ce service avec possibilité d'ouvrir chaque fiche individuelle.</li>
+            </ul>
+          </div>
+        </div>
+      ),
+      contentEn: (
+        <div className="space-y-4 text-xs text-slate-700 leading-relaxed">
+          <p>The dashboard provides live operational visibility over student flow and cohort progression.</p>
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-[#092342] uppercase text-xs">Core Performance Indicators</h4>
+            <ul className="list-disc pl-5 space-y-1">
+              <li><strong>New Applications:</strong> Ingestion from public web portal requiring advisor outreach within 24 hours.</li>
+              <li><strong>Candidates to Qualify:</strong> Leads undergoing academic audit and budget review.</li>
+              <li><strong>Conversion Rate:</strong> Semester growth metrics and file completion milestones.</li>
+            </ul>
+          </div>
+          <div className="bg-[#eefaf6] p-3.5 rounded-xl border border-[#ccece2] space-y-1">
+            <span className="font-extrabold text-[#0c685a] block text-xs uppercase">Interactive Breakdown by Service Donut Chart</span>
+            <p>The SVG donut chart dynamically visualizes records grouped by service type:</p>
+            <ul className="list-disc pl-4 space-y-1 mt-1 text-[11px]">
+              <li><strong>Hover Interaction:</strong> Highlights segment with a rich tooltip showing service name, record count, percentage, and underlying euro value.</li>
+              <li><strong>Click Interaction:</strong> Opens a modal displaying all individual records with direct links to view applicant dossiers.</li>
+            </ul>
+          </div>
+        </div>
+      ),
+    },
+    // =========================================================================
+    // CATEGORY C — PROSPECTS CRM
+    // =========================================================================
+    {
+      id: 'cat-c-prospects-crm',
+      category: 'prospects_crm',
+      categoryLabel: 'Category C',
+      title: 'Catégorie C — CRM Prospects : Conseillers Dynamiques, Appels & Notes',
+      titleEn: 'Category C — Prospects CRM: Dynamic Staff, Call Scheduling & Notes',
+      summary: 'Gestion du pipeline de prospection : assignation des conseillers actifs, planification d’appels et notes internes partagées.',
+      summaryEn: 'Pipeline management: dynamic active advisor assignments, scheduled call appointments, and team notes.',
+      tags: ['CRM', 'Prospects', 'Appels', 'Notes', 'Conseillers'],
+      roleRestriction: 'all',
+      contentFr: (
+        <div className="space-y-4 text-xs text-slate-700 leading-relaxed">
+          <p>Le module Prospects CRM structure l'accompagnement des familles et des candidats depuis le premier échange jusqu'à la signature du contrat.</p>
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-[#092342] uppercase text-xs">Fonctionnalités Clés des Cartes Prospects</h4>
+            <ul className="list-disc pl-5 space-y-1.5">
+              <li><strong>Nom du candidat cliquable :</strong> Ouvrez instantanément la fiche détaillée du prospect pour consulter son parcours et ses objectifs.</li>
+              <li><strong>Planifier un appel (« Schedule a Call ») :</strong> Définissez la date, l'heure, l'objet et le conseiller assigné. L'appel planifié est enregistré en base de données et affiché sur la carte.</li>
+              <li><strong>Modifier la fiche (Icône Crayon) :</strong> Mettez à jour le nom, l'étape du pipeline, la ville, le programme cible et la valeur estimée en temps réel.</li>
+              <li><strong>Notes & Commentaires d'équipe (Icône Bulle) :</strong> Consignez vos comptes-rendus d’entretiens et remarques déontologiques, consultables par tout le staff autorisé.</li>
+              <li><strong>Conseillers Dynamiques :</strong> La liste déroulante des conseillers provient directement de la table des utilisateurs actifs, sans noms codés en dur.</li>
+            </ul>
+          </div>
+        </div>
+      ),
+      contentEn: (
+        <div className="space-y-4 text-xs text-slate-700 leading-relaxed">
+          <p>The Prospects CRM structures the advisory workflow from discovery contact to formal enrolment.</p>
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-[#092342] uppercase text-xs">Key Prospect Card Interactions</h4>
+            <ul className="list-disc pl-5 space-y-1.5">
+              <li><strong>Clickable Candidate Name:</strong> Opens the full profile modal to review student background, location, and study project.</li>
+              <li><strong>Schedule a Call:</strong> Pick date, time slot, agenda, and assigned staff member. Saves to database and displays scheduled appointment on the card.</li>
+              <li><strong>Edit Prospect (Pen Icon):</strong> Modify name, stage, program, city, priority flag, and estimated value in Neon PostgreSQL.</li>
+              <li><strong>Team Notes & Comments (Chat Icon):</strong> Log timestamped internal notes visible across authorized team members.</li>
+              <li><strong>Dynamic Staff Directory:</strong> Advisor selection is populated directly from active staff users in the database.</li>
+            </ul>
+          </div>
+        </div>
+      ),
+    },
+    // =========================================================================
+    // CATEGORY D — STUDENT & APPLICANT MANAGEMENT
+    // =========================================================================
+    {
+      id: 'cat-d-student-management',
+      category: 'student_management',
+      categoryLabel: 'Category D',
+      title: 'Catégorie D — Gestion des Candidats, Parents & Liens de Tutorat',
+      titleEn: 'Category D — Student, Parent & Tutor Relationship Management',
+      summary: 'Création des fiches étudiants, association des coordonnées parents/tuteurs et suivi des jalons Campus France.',
+      summaryEn: 'Student dossier creation, parent/tutor relationship linking, and Campus France milestone tracking.',
+      tags: ['Candidats', 'Parents', 'Tuteurs', 'Campus France', 'Jalons'],
+      roleRestriction: 'all',
+      contentFr: (
+        <div className="space-y-4 text-xs text-slate-700 leading-relaxed">
+          <p>Ce module assure le suivi administratif individuel des étudiants admis ou en cours de constitution de dossier.</p>
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-[#092342] uppercase text-xs">Procédure & Bonnes Pratiques</h4>
+            <ul className="list-disc pl-5 space-y-1">
+              <li><strong>Enregistrement complet :</strong> Renseigner les diplômes obtenus, le score TCF/DELF et l'établissement partenaire lyonnais ciblé.</li>
+              <li><strong>Liaison Parent / Tuteur :</strong> Enregistrer le nom, téléphone et lien de parenté pour fluidifier les relances de paiement et garanties financières.</li>
+              <li><strong>Suivi des Jalons (Jalons 1 à 5) :</strong> Progression du dossier (Vérification initiale, Soumission vœux, Acceptation école, Entretien Campus France, Visa).</li>
+            </ul>
+          </div>
+        </div>
+      ),
+      contentEn: (
+        <div className="space-y-4 text-xs text-slate-700 leading-relaxed">
+          <p>This module manages individual administrative tracking for enrolled students.</p>
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-[#092342] uppercase text-xs">Standard Procedures</h4>
+            <ul className="list-disc pl-5 space-y-1">
+              <li><strong>Full Dossier Setup:</strong> Record prior degrees, language scores, and targeted Lyon partner school.</li>
+              <li><strong>Parent / Tutor Linking:</strong> Store family contact info to streamline communications and financial guarantees.</li>
+              <li><strong>Milestone Progress:</strong> Track progression through Milestone 1 (Audit), Milestone 2 (Records), Milestone 3 (Campus France), and Milestone 4 (Visa).</li>
+            </ul>
+          </div>
+        </div>
+      ),
+    },
+    // =========================================================================
+    // CATEGORY F — FINANCE & PAYMENTS
+    // =========================================================================
+    {
+      id: 'cat-f-finance-payments',
+      category: 'finance_payments',
+      categoryLabel: 'Category F',
+      title: 'Catégorie F — Règlements, Validation d’Acomptes & Reçus Officiels',
+      titleEn: 'Category F — Payment Processing, Instalments & Official Receipts',
+      summary: 'Enregistrement des virements bancaires, vérification des preuves de paiement et émission de reçus infalsifiables.',
+      summaryEn: 'Wire transfer registration, payment proof validation, and tamper-resistant receipt generation.',
+      tags: ['Finance', 'Règlements', 'Reçus', 'Acomptes', 'Validation'],
+      roleRestriction: 'admin_finance',
+      contentFr: (
+        <div className="space-y-4 text-xs text-slate-700 leading-relaxed">
+          <p>Le module Finance & Règlements garantit la transparence financière et la traçabilité des règlements du programme LIEC-France Prépa (2 800 €) et des acomptes universitaires.</p>
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-[#092342] uppercase text-xs">Workflow de Validation</h4>
+            <ol className="list-decimal pl-5 space-y-1">
+              <li><strong>Enregistrement du versement :</strong> Le conseiller ou le parent transmet le bordereau de versement bancaire (Rawbank).</li>
+              <li><strong>Contrôle de conformité :</strong> L'Officier Finance vérifie la concordance du montant (1er versement 1 800,12 € ou 2ème versement 999,88 €).</li>
+              <li><strong>Validation en base :</strong> Le paiement passe au statut « Validé ».</li>
+              <li><strong>Génération du reçu officiel :</strong> Émission automatique d'un reçu avec horodatage certifié heure de Paris et référence unique d'audit.</li>
+            </ol>
+          </div>
+        </div>
+      ),
+      contentEn: (
+        <div className="space-y-4 text-xs text-slate-700 leading-relaxed">
+          <p>The Finance & Payments module ensures accounting rigor and auditability for all programme instalments (€2,800) and tuition deposits.</p>
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-[#092342] uppercase text-xs">Validation Workflow</h4>
+            <ol className="list-decimal pl-5 space-y-1">
+              <li><strong>Payment Registration:</strong> Advisor logs the bank slip from Rawbank.</li>
+              <li><strong>Compliance Verification:</strong> Finance officer validates amount against instalment schedule (€1,800.12 or €999.88).</li>
+              <li><strong>Status Transition:</strong> Record updated to "Validated".</li>
+              <li><strong>Receipt Delivery:</strong> Official receipt generated with Paris timezone timestamp and unique audit verification hash.</li>
+            </ol>
+          </div>
+        </div>
+      ),
+    },
+    // =========================================================================
+    // CATEGORY H — STUDENT ACCOMMODATION
+    // =========================================================================
+    {
+      id: 'cat-h-accommodation',
+      category: 'accommodation',
+      categoryLabel: 'Category H',
+      title: 'Catégorie H — Réservation de Logement Étudiant à Lyon',
+      titleEn: 'Category H — Student Housing & Accommodation in Lyon',
+      summary: 'Procédures de réservation, acompte de garantie de 500 € et émission d’attestation d’hébergement pour le visa.',
+      summaryEn: 'Housing booking protocols, €500 security deposit, and visa accommodation certificates.',
+      tags: ['Logement', 'Lyon', '500 €', 'Attestation', 'Résidence'],
+      roleRestriction: 'all',
+      contentFr: (
+        <div className="space-y-4 text-xs text-slate-700 leading-relaxed">
+          <p>L’attestation de logement est un justificatif impératif pour la validation du visa auprès de l'Ambassade de France à Kinshasa.</p>
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-[#092342] uppercase text-xs">Points Clés du Processus Logement</h4>
+            <ul className="list-disc pl-5 space-y-1">
+              <li><strong>Typologies :</strong> Studios meublés, résidences universitaires privées partenaires à Lyon, ou hébergement chez un proche certifié.</li>
+              <li><strong>Acompte de garantie :</strong> Versement d'un acompte de <strong>500 €</strong> conformément au règlement du programme Prépa.</li>
+              <li><strong>Attestation d’hébergement :</strong> Délivrée après confirmation du logement pour dépôt au consulat.</li>
+            </ul>
+          </div>
+        </div>
+      ),
+      contentEn: (
+        <div className="space-y-4 text-xs text-slate-700 leading-relaxed">
+          <p>Accommodation certificates are mandatory supporting evidence for the French visa application in Kinshasa.</p>
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-[#092342] uppercase text-xs">Housing Protocol</h4>
+            <ul className="list-disc pl-5 space-y-1">
+              <li><strong>Options:</strong> Furnished studios, private student residences in Lyon, or certified family host declaration.</li>
+              <li><strong>Security Deposit:</strong> <strong>€500 deposit</strong> as stipulated in the PREPA documentation.</li>
+              <li><strong>Certificate Issuance:</strong> Generated upon booking confirmation for presentation to consular authorities.</li>
+            </ul>
+          </div>
+        </div>
+      ),
+    },
+    // =========================================================================
+    // CATEGORY I — SYSTEM ADMINISTRATION & RBAC
+    // =========================================================================
+    {
+      id: 'cat-i-system-admin',
+      category: 'technical',
+      categoryLabel: 'Category I',
+      title: 'Catégorie I — Administration du Système, Rôles & Déconnexion Automatique',
+      titleEn: 'Category I — System Administration, RBAC & Role Session Timeouts',
+      summary: 'Gestion des comptes staff, politique de déconnexion de 10 à 30 min, double facteur 2FA et journaux d’audit.',
+      summaryEn: 'Staff management, 10-30 min session timeout policies, 2FA security, and immutable audit logs.',
+      tags: ['Admin', 'RBAC', 'Timeout', '2FA', 'Audit Logs'],
+      roleRestriction: 'admin_finance',
+      contentFr: (
+        <div className="space-y-4 text-xs text-slate-700 leading-relaxed">
+          <p>Ce volet détaille les contrôles de sécurité et la gouvernance technique de LIEC Heav’n.</p>
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-[#092342] uppercase text-xs">Mesures de Sécurité Opérationnelles</h4>
+            <ul className="list-disc pl-5 space-y-1">
+              <li><strong>Déconnexion automatique de session (10 à 30 min) :</strong> Gérée exclusivement par l'administrateur dans les Paramètres. Avertit l'utilisateur avant expiration et réinitialise le minuteur lors d'activités (clics, frappes, requêtes).</li>
+              <li><strong>Rôles techniques & Garde-fous :</strong> Attribution fine des rôles (Admin, Secrétariat, Finance) avec interdiction d'accès aux modules non autorisés.</li>
+              <li><strong>Authentification à deux facteurs (2FA) :</strong> Codes TOTP requis pour les opérations critiques de sécurité.</li>
+              <li><strong>Journaux d’audit infalsifiables :</strong> Enregistrement de chaque action staff avec acteur, horodatage et référence d'entité.</li>
+            </ul>
+          </div>
+        </div>
+      ),
+      contentEn: (
+        <div className="space-y-4 text-xs text-slate-700 leading-relaxed">
+          <p>Security governance and technical controls enforced across LIEC Heav’n.</p>
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-[#092342] uppercase text-xs">Security Standards</h4>
+            <ul className="list-disc pl-5 space-y-1">
+              <li><strong>Role Session Timeouts (10 to 30 min):</strong> Admin-managed policies configured per role in Settings. Displays warning modal and refreshes on user interaction.</li>
+              <li><strong>RBAC Safeguards:</strong> Least privilege enforcement across Secretary, Finance Officer, and Admin tiers.</li>
+              <li><strong>Two-Factor Authentication (2FA):</strong> TOTP validation for privileged administrative actions.</li>
+              <li><strong>Tamper-Resistant Audit Trail:</strong> Every action is logged with actor, entity ref, and outcome.</li>
+            </ul>
+          </div>
+        </div>
+      ),
+    },
+    // =========================================================================
+    // CATEGORY J — PRACTICAL WORKFLOWS
+    // =========================================================================
+    {
+      id: 'cat-j-workflows',
+      category: 'workflows',
+      categoryLabel: 'Category J',
+      title: 'Catégorie J — Scénarios Métiers & Procédures Pas-à-Pas par Rôle',
+      titleEn: 'Category J — Practical Operational Scenarios & Daily Workflows by Role',
+      summary: 'Guides méthodologiques complets pour le Secrétariat, l’Officier Finance/AVI et l’Administrateur.',
+      summaryEn: 'End-to-end standard operating procedures for Secretary, Finance Officer, and Administrator.',
+      tags: ['Workflows', 'Secrétariat', 'Finance', 'Administrateur', 'Scénarios'],
+      roleRestriction: 'all',
+      contentFr: (
+        <div className="space-y-4 text-xs text-slate-700 leading-relaxed">
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-[#092342] uppercase text-xs">1. Workflow Quotidien du Secrétariat</h4>
+            <p>1. Consulter les nouvelles candidatures web reçues sur le tableau de bord.<br />
+               2. Qualifier le profil dans le CRM Prospects et planifier le 1er entretien d'orientation.<br />
+               3. Associer les coordonnées des parents/tuteurs et consigner les notes d'entretien.<br />
+               4. Faire progresser le dossier jusqu'à l'inscription formelle.</p>
+          </div>
+          <div className="space-y-2 pt-2 border-t border-slate-100">
+            <h4 className="font-extrabold text-[#092342] uppercase text-xs">2. Workflow de l’Officier Finance & AVI</h4>
+            <p>1. Contrôler les bordereaux de virement pour l'acompte 1 (1 800,12 €) et l'acompte 2 (999,88 €).<br />
+               2. Valider le règlement et émettre le reçu officiel d'encaissement.<br />
+               3. Établir la simulation de caution bancaire YIMMILINE (Classique ou Partiel).<br />
+               4. Délivrer l'attestation de virement irrévocable (AVI) pour le dépôt de visa.</p>
+          </div>
+        </div>
+      ),
+      contentEn: (
+        <div className="space-y-4 text-xs text-slate-700 leading-relaxed">
+          <div className="space-y-2">
+            <h4 className="font-extrabold text-[#092342] uppercase text-xs">1. Secretary Daily Workflow</h4>
+            <p>1. Review incoming web applications on the dashboard.<br />
+               2. Qualify candidate in Prospects CRM and schedule the initial orientation call.<br />
+               3. Link parent/tutor details and log internal diagnostic notes.<br />
+               4. Advance file into formal enrolment.</p>
+          </div>
+          <div className="space-y-2 pt-2 border-t border-slate-100">
+            <h4 className="font-extrabold text-[#092342] uppercase text-xs">2. Finance & AVI Officer Workflow</h4>
+            <p>1. Audit bank wire receipts for instalment 1 (€1,800.12) and instalment 2 (€999.88).<br />
+               2. Validate transaction and generate official verified receipt.<br />
+               3. Configure YIMMILINE blocked account simulation (Classique or Partiel).<br />
+               4. Transmit irrevocable wire certificate (AVI) for consular visa interview.</p>
+          </div>
+        </div>
+      ),
+    },
   ], []);
 
   // Filter articles based on search and category
@@ -939,23 +1321,32 @@ export function KnowledgeBaseScreen({
       {/* HEADER BANNER */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
-          <span className="inline-block rounded-full bg-[#eef4fb] px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-[#092342] mb-2">
-            {isEn ? 'OFFICIAL DOCUMENTATION & SYSTEM KNOWLEDGE' : 'DOCUMENTATION OFFICIELLE & BASE DE CONNAISSANCES'}
+          <span className="inline-block rounded-full bg-[#d8f6ea] px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-[#0c685a] mb-2">
+            {isEn ? 'OFFICIAL WORKSPACE MANUAL & KNOWLEDGE BASE' : 'MANUEL OPÉRATIONNEL & BASE DE CONNAISSANCES'}
           </span>
-          <h1 className="text-[28px] font-extrabold text-[#092342] leading-tight">
-            {isEn ? 'Help, Support & LIEC Heav’n Knowledge Base' : 'Aide, Support & Base de Connaissances LIEC Heav’n'}
+          <h1 className="text-[28px] sm:text-[32px] font-extrabold text-[#092342] leading-tight">
+            Heav’n Knows Better KB
           </h1>
           <p className="mt-1 text-sm text-slate-500 max-w-3xl">
             {isEn
-              ? 'Comprehensive reference guides for LIEC advisors (LIEC-France Prépa student journey, requirements, fees) and Technical Support for the Neon PostgreSQL engine.'
-              : 'Guides de référence complets pour les conseillers LIEC (parcours LIEC-France Prépa, pièces, scolarité) et support technique pour le moteur Neon PostgreSQL.'}
+              ? 'Complete operational reference manual for LIEC staff: end-to-end workflows, LIEC-France Prépa 11 stages, and technical system rules.'
+              : 'Manuel opérationnel complet pour l’équipe LIEC : workflows de bout en bout, 11 étapes de la Prépa et règles du système.'}
           </p>
         </div>
 
         <div className="flex items-center gap-2">
+          {onStartTour && (
+            <button
+              onClick={onStartTour}
+              className="rounded-xl bg-[#092342] hover:bg-[#153a70] text-white px-4 py-2 text-xs font-extrabold inline-flex items-center gap-2 shadow-sm transition cursor-pointer"
+            >
+              <span>{isEn ? '★ Start Guided Tour' : '★ Lancer le tour guidé'}</span>
+            </button>
+          )}
+
           <button
             onClick={() => window.print()}
-            className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-700 inline-flex items-center gap-2 shadow-sm"
+            className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-700 inline-flex items-center gap-2 shadow-sm cursor-pointer"
           >
             <Printer className="w-4 h-4 text-slate-500" />
             <span>{isEn ? 'Print Guide' : 'Imprimer'}</span>
@@ -964,62 +1355,48 @@ export function KnowledgeBaseScreen({
       </div>
 
       {/* SEARCH AND CATEGORY FILTER TOOLBAR */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-        <div className="md:col-span-6 relative">
+      <div className="space-y-3">
+        <div className="relative">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder={isEn ? 'Search across articles, steps, fees, procedures, or technical engine...' : 'Rechercher un article, une étape, des frais, des pièces...'}
+            placeholder={
+              isEn
+                ? 'Search across all 10 categories, articles, 11 Prépa stages, AVI formulas...'
+                : 'Rechercher parmi les 10 catégories, étapes de la Prépa, formules AVI...'
+            }
             className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-[#092342] bg-white shadow-sm"
           />
         </div>
 
-        <div className="md:col-span-6 flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => setSelectedCategory('all')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all ${
-              selectedCategory === 'all'
-                ? 'bg-[#092342] text-white shadow-sm'
-                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            {isEn ? 'All Articles' : 'Tous les articles'} ({articles.length})
-          </button>
-          <button
-            onClick={() => setSelectedCategory('advisor')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all inline-flex items-center gap-1.5 ${
-              selectedCategory === 'advisor'
-                ? 'bg-[#0c685a] text-white shadow-sm'
-                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            <span>{isEn ? 'LIEC Advisor Guide' : 'Guide Conseiller'}</span>
-          </button>
-          <button
-            onClick={() => setSelectedCategory('technical')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all inline-flex items-center gap-1.5 ${
-              selectedCategory === 'technical'
-                ? 'bg-[#1e3a8a] text-white shadow-sm'
-                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <Server className="w-3.5 h-3.5" />
-            <span>{isEn ? 'Technical Support & PostgreSQL' : 'Support Technique & PostgreSQL'}</span>
-          </button>
-          <button
-            onClick={() => setSelectedCategory('prefinancing')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all inline-flex items-center gap-1.5 ${
-              selectedCategory === 'prefinancing'
-                ? 'bg-[#4338ca] text-white shadow-sm'
-                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <Banknote className="w-3.5 h-3.5" />
-            <span>{isEn ? 'YIMMILINE Prefinancing' : 'Préfinancement Yimmiline'}</span>
-          </button>
+        <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1">
+          {[
+            { id: 'all', label: isEn ? 'All Categories' : 'Toutes les catégories' },
+            { id: 'getting_started', label: 'Cat. A — Getting Started' },
+            { id: 'dashboard_reports', label: 'Cat. B — Dashboard & Reports' },
+            { id: 'prospects_crm', label: 'Cat. C — Prospects CRM' },
+            { id: 'student_management', label: 'Cat. D — Students & Applicants' },
+            { id: 'advisor', label: 'Cat. E — LIEC-France PREPA (11 Stages)' },
+            { id: 'finance_payments', label: 'Cat. F — Finance & Payments' },
+            { id: 'prefinancing', label: 'Cat. G — AVI & YIMMILINE' },
+            { id: 'accommodation', label: 'Cat. H — Accommodation' },
+            { id: 'technical', label: 'Cat. I — System Administration' },
+            { id: 'workflows', label: 'Cat. J — Workflows by Role' },
+          ].map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => setSelectedCategory(cat.id as KBCategory)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer shrink-0 ${
+                selectedCategory === cat.id
+                  ? 'bg-[#092342] text-white shadow-xs'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              {cat.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -1037,16 +1414,18 @@ export function KnowledgeBaseScreen({
                   className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
                     art.category === 'advisor'
                       ? 'bg-[#eefaf6] text-[#0c685a] border border-[#ccece2]'
-                      : art.category === 'technical'
+                      : art.category === 'getting_started'
                       ? 'bg-blue-50 text-blue-800 border border-blue-200'
+                      : art.category === 'prospects_crm'
+                      ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                      : art.category === 'technical'
+                      ? 'bg-slate-100 text-slate-800 border border-slate-200'
                       : 'bg-purple-50 text-purple-800 border border-purple-200'
                   }`}
                 >
                   {art.category === 'advisor'
-                    ? (art.stepNum ? `Étape ${art.stepNum}` : 'Guide Conseiller')
-                    : art.category === 'technical'
-                    ? 'Support Technique'
-                    : 'Préfinancement AVI'}
+                    ? (art.stepNum ? `Étape ${art.stepNum} · Prépa` : 'Guide Conseiller')
+                    : art.categoryLabel || art.category}
                 </span>
 
                 {art.roleRestriction === 'admin_finance' && (

@@ -47,6 +47,8 @@ import {
   Lang,
 } from '@/components/ServicesAndOtherScreens';
 import { KnowledgeBaseScreen } from '@/components/KnowledgeBaseScreen';
+import { ACADEMIC_INTAKE_OPTIONS } from '@/lib/academicIntake';
+import { GuidedTour } from '@/components/GuidedTour';
 
 type NavTab =
   | 'overview'
@@ -106,7 +108,15 @@ export default function LiecWorkspacePage() {
   const [showNewDemandeModal, setShowNewDemandeModal] = useState(false);
   const [isSubmittingDemande, setIsSubmittingDemande] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [selectedIntakeHeader, setSelectedIntakeHeader] = useState('2025–2026 Intake');
+  const [selectedIntakeHeader, setSelectedIntakeHeader] = useState('full_2026');
+
+  // Guided Tour State
+  const [showGuidedTour, setShowGuidedTour] = useState(false);
+
+  // Notifications Read / Unread State
+  const [readNotificationIds, setReadNotificationIds] = useState<string[]>([]);
+  const [selectedNotificationModal, setSelectedNotificationModal] = useState<any | null>(null);
+  const [notificationTabFilter, setNotificationTabFilter] = useState<'all' | 'unread'>('all');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [darkMode, setDarkMode] = useState(false);
 
@@ -197,6 +207,36 @@ export default function LiecWorkspacePage() {
     [rolePreview]
   );
 
+  const fetchReadNotifications = useCallback(async (email: string) => {
+    if (!email) return;
+    try {
+      const res = await fetch(`/api/notifications?email=${encodeURIComponent(email)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.readIds)) {
+          setReadNotificationIds(data.readIds);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load notification reads:', e);
+    }
+  }, []);
+
+  const checkTourStatus = useCallback(async (email: string) => {
+    if (!email) return;
+    try {
+      const res = await fetch(`/api/users/tour?email=${encodeURIComponent(email)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.tour_completed === false) {
+          setShowGuidedTour(true);
+        }
+      }
+    } catch (e) {
+      console.warn('Could not check tour status:', e);
+    }
+  }, []);
+
   const fetchWorkspace = useCallback(async (overrideEmail?: string) => {
     try {
       const activeEmail =
@@ -235,6 +275,10 @@ export default function LiecWorkspacePage() {
       if (data.accommodationRequests) setAccommodationRequests(data.accommodationRequests);
       if (data.prepaPayments) setPrepaPayments(data.prepaPayments);
       if (data.prepaReceipts) setPrepaReceipts(data.prepaReceipts);
+      if (currentUserEmail) {
+        fetchReadNotifications(currentUserEmail);
+        checkTourStatus(currentUserEmail);
+      }
       if (data.sessionTimeouts && Array.isArray(data.sessionTimeouts)) {
         setSessionTimeouts(data.sessionTimeouts);
         const activeRole = (currentUser?.role || rolePreview || userRole || 'admin').toLowerCase();
@@ -858,51 +902,135 @@ export default function LiecWorkspacePage() {
     return s === 'new' || s === 'nouvelle';
   }).length;
 
+  const activeStaffList = useMemo(() => {
+    return (users || [])
+      .filter((u) => u.active !== false && (u.name || u.email))
+      .map((u) => ({
+        name: u.name || u.email,
+        email: u.email,
+        role: u.role || 'staff',
+      }));
+  }, [users]);
+
   const notificationsList = useMemo(() => {
-    const list: { title: string; desc: string; time: string; tab: NavTab }[] = [];
+    const list: {
+      id: string;
+      title: string;
+      desc: string;
+      time: string;
+      tab: NavTab;
+      moduleLabel: string;
+      recordRef?: string;
+    }[] = [];
 
     // 1. From recent incoming applications
-    (demandes || []).slice(0, 5).forEach((d) => {
+    (demandes || []).slice(0, 8).forEach((d) => {
       const refStr = d.ref || `DEM-${d.id}`;
       list.push({
+        id: `demande-${d.id || refStr}`,
         title: isEn
           ? `Application Received (#${refStr})`
           : `Demande reçue (#${refStr})`,
         desc: isEn
-          ? `${d.full_name || 'Candidate'} submitted application for ${d.program || 'partner school'}.`
-          : `${d.full_name || 'Candidat'} a soumis une candidature pour ${d.program || 'école partenaire'}.`,
-        time: d.created_at ? new Date(d.created_at).toLocaleDateString() : (isEn ? 'Recent' : 'Récent'),
+          ? `${d.full_name || 'Candidate'} submitted application for ${d.program || 'partner school'}. Intended intake: ${d.expected_start || 'September 2026'}. Status: ${d.status || 'new'}.`
+          : `${d.full_name || 'Candidat'} a soumis une candidature pour ${d.program || 'école partenaire'}. Rentrée visée : ${d.expected_start || 'Septembre 2026'}. Statut : ${d.status || 'nouvelle'}.`,
+        time: d.created_at ? new Date(d.created_at).toLocaleString() : (isEn ? 'Recent' : 'Récent'),
         tab: 'demandes',
+        moduleLabel: isEn ? 'Received Applications' : 'Demandes reçues',
+        recordRef: refStr,
       });
     });
 
     // 2. From candidate procedures
-    (candidats || []).slice(0, 3).forEach((c) => {
+    (candidats || []).slice(0, 6).forEach((c) => {
       const refStr = c.ref || `CAN-${c.id}`;
       list.push({
+        id: `candidat-${c.id || refStr}`,
         title: isEn
           ? `Candidate Milestone: ${c.full_name || 'Candidate'} (#${refStr})`
           : `Jalon Candidat : ${c.full_name || 'Candidat'} (#${refStr})`,
         desc: isEn
-          ? `Status: ${c.procedure_status || c.admission_status || 'In Progress'}. Campus France file tracked.`
-          : `Statut : ${c.procedure_status || c.admission_status || 'En cours'}. Suivi Campus France actif.`,
-        time: c.created_at ? new Date(c.created_at).toLocaleDateString() : (isEn ? 'Recent' : 'Récent'),
+          ? `Procedure status: ${c.procedure_status || c.admission_status || 'In Progress'}. Campus France file tracked. Academic year: ${c.academic_year || '2026-2027'}.`
+          : `Statut de procédure : ${c.procedure_status || c.admission_status || 'En cours'}. Dossier Campus France suivi. Année académique : ${c.academic_year || '2026-2027'}.`,
+        time: c.created_at ? new Date(c.created_at).toLocaleString() : (isEn ? 'Recent' : 'Récent'),
         tab: 'candidats',
+        moduleLabel: isEn ? 'Candidate Files' : 'Dossiers Candidats',
+        recordRef: refStr,
       });
     });
 
-    // 3. From system audit logs
-    (auditLogs || []).slice(0, 5).forEach((l) => {
+    // 3. From AVI requests
+    (aviRequests || []).slice(0, 5).forEach((a) => {
+      const refStr = a.ref || `AVI-${a.id}`;
       list.push({
+        id: `avi-${a.id || refStr}`,
+        title: isEn
+          ? `AVI Desk: ${a.student_name || 'Student'} (#${refStr})`
+          : `Guichet AVI : ${a.student_name || 'Étudiant'} (#${refStr})`,
+        desc: isEn
+          ? `Tier: ${a.tier || 'YIMMILINE Classique'}. Amount: €${a.amount || '7500'}. Status: ${a.status || 'pending'}.`
+          : `Formule : ${a.tier || 'YIMMILINE Classique'}. Montant : €${a.amount || '7500'}. Statut : ${a.status || 'en attente'}.`,
+        time: a.created_at ? new Date(a.created_at).toLocaleString() : (isEn ? 'Recent' : 'Récent'),
+        tab: 'services',
+        moduleLabel: isEn ? 'AVI Financing Desk' : 'Guichet Financement AVI',
+        recordRef: refStr,
+      });
+    });
+
+    // 4. From system audit logs
+    (auditLogs || []).slice(0, 5).forEach((l, idx) => {
+      list.push({
+        id: `audit-${l.id || idx}`,
         title: l.action || (isEn ? 'Security Audit Log' : 'Journal de sécurité'),
         desc: `${l.actor ? l.actor + ' — ' : ''}${l.details || l.entity_ref || ''}`,
-        time: l.created_at ? new Date(l.created_at).toLocaleDateString() : (isEn ? 'Recent' : 'Récent'),
+        time: l.created_at ? new Date(l.created_at).toLocaleString() : (isEn ? 'Recent' : 'Récent'),
         tab: 'parametres',
+        moduleLabel: isEn ? 'Security Audit' : 'Sécurité & Audit',
       });
     });
 
     return list;
-  }, [demandes, candidats, auditLogs, isEn]);
+  }, [demandes, candidats, aviRequests, auditLogs, isEn]);
+
+  const unreadNotificationsCount = useMemo(() => {
+    return notificationsList.filter((n) => !readNotificationIds.includes(n.id)).length;
+  }, [notificationsList, readNotificationIds]);
+
+  const handleOpenNotification = async (n: any) => {
+    setSelectedNotificationModal(n);
+    if (!readNotificationIds.includes(n.id)) {
+      setReadNotificationIds((prev) => [...prev, n.id]);
+      try {
+        await fetch('/api/notifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_email: currentUser?.email,
+            notification_id: n.id,
+          }),
+        });
+      } catch (e) {
+        console.error('Failed to save notification read status:', e);
+      }
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    const allIds = notificationsList.map((n) => n.id);
+    setReadNotificationIds(allIds);
+    try {
+      await fetch('/api/notifications', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_email: currentUser?.email,
+        }),
+      });
+      showToast(isEn ? 'All notifications marked as read' : 'Toutes les notifications sont marquées comme lues');
+    } catch (e) {
+      console.error('Failed to mark all read:', e);
+    }
+  };
 
   const platformItems: {
     id: NavTab;
@@ -944,7 +1072,7 @@ export default function LiecWorkspacePage() {
       id: 'notifications',
       label: tabLabels.notifications,
       icon: Bell,
-      badge: notificationsList.length > 0 ? notificationsList.length : undefined,
+      badge: unreadNotificationsCount > 0 ? unreadNotificationsCount : undefined,
     },
     { id: 'parametres', label: tabLabels.parametres, icon: SlidersHorizontal },
     { id: 'aide', label: tabLabels.aide, icon: HelpCircle },
@@ -1255,11 +1383,13 @@ export default function LiecWorkspacePage() {
                 value={selectedIntakeHeader}
                 onChange={(e) => setSelectedIntakeHeader(e.target.value)}
                 className="bg-transparent font-extrabold text-[#092342] focus:outline-none cursor-pointer"
+                aria-label="Academic Intake Selector"
               >
-                <option value="All Intakes">{isEn ? 'All Intakes' : 'Toutes les rentrées'}</option>
-                <option value="2025–2026 Intake">2025–2026 Intake</option>
-                <option value="Septembre 2025">Septembre 2025</option>
-                <option value="Janvier 2026">Janvier 2026</option>
+                {ACADEMIC_INTAKE_OPTIONS.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {isEn ? opt.labelEn : opt.labelFr}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -1293,8 +1423,10 @@ export default function LiecWorkspacePage() {
               className="relative h-9 w-9 rounded-xl hover:bg-slate-100 flex items-center justify-center text-[#092342] transition cursor-pointer"
             >
               <Bell className="w-4 h-4" />
-              {notificationsList.length > 0 && (
-                <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-[#10b981] ring-2 ring-white" />
+              {unreadNotificationsCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white">
+                  {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+                </span>
               )}
             </button>
 
@@ -1338,6 +1470,10 @@ export default function LiecWorkspacePage() {
                   candidats={candidats}
                   prospects={prospects}
                   prepaCohorts={prepaCohorts}
+                  aviRequests={aviRequests}
+                  accommodationRequests={accommodationRequests}
+                  selectedIntake={selectedIntakeHeader}
+                  onSelectIntake={(intakeId) => setSelectedIntakeHeader(intakeId)}
                   userName={
                     rolePreview === 'secretary' && currentUser?.role !== 'secretary'
                       ? 'Marc Kouassi'
@@ -1382,6 +1518,7 @@ export default function LiecWorkspacePage() {
               {activeTab === 'prospects' && (
                 <ProspectsScreen
                   prospects={prospects}
+                  staffList={activeStaffList}
                   onAddProspect={handleAddProspect}
                   onMoveProspect={handleMoveProspect}
                   onRefresh={fetchWorkspace}
@@ -1553,6 +1690,7 @@ export default function LiecWorkspacePage() {
                   lang={lang}
                   currentRole={rolePreview}
                   onNavigate={(tab) => setActiveTab(tab as NavTab)}
+                  onStartTour={() => setShowGuidedTour(true)}
                 />
               )}
             </>
@@ -2079,6 +2217,77 @@ export default function LiecWorkspacePage() {
           </div>
         </div>
       )}
+
+      {/* Notification Detail Modal */}
+      {selectedNotificationModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+              <div className="space-y-1">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold bg-[#e6f4f1] text-[#0c685a]">
+                  {selectedNotificationModal.moduleLabel || 'LIEC Heav’n'}
+                </div>
+                <h3 className="text-base font-extrabold text-[#092342] leading-snug">
+                  {selectedNotificationModal.title}
+                </h3>
+              </div>
+              <button
+                onClick={() => setSelectedNotificationModal(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 py-2">
+              <div className="text-xs text-slate-400 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5" />
+                <span>{selectedNotificationModal.time}</span>
+              </div>
+              <div className="text-sm text-slate-700 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100">
+                {selectedNotificationModal.desc}
+              </div>
+              {selectedNotificationModal.recordRef && (
+                <div className="text-xs font-mono font-bold text-slate-500 bg-white px-3 py-1.5 rounded-lg border border-slate-200 inline-block">
+                  Ref: {selectedNotificationModal.recordRef}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+              <button
+                onClick={() => setSelectedNotificationModal(null)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+              >
+                {isEn ? 'Close' : 'Fermer'}
+              </button>
+              <button
+                onClick={() => {
+                  const targetTab = selectedNotificationModal.tab;
+                  setSelectedNotificationModal(null);
+                  if (targetTab) {
+                    setActiveTab(targetTab);
+                  }
+                }}
+                className="px-4 py-2 text-xs font-bold text-white bg-[#0c685a] hover:bg-[#095247] rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>{isEn ? 'Go to Record / Module' : 'Accéder au Dossier / Module'}</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Guided Tour Component */}
+      <GuidedTour
+        isOpen={showGuidedTour}
+        onClose={() => setShowGuidedTour(false)}
+        onNavigate={(tab) => setActiveTab(tab as NavTab)}
+        lang={lang}
+        userRole={rolePreview}
+        userEmail={currentUser?.email}
+      />
 
       {/* Toast Notification */}
       {toastMsg && (

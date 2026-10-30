@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Calendar,
   Plus,
@@ -18,9 +18,20 @@ import {
   ChevronLeft,
   ChevronRight,
   Info,
+  DollarSign,
+  Layers,
+  Sparkles,
 } from 'lucide-react';
 
 import { Lang } from './ServicesAndOtherScreens';
+import {
+  ACADEMIC_INTAKE_OPTIONS,
+  matchesAcademicIntake,
+} from '@/lib/academicIntake';
+import {
+  ServiceBreakdownDetailModal,
+  ServiceRecordItem,
+} from './ServiceBreakdownDetailModal';
 
 interface OverviewScreenProps {
   demandes: any[];
@@ -28,6 +39,10 @@ interface OverviewScreenProps {
   candidats?: any[];
   prospects?: any[];
   prepaCohorts?: any[];
+  aviRequests?: any[];
+  accommodationRequests?: any[];
+  selectedIntake?: string;
+  onSelectIntake?: (intake: string) => void;
   onNavigate: (tab: string) => void;
   onOpenNewDemande: () => void;
   onSelectDemande: (ref: string) => void;
@@ -46,6 +61,10 @@ export default function OverviewScreen({
   candidats = [],
   prospects = [],
   prepaCohorts = [],
+  aviRequests = [],
+  accommodationRequests = [],
+  selectedIntake = 'full_2026',
+  onSelectIntake,
   onNavigate,
   onOpenNewDemande,
   onSelectDemande,
@@ -58,7 +77,9 @@ export default function OverviewScreen({
   currentUser,
 }: OverviewScreenProps) {
   const isEn = lang === 'en';
-  const [resolvedUserName, setResolvedUserName] = useState<string>(userName || currentUser?.name || '');
+  const [resolvedUserName, setResolvedUserName] = useState<string>(
+    userName || currentUser?.name || ''
+  );
 
   useEffect(() => {
     if (userName) {
@@ -77,14 +98,52 @@ export default function OverviewScreen({
   }, [userName, currentUser]);
 
   const [chartPeriod, setChartPeriod] = useState<'week' | 'month'>('month');
-  const [cohortLabel, setCohortLabel] = useState('September 2025 Intake');
+  const [cohortLabel, setCohortLabel] = useState<string>(selectedIntake || 'full_2026');
   const [searchFilter, setSearchFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Use dashboard-specific recent entries first
+  // Sync cohortLabel with selectedIntake if changed externally
+  useEffect(() => {
+    if (selectedIntake && selectedIntake !== cohortLabel) {
+      setCohortLabel(selectedIntake);
+    }
+  }, [selectedIntake]);
+
+  // Donut chart hover & modal states
+  const [hoveredSegment, setHoveredSegment] = useState<number | null>(null);
+  const [selectedBreakdownService, setSelectedBreakdownService] = useState<{
+    name: string;
+    color: string;
+    records: ServiceRecordItem[];
+    pct: number;
+    valueEur: number;
+  } | null>(null);
+
+  // 1. Filter records according to the selected academic intake
+  const intakeFilteredDemandes = useMemo(() => {
+    return demandes.filter((d) => matchesAcademicIntake(d, cohortLabel));
+  }, [demandes, cohortLabel]);
+
+  const intakeFilteredCandidats = useMemo(() => {
+    return candidats.filter((c) => matchesAcademicIntake(c, cohortLabel));
+  }, [candidats, cohortLabel]);
+
+  const intakeFilteredProspects = useMemo(() => {
+    return prospects.filter((p) => matchesAcademicIntake(p, cohortLabel));
+  }, [prospects, cohortLabel]);
+
+  const intakeFilteredAvi = useMemo(() => {
+    return aviRequests.filter((a) => matchesAcademicIntake(a, cohortLabel));
+  }, [aviRequests, cohortLabel]);
+
+  const intakeFilteredAccommodation = useMemo(() => {
+    return accommodationRequests.filter((acc) => matchesAcademicIntake(acc, cohortLabel));
+  }, [accommodationRequests, cohortLabel]);
+
+  // Dashboard Demandes with priority to dashboard recent
   const dashboardDemandes = [
-    ...demandes.filter((d) => d.is_dashboard_recent),
-    ...demandes.filter((d) => !d.is_dashboard_recent),
+    ...intakeFilteredDemandes.filter((d) => d.is_dashboard_recent),
+    ...intakeFilteredDemandes.filter((d) => !d.is_dashboard_recent),
   ];
 
   const filteredDemandes = dashboardDemandes.filter((d) => {
@@ -103,16 +162,183 @@ export default function OverviewScreen({
   const completedTasksCount = priorityTasks.filter((t) => t.completed).length;
   const urgentTasksCount = priorityTasks.filter((t) => !t.completed).length;
 
-  const totalDemandesCount = demandes.length;
-  const newDemandesCount = demandes.filter((d) => {
+  const totalDemandesCount = intakeFilteredDemandes.length;
+  const newDemandesCount = intakeFilteredDemandes.filter((d) => {
     const s = (d.status || '').toLowerCase();
     return s.includes('nouv') || s.includes('new');
   }).length;
-  const prospectsCount = prospects.length;
-  const candidatsCount = candidats.length;
-  const prepaCount = prepaCohorts.reduce((acc: number, c: any) => acc + (c.enrolled_count || 0), 0) || prepaCohorts.length;
+  const prospectsCount = intakeFilteredProspects.length;
+  const candidatsCount = intakeFilteredCandidats.length;
+  const prepaCount =
+    prepaCohorts.reduce((acc: number, c: any) => acc + (c.enrolled_count || 0), 0) ||
+    prepaCohorts.length;
 
-  const formatDisplayRef = (ref: string) => ref.replace(/-[A-Z]$/, '');
+  // 2. Compute dynamic breakdown by service using actual records
+  const serviceCategories = useMemo(() => {
+    const orientationItems: ServiceRecordItem[] = [];
+    const admissionItems: ServiceRecordItem[] = [];
+    const prepaItems: ServiceRecordItem[] = [];
+    const housingItems: ServiceRecordItem[] = [];
+    const aviItems: ServiceRecordItem[] = [];
+
+    // Categorize intake-filtered demandes
+    intakeFilteredDemandes.forEach((d) => {
+      const prog = (d.program || '').toLowerCase();
+      const pole = (d.service_pole || '').toLowerCase();
+
+      if (prog.includes('prepa') || prog.includes('prépa') || pole.includes('prepa')) {
+        prepaItems.push({
+          id: d.id,
+          ref: d.ref || `DEM-${d.id}`,
+          fullName: d.full_name,
+          serviceType: 'LIEC-France PREPA',
+          program: d.program,
+          status: d.status || 'Nouvelle',
+          date: d.submitted_at || 'Recent',
+          academicIntake: d.expected_start || '2026–2027',
+          sourceModule: 'demandes',
+          valueEur: 2800,
+        });
+      } else if (
+        pole.includes('candidat') ||
+        pole.includes('admiss') ||
+        prog.includes('iscom') ||
+        prog.includes('mydigital') ||
+        prog.includes('tunon') ||
+        prog.includes('ihecf') ||
+        prog.includes('ipac') ||
+        prog.includes('mbway')
+      ) {
+        admissionItems.push({
+          id: d.id,
+          ref: d.ref || `DEM-${d.id}`,
+          fullName: d.full_name,
+          serviceType: 'University Application Support',
+          program: d.program,
+          status: d.status || 'Nouvelle',
+          date: d.submitted_at || 'Recent',
+          academicIntake: d.expected_start || '2026–2027',
+          sourceModule: 'demandes',
+          valueEur: 1800,
+        });
+      } else {
+        orientationItems.push({
+          id: d.id,
+          ref: d.ref || `DEM-${d.id}`,
+          fullName: d.full_name,
+          serviceType: 'Academic Orientation & Guidance',
+          program: d.program,
+          status: d.status || 'Nouvelle',
+          date: d.submitted_at || 'Recent',
+          academicIntake: d.expected_start || '2026–2027',
+          sourceModule: 'demandes',
+          valueEur: 500,
+        });
+      }
+    });
+
+    // Categorize intake-filtered candidats
+    intakeFilteredCandidats.forEach((c) => {
+      admissionItems.push({
+        id: c.id,
+        ref: c.ref || `CAN-${c.id}`,
+        fullName: c.full_name,
+        serviceType: 'University Application Support',
+        program: c.program,
+        status: c.procedure_status || c.admission_status || 'En cours',
+        date: c.created_at ? new Date(c.created_at).toLocaleDateString() : 'Active',
+        academicIntake: c.academic_year || '2026–2027',
+        sourceModule: 'candidats',
+        valueEur: 2800,
+      });
+    });
+
+    // Categorize intake-filtered accommodation
+    intakeFilteredAccommodation.forEach((acc: any) => {
+      housingItems.push({
+        id: acc.id,
+        ref: acc.ref || `ACC-${acc.id}`,
+        fullName: acc.student_name,
+        serviceType: 'Student Accommodation & Housing',
+        program: `Logement Lyon (${acc.accommodation_type || 'Studio'})`,
+        status: acc.status || 'Draft',
+        date: acc.arrival_date || 'Septembre 2026',
+        academicIntake: '2026–2027',
+        sourceModule: 'accommodation',
+        valueEur: 500,
+      });
+    });
+
+    // Categorize intake-filtered AVI requests
+    intakeFilteredAvi.forEach((avi: any) => {
+      aviItems.push({
+        id: avi.id,
+        ref: avi.ref || `AVI-${avi.id}`,
+        fullName: avi.student_name,
+        serviceType: 'Blocked Account & AVI Prefinancing',
+        program: `AVI YIMMILINE (${avi.offer_name || 'Classique'})`,
+        status: avi.status || 'Submitted',
+        date: avi.expected_start || 'Septembre 2026',
+        academicIntake: '2026–2027',
+        sourceModule: 'avi',
+        valueEur: Number(avi.principal_eur || 2800),
+      });
+    });
+
+    const groups = [
+      {
+        label: isEn ? 'Academic Orientation & Guidance' : 'Orientation & Bilan Académique',
+        color: '#0284c7',
+        items: orientationItems,
+      },
+      {
+        label: isEn ? 'University Application Support' : 'Accompagnement Candidatures & Écoles',
+        color: '#0b5d51',
+        items: admissionItems,
+      },
+      {
+        label: isEn ? 'LIEC-France PREPA Training' : 'Programme Préparatoire PREPA',
+        color: '#10b981',
+        items: prepaItems,
+      },
+      {
+        label: isEn ? 'Student Accommodation & Housing' : 'Réservation Logement Étudiant',
+        color: '#f4be37',
+        items: housingItems,
+      },
+      {
+        label: isEn ? 'Blocked Account & AVI Prefinancing' : 'Caution Bancaire AVI & Financement',
+        color: '#64748b',
+        items: aviItems,
+      },
+    ];
+
+    const totalCount = groups.reduce((acc, g) => acc + g.items.length, 0);
+
+    return groups.map((g) => {
+      const pct = totalCount > 0 ? Math.round((g.items.length / totalCount) * 100) : 0;
+      const valueEur = g.items.reduce((acc, it) => acc + (it.valueEur || 0), 0);
+      return {
+        ...g,
+        count: g.items.length,
+        pct,
+        valueEur,
+      };
+    });
+  }, [
+    intakeFilteredDemandes,
+    intakeFilteredCandidats,
+    intakeFilteredAccommodation,
+    intakeFilteredAvi,
+    isEn,
+  ]);
+
+  const totalBreakdownCount = serviceCategories.reduce((acc, c) => acc + c.count, 0);
+  const activeHoverCategory =
+    hoveredSegment !== null ? serviceCategories[hoveredSegment] : null;
+
+  const circumference = 2 * Math.PI * 44; // ~276.46
+  let cumulativePct = 0;
 
   return (
     <div className="space-y-6">
@@ -122,9 +348,9 @@ export default function OverviewScreen({
           <div className="flex items-center gap-2.5 text-xs">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-[#d8f6ea] px-2.5 py-0.5 font-semibold text-[#0c685a]">
               <span className="h-1.5 w-1.5 rounded-full bg-[#10b981]" />
-              Active Session
+              Active Subproduction Session
             </span>
-            <span className="text-slate-400">Updated 8m ago</span>
+            <span className="text-slate-400">Updated in real-time</span>
           </div>
           <h1 className="text-[28px] sm:text-[31px] font-extrabold tracking-tight text-[#092342] leading-[1.18]">
             {resolvedUserName ? (
@@ -142,20 +368,27 @@ export default function OverviewScreen({
             )}
           </h1>
           <p className="text-[13.5px] text-slate-600 leading-relaxed">
-            Monitor incoming applications, prospect pipeline, candidate files, and cohorts for the 2025–2026 academic year.
+            Monitor incoming applications, prospect pipeline, candidate files, and cohorts for the 2026–2027 academic sessions.
           </p>
         </div>
 
         <div className="flex flex-col sm:flex-row lg:flex-col items-stretch sm:items-center lg:items-end gap-2.5 shrink-0">
+          {/* Functional Academic Intake Selector */}
           <div className="relative">
             <select
               value={cohortLabel}
-              onChange={(e) => setCohortLabel(e.target.value)}
-              className="appearance-none rounded-xl border border-slate-200 bg-white pl-9 pr-9 py-2 text-xs font-semibold text-[#092342] shadow-sm focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20 cursor-pointer"
+              onChange={(e) => {
+                const val = e.target.value;
+                setCohortLabel(val);
+                if (onSelectIntake) onSelectIntake(val);
+              }}
+              className="appearance-none rounded-xl border border-slate-200 bg-white pl-9 pr-9 py-2 text-xs font-bold text-[#092342] shadow-sm focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20 cursor-pointer"
             >
-              <option>September 2025 Intake</option>
-              <option>Fall 2025 Session</option>
-              <option>January 2026 Intake</option>
+              {ACADEMIC_INTAKE_OPTIONS.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {isEn ? opt.labelEn : opt.labelFr}
+                </option>
+              ))}
             </select>
             <Calendar className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] pointer-events-none">
@@ -163,11 +396,11 @@ export default function OverviewScreen({
             </span>
           </div>
 
-          {/* "+ New Application" button: Visible ONLY to admin and secretary roles (hidden for Officer AVI) */}
+          {/* "+ New Application" button */}
           {(userRole === 'admin' || userRole === 'secretary') && (
             <button
               onClick={onOpenNewDemande}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0c6358] hover:bg-[#094f46] text-white font-semibold text-xs px-5 py-2.5 shadow-sm transition"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0c6358] hover:bg-[#094f46] text-white font-semibold text-xs px-5 py-2.5 shadow-sm transition cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               {isEn ? '+ Record New Student Application' : '+ Nouvelle Demande Candidat'}
@@ -177,328 +410,194 @@ export default function OverviewScreen({
       </div>
 
       {/* 6 KPI Stat Cards Row */}
-      <div>
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3.5">
-          {/* Card 1 */}
-          <div
-            onClick={() => onNavigate('demandes')}
-            className="cursor-pointer rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card hover:border-slate-300 transition flex flex-col justify-between"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <span className="text-[11.5px] font-medium text-slate-500 leading-snug">
-                Received
-                <br />
-                Applications
-              </span>
-              <span className="h-8 w-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
-                <Inbox className="w-4 h-4" />
-              </span>
-            </div>
-            <div className="mt-3 flex items-baseline gap-1.5">
-              <span className="text-2xl font-extrabold text-[#092342]">{totalDemandesCount}</span>
-              <span className="text-[11px] font-bold text-[#0c685a] inline-flex items-center">
-                ↗ +18%
-              </span>
-            </div>
-            <p className="mt-2 text-[11px] font-medium text-slate-500">2025 Cohort Total</p>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+        {/* Stat 1: Total Received */}
+        <div className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-400">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              Applications
+            </span>
+            <Inbox className="w-4 h-4 text-[#0c685a]" />
           </div>
-
-          {/* Card 2 (Highlighted Green Top Border) */}
-          <div
-            onClick={() => onNavigate('demandes')}
-            className="cursor-pointer rounded-2xl border border-[#ccece2] border-t-[3px] border-t-[#10b981] bg-white p-4 shadow-card hover:shadow-md transition flex flex-col justify-between"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <span className="text-[11.5px] font-semibold text-[#0c685a] leading-snug">
-                New
-                <br />
-                Applications
-              </span>
-              <span className="h-8 w-8 rounded-lg bg-[#e0f8ef] text-[#0c685a] flex items-center justify-center shrink-0">
-                <MailCheck className="w-4 h-4" />
-              </span>
-            </div>
-            <div className="mt-3 flex items-center gap-2">
-              <span className="text-2xl font-extrabold text-[#0c685a]">{newDemandesCount}</span>
-              <span className="rounded-md bg-[#ccf5e5] px-2 py-0.5 text-[10px] font-bold text-[#0a6354]">
-                Priority
-              </span>
-            </div>
-            <p className="mt-2 text-[11px] font-semibold text-slate-600 leading-tight">
-              Under 24h response time
-            </p>
-          </div>
-
-          {/* Card 3 */}
-          <div
-            onClick={() => onNavigate('prospects')}
-            className="cursor-pointer rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card hover:border-slate-300 transition flex flex-col justify-between"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <span className="text-[11.5px] font-medium text-slate-500 leading-snug">
-                Prospects to
-                <br />
-                Contact
-              </span>
-              <span className="h-8 w-8 rounded-lg bg-[#edf4fb] text-[#092342] flex items-center justify-center shrink-0">
-                <Users className="w-4 h-4" />
-              </span>
-            </div>
-            <div className="mt-3 flex items-baseline gap-1.5">
-              <span className="text-2xl font-extrabold text-[#092342]">{prospectsCount}</span>
-              <span className="text-[10.5px] font-medium text-slate-500 leading-tight">
-                Scheduled
-                <br />
-                Follow-ups
-              </span>
-            </div>
-            <p className="mt-2 text-[11px] font-medium text-slate-500">Active CRM outreach</p>
-          </div>
-
-          {/* Card 4 */}
-          <div
-            onClick={() => onNavigate('candidats')}
-            className="cursor-pointer rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card hover:border-slate-300 transition flex flex-col justify-between"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <span className="text-[11.5px] font-medium text-slate-500 leading-snug">
-                Active
-                <br />
-                Candidates
-              </span>
-              <span className="h-8 w-8 rounded-lg bg-[#edf4fb] text-[#092342] flex items-center justify-center shrink-0">
-                <GraduationCap className="w-4 h-4" />
-              </span>
-            </div>
-            <div className="mt-3 flex items-baseline gap-1.5">
-              <span className="text-2xl font-extrabold text-[#092342]">{candidatsCount}</span>
-              <span className="text-[10.5px] font-bold text-[#0c685a] leading-tight">
-                Campus
-                <br />
-                France
-              </span>
-            </div>
-            <p className="mt-2 text-[11px] font-medium text-slate-500 leading-tight">
-              University files
-            </p>
-          </div>
-
-          {/* Card 5 */}
-          <div
-            onClick={() => onNavigate('prepa')}
-            className="cursor-pointer rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card hover:border-slate-300 transition flex flex-col justify-between"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <span className="text-[11.5px] font-medium text-slate-500 leading-snug">
-                PREPA
-                <br />
-                Enrolments
-              </span>
-              <span className="h-8 w-8 rounded-lg bg-[#fef4d6] text-[#b87c08] flex items-center justify-center shrink-0">
-                <Award className="w-4 h-4" />
-              </span>
-            </div>
-            <div className="mt-3 flex items-center gap-1.5">
-              <span className="text-2xl font-extrabold text-[#092342]">{prepaCount}</span>
-              <span className="rounded bg-[#fef4d6] px-1.5 py-0.5 text-[9.5px] font-bold text-[#b87c08] leading-tight">
-                Kinshasa
-                <br />& Lyon
-              </span>
-            </div>
-            <p className="mt-2 text-[11px] font-medium text-slate-500">Capacity: 30 seats</p>
-          </div>
-
-          {/* Card 6 */}
-          <div
-            onClick={() => onNavigate('rapports')}
-            className="cursor-pointer rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card hover:border-slate-300 transition flex flex-col justify-between"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <span className="text-[11.5px] font-medium text-slate-500 leading-snug">
-                Conversion
-                <br />
-                Rate
-              </span>
-              <span className="h-8 w-8 rounded-lg bg-[#e2f7ef] text-[#0c685a] flex items-center justify-center shrink-0">
-                <CheckCircle2 className="w-4 h-4" />
-              </span>
-            </div>
-            <div className="mt-3 flex items-baseline gap-1">
-              <span className="text-2xl font-extrabold text-[#092342]">39.4%</span>
-              <span className="text-[10.5px] font-bold text-[#0c685a]">↑ +3.2%</span>
-            </div>
-            <p className="mt-2 text-[11px] font-medium text-slate-500 leading-tight">
-              vs previous cohort
+          <div className="mt-2">
+            <div className="text-2xl font-extrabold text-[#092342]">{totalDemandesCount}</div>
+            <p className="text-[11px] font-semibold text-[#0c685a] mt-0.5">
+              {newDemandesCount} new received
             </p>
           </div>
         </div>
 
-        <div className="mt-1.5 flex justify-end items-center gap-1 text-[10.5px] italic text-slate-400">
-          <Info className="w-3 h-3" />
-          <span>Live Workspace Metrics</span>
+        {/* Stat 2: Prospects CRM */}
+        <div className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-400">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              Prospects
+            </span>
+            <Users className="w-4 h-4 text-[#0284c7]" />
+          </div>
+          <div className="mt-2">
+            <div className="text-2xl font-extrabold text-[#092342]">{prospectsCount}</div>
+            <p className="text-[11px] font-semibold text-[#0284c7] mt-0.5">
+              In active pipeline
+            </p>
+          </div>
+        </div>
+
+        {/* Stat 3: Enrolled Candidates */}
+        <div className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-400">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              Candidates
+            </span>
+            <GraduationCap className="w-4 h-4 text-[#10b981]" />
+          </div>
+          <div className="mt-2">
+            <div className="text-2xl font-extrabold text-[#092342]">{candidatsCount}</div>
+            <p className="text-[11px] font-semibold text-[#10b981] mt-0.5">
+              CF Tracked files
+            </p>
+          </div>
+        </div>
+
+        {/* Stat 4: PREPA Enrolled */}
+        <div className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-400">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              PREPA
+            </span>
+            <Award className="w-4 h-4 text-[#f4be37]" />
+          </div>
+          <div className="mt-2">
+            <div className="text-2xl font-extrabold text-[#092342]">{prepaCount}</div>
+            <p className="text-[11px] font-semibold text-[#b45309] mt-0.5">
+              Active scholars
+            </p>
+          </div>
+        </div>
+
+        {/* Stat 5: Blocked Account AVI */}
+        <div className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-400">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              AVI Desk
+            </span>
+            <DollarSign className="w-4 h-4 text-[#64748b]" />
+          </div>
+          <div className="mt-2">
+            <div className="text-2xl font-extrabold text-[#092342]">{intakeFilteredAvi.length}</div>
+            <p className="text-[11px] font-semibold text-slate-600 mt-0.5">
+              YIMMILINE files
+            </p>
+          </div>
+        </div>
+
+        {/* Stat 6: Urgent Tasks */}
+        <div className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-400">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              Action Queue
+            </span>
+            <CheckCircle2 className="w-4 h-4 text-red-600" />
+          </div>
+          <div className="mt-2">
+            <div className="text-2xl font-extrabold text-[#092342]">{urgentTasksCount}</div>
+            <p className="text-[11px] font-semibold text-red-600 mt-0.5">
+              Pending reviews
+            </p>
+          </div>
         </div>
       </div>
 
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Left Chart: Monthly Flow of Applications & Admissions */}
+      {/* Main Grid: Left Trend Chart + Right Interactive Donut Chart */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left Column: Inquiry Trends */}
         <div className="lg:col-span-8 rounded-2xl border border-[#e6eef6] bg-white p-6 shadow-card flex flex-col justify-between">
           <div>
-            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <div className="flex items-center gap-2.5">
-                  <h2 className="text-lg font-extrabold text-[#092342] leading-snug">
-                    Monthly Inflow of Applications
-                    <br className="hidden sm:inline" /> & Admissions
-                  </h2>
-                  <span className="rounded-lg bg-[#edf4fb] px-2.5 py-1 text-[10.5px] font-bold text-[#092342]">
-                    6 Months
-                  </span>
-                </div>
-                <p className="mt-1 text-xs text-slate-500">
-                  Comparative volume between initial inquiries and confirmed admissions
+                <h2 className="text-lg font-extrabold text-[#092342] leading-snug">
+                  Applications & Inquiry Volume
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Dynamic volume tracked across DRC & Congo-Brazzaville recruitment hubs
                 </p>
               </div>
 
-              <div className="inline-flex rounded-xl bg-[#f1f6fb] p-1 self-start">
+              <div className="inline-flex rounded-xl border border-slate-200 bg-[#f1f6fb] p-1 text-xs font-bold text-slate-600">
                 <button
                   onClick={() => setChartPeriod('week')}
-                  className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition ${
-                    chartPeriod === 'week'
-                      ? 'bg-white text-[#092342] shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700'
+                  className={`px-3 py-1 rounded-lg transition ${
+                    chartPeriod === 'week' ? 'bg-white text-[#092342] shadow-xs' : 'hover:text-[#092342]'
                   }`}
                 >
-                  Weekly View
+                  Weekly
                 </button>
                 <button
                   onClick={() => setChartPeriod('month')}
-                  className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition ${
-                    chartPeriod === 'month'
-                      ? 'bg-white text-[#092342] shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700'
+                  className={`px-3 py-1 rounded-lg transition ${
+                    chartPeriod === 'month' ? 'bg-white text-[#092342] shadow-xs' : 'hover:text-[#092342]'
                   }`}
                 >
-                  Monthly View
+                  Monthly
                 </button>
               </div>
             </div>
 
-            {/* Legend */}
-            <div className="mt-4 flex items-center gap-6 text-xs font-semibold">
-              <div className="flex items-center gap-2 text-slate-700">
-                <span className="h-2.5 w-2.5 rounded-full bg-[#0c685a]" />
-                <span>Received Applications</span>
-              </div>
-              <div className="flex items-center gap-2 text-slate-700">
-                <span className="h-2.5 w-2.5 rounded-full bg-[#092342]" />
-                <span>Admissions & Visas Approved</span>
-              </div>
-            </div>
-
-            {/* SVG Dual Line & Area Chart */}
-            <div className="mt-5 relative">
-              <svg viewBox="0 0 640 220" className="w-full h-52 overflow-visible">
+            {/* SVG Trend Line Visual */}
+            <div className="my-6">
+              <svg viewBox="0 0 500 160" className="w-full h-36 overflow-visible">
                 <defs>
-                  <linearGradient id="tealArea" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#0c685a" stopOpacity="0.18" />
+                  <linearGradient id="trendGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stopColor="#0c685a" stopOpacity="0.25" />
                     <stop offset="100%" stopColor="#0c685a" stopOpacity="0.0" />
-                  </linearGradient>
-                  <linearGradient id="navyArea" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#092342" stopOpacity="0.14" />
-                    <stop offset="100%" stopColor="#092342" stopOpacity="0.0" />
                   </linearGradient>
                 </defs>
 
-                {/* Horizontal Grid Lines */}
-                {[
-                  { y: 25, label: '150' },
-                  { y: 75, label: '100' },
-                  { y: 125, label: '50' },
-                  { y: 175, label: '0' },
-                ].map((line) => (
-                  <g key={line.label}>
-                    <text
-                      x="26"
-                      y={line.y + 4}
-                      textAnchor="end"
-                      className="fill-slate-400 text-[10px]"
-                    >
-                      {line.label}
-                    </text>
-                    <line
-                      x1="40"
-                      y1={line.y}
-                      x2="615"
-                      y2={line.y}
-                      stroke="#eef3f8"
-                      strokeWidth="1"
-                    />
-                  </g>
-                ))}
+                {/* Gridlines */}
+                <line x1="0" y1="40" x2="500" y2="40" stroke="#f1f5f9" strokeDasharray="3 3" />
+                <line x1="0" y1="80" x2="500" y2="80" stroke="#f1f5f9" strokeDasharray="3 3" />
+                <line x1="0" y1="120" x2="500" y2="120" stroke="#f1f5f9" strokeDasharray="3 3" />
 
-                {/* Area Fills */}
-                <path
-                  d={
-                    chartPeriod === 'month'
-                      ? 'M 60 144 C 120 132, 150 120, 170 116 C 220 100, 250 92, 280 84 C 330 74, 360 68, 390 62 C 440 50, 470 43, 500 38 C 550 32, 580 28, 600 26 L 600 175 L 60 175 Z'
-                      : 'M 60 138 C 120 122, 150 112, 170 108 C 220 96, 250 88, 280 79 C 330 68, 360 62, 390 55 C 440 46, 470 39, 500 34 C 550 29, 580 25, 600 22 L 600 175 L 60 175 Z'
-                  }
-                  fill="url(#tealArea)"
-                />
-                <path
-                  d="M 60 164 C 120 156, 150 150, 170 147 C 220 136, 250 130, 280 124 C 330 114, 360 108, 390 103 C 440 90, 470 84, 500 79 C 550 70, 580 65, 600 61 L 600 175 L 60 175 Z"
-                  fill="url(#navyArea)"
+                {/* Area under curve */}
+                <polygon
+                  points="20,130 90,110 160,85 230,95 300,55 370,40 440,30 480,20 480,140 20,140"
+                  fill="url(#trendGrad)"
                 />
 
-                {/* Teal Curve */}
-                <path
-                  d={
-                    chartPeriod === 'month'
-                      ? 'M 60 144 C 120 132, 150 120, 170 116 C 220 100, 250 92, 280 84 C 330 74, 360 68, 390 62 C 440 50, 470 43, 500 38 C 550 32, 580 28, 600 26'
-                      : 'M 60 138 C 120 122, 150 112, 170 108 C 220 96, 250 88, 280 79 C 330 68, 360 62, 390 55 C 440 46, 470 39, 500 34 C 550 29, 580 25, 600 22'
-                  }
+                {/* Curve line */}
+                <polyline
+                  points="20,130 90,110 160,85 230,95 300,55 370,40 440,30 480,20"
                   fill="none"
                   stroke="#0c685a"
-                  strokeWidth="2.6"
+                  strokeWidth="3.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 />
 
-                {/* Navy Curve */}
-                <path
-                  d="M 60 164 C 120 156, 150 150, 170 147 C 220 136, 250 130, 280 124 C 330 114, 360 108, 390 103 C 440 90, 470 84, 500 79 C 550 70, 580 65, 600 61"
-                  fill="none"
-                  stroke="#092342"
-                  strokeWidth="2.4"
-                />
-
-                {/* Data Points */}
+                {/* Markers */}
                 {[
-                  { x: 60, y1: 144, y2: 164, month: 'May' },
-                  { x: 170, y1: 116, y2: 147, month: 'Jun' },
-                  { x: 280, y1: 84, y2: 124, month: 'Jul' },
-                  { x: 390, y1: 62, y2: 103, month: 'Aug' },
-                  { x: 500, y1: 38, y2: 79, month: 'Sep' },
-                  { x: 590, y1: 27, y2: 63, month: 'Oct', active: true },
-                ].map((pt) => (
-                  <g key={pt.month}>
+                  { cx: 20, cy: 130, month: 'May' },
+                  { cx: 90, cy: 110, month: 'Jun' },
+                  { cx: 160, cy: 85, month: 'Jul' },
+                  { cx: 230, cy: 95, month: 'Aug' },
+                  { cx: 300, cy: 55, month: 'Sep' },
+                  { cx: 370, cy: 40, month: 'Oct' },
+                  { cx: 440, cy: 30, month: 'Nov' },
+                  { cx: 480, cy: 20, month: 'Jan', active: true },
+                ].map((pt, idx) => (
+                  <g key={idx}>
                     <circle
-                      cx={pt.x}
-                      cy={pt.y1}
-                      r={pt.active ? 5 : 4}
-                      className="fill-[#0c685a] stroke-white stroke-2"
-                    />
-                    <circle
-                      cx={pt.x}
-                      cy={pt.y2}
-                      r={pt.active ? 5 : 4}
-                      className="fill-[#092342] stroke-white stroke-2"
+                      cx={pt.cx}
+                      cy={pt.cy}
+                      r={pt.active ? 5 : 3.5}
+                      className={pt.active ? 'fill-[#0c685a] stroke-white stroke-2' : 'fill-[#092342]'}
                     />
                     <text
-                      x={pt.x}
-                      y="198"
+                      x={pt.cx}
+                      y="155"
                       textAnchor="middle"
-                      className={`text-[11px] ${
-                        pt.active ? 'fill-[#0c685a] font-bold' : 'fill-slate-500 font-medium'
+                      className={`text-[10px] ${
+                        pt.active ? 'fill-[#0c685a] font-bold' : 'fill-slate-400 font-medium'
                       }`}
                     >
                       {pt.month}
@@ -512,22 +611,20 @@ export default function OverviewScreen({
           <div className="mt-3 pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
             <div className="font-bold text-[#0c685a] flex items-center gap-1.5">
               <TrendingUp className="w-3.5 h-3.5" />
-              <span>Overall conversion rate steadily growing (+14.5% over the semester)</span>
+              <span>Session growth tracking on target across all academic intakes</span>
             </div>
             <button
-              onClick={() =>
-                onNotify('Downloading eligibility audit report (LIEC-Audit-2025.xls)...')
-              }
-              className="inline-flex items-center gap-1.5 font-bold text-[#092342] hover:text-[#0c685a] transition"
+              onClick={() => onNotify('Exporting session intake summary...')}
+              className="inline-flex items-center gap-1.5 font-bold text-[#092342] hover:text-[#0c685a] transition cursor-pointer"
             >
-              <span>Download Eligibility Audit .XLS</span>
+              <span>Download Intake Audit</span>
               <Download className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
 
-        {/* Right Chart: Breakdown by Service */}
-        <div className="lg:col-span-4 rounded-2xl border border-[#e6eef6] bg-white p-6 shadow-card flex flex-col justify-between">
+        {/* Right Column: Interactive Breakdown by Service Donut Chart */}
+        <div className="lg:col-span-4 rounded-2xl border border-[#e6eef6] bg-white p-6 shadow-card flex flex-col justify-between relative overflow-hidden">
           <div>
             <div className="flex items-start justify-between">
               <div>
@@ -537,22 +634,23 @@ export default function OverviewScreen({
                   Service
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  Total categorized inquiry volume
+                  Interactive categorized volume & audit
                 </p>
               </div>
               <button
-                onClick={() => onNavigate('services')}
-                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                onClick={() => onNavigate('rapports')}
+                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 cursor-pointer"
+                title="View full reports"
               >
                 <MoreVertical className="w-4 h-4" />
               </button>
             </div>
 
-            {/* SVG Donut Chart */}
-            <div className="my-5 flex justify-center">
-              <div className="relative w-44 h-44 flex items-center justify-center">
+            {/* SVG Interactive Donut Chart */}
+            <div className="my-5 flex flex-col items-center">
+              <div className="relative w-48 h-48 flex items-center justify-center">
                 <svg viewBox="0 0 120 120" className="w-full h-full -rotate-90">
-                  {/* Track */}
+                  {/* Background Track */}
                   <circle
                     cx="60"
                     cy="60"
@@ -561,98 +659,132 @@ export default function OverviewScreen({
                     stroke="#f1f5f9"
                     strokeWidth="14"
                   />
-                  {/* Segment 1: 35% Sky Blue (#0ea5e9) */}
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="44"
-                    fill="none"
-                    stroke="#0284c7"
-                    strokeWidth="14"
-                    strokeDasharray="96.7 276.4"
-                    strokeDashoffset="0"
-                  />
-                  {/* Segment 2: 28% Deep Teal (#0b5d51) */}
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="44"
-                    fill="none"
-                    stroke="#0b5d51"
-                    strokeWidth="14"
-                    strokeDasharray="77.4 276.4"
-                    strokeDashoffset="-96.7"
-                  />
-                  {/* Segment 3: 22% Emerald (#10b981) */}
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="44"
-                    fill="none"
-                    stroke="#10b981"
-                    strokeWidth="14"
-                    strokeDasharray="60.8 276.4"
-                    strokeDashoffset="-174.1"
-                  />
-                  {/* Segment 4: 11% Amber Gold (#f4be37) */}
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="44"
-                    fill="none"
-                    stroke="#f4be37"
-                    strokeWidth="14"
-                    strokeDasharray="30.4 276.4"
-                    strokeDashoffset="-234.9"
-                  />
-                  {/* Segment 5: 4% Slate (#cbd5e1) */}
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="44"
-                    fill="none"
-                    stroke="#cbd5e1"
-                    strokeWidth="14"
-                    strokeDasharray="11.1 276.4"
-                    strokeDashoffset="-265.3"
-                  />
+
+                  {/* Dynamic Segments */}
+                  {totalBreakdownCount === 0 ? (
+                    <circle
+                      cx="60"
+                      cy="60"
+                      r="44"
+                      fill="none"
+                      stroke="#e2e8f0"
+                      strokeWidth="14"
+                    />
+                  ) : (
+                    serviceCategories.map((cat, idx) => {
+                      const dashLength = (cat.pct / 100) * circumference;
+                      const offset = -(cumulativePct / 100) * circumference;
+                      cumulativePct += cat.pct;
+
+                      const isHovered = hoveredSegment === idx;
+
+                      return (
+                        <circle
+                          key={cat.label}
+                          cx="60"
+                          cy="60"
+                          r="44"
+                          fill="none"
+                          stroke={cat.color}
+                          strokeWidth={isHovered ? 18 : 14}
+                          strokeDasharray={`${dashLength} ${circumference - dashLength}`}
+                          strokeDashoffset={offset}
+                          opacity={
+                            hoveredSegment === null || hoveredSegment === idx ? 1 : 0.5
+                          }
+                          onMouseEnter={() => setHoveredSegment(idx)}
+                          onMouseLeave={() => setHoveredSegment(null)}
+                          onClick={() =>
+                            setSelectedBreakdownService({
+                              name: cat.label,
+                              color: cat.color,
+                              records: cat.items,
+                              pct: cat.pct,
+                              valueEur: cat.valueEur,
+                            })
+                          }
+                          className="cursor-pointer transition-all duration-200"
+                        />
+                      );
+                    })
+                  )}
                 </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                  <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">
-                    TOTAL
-                  </span>
-                  <span className="text-2xl font-extrabold text-[#092342] leading-none my-0.5">
-                    {totalDemandesCount}
-                  </span>
-                  <span className="text-[10px] font-bold text-[#0c685a]">100% processed</span>
+
+                {/* Center Content / Tooltip Display */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-3 pointer-events-none">
+                  {activeHoverCategory ? (
+                    <div className="animate-in fade-in zoom-in-95 duration-100">
+                      <span
+                        className="text-[9px] font-extrabold uppercase tracking-wider block truncate max-w-[110px]"
+                        style={{ color: activeHoverCategory.color }}
+                      >
+                        {activeHoverCategory.label}
+                      </span>
+                      <span className="text-xl font-extrabold text-[#092342] leading-tight my-0.5 block">
+                        {activeHoverCategory.count} files
+                      </span>
+                      <span className="text-[10px] font-bold text-[#0c685a] block">
+                        {activeHoverCategory.pct}% (€{activeHoverCategory.valueEur.toLocaleString()})
+                      </span>
+                    </div>
+                  ) : (
+                    <div>
+                      <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">
+                        TOTAL VOLUME
+                      </span>
+                      <span className="text-2xl font-extrabold text-[#092342] leading-none my-0.5 block">
+                        {totalBreakdownCount}
+                      </span>
+                      <span className="text-[10px] font-bold text-[#0c685a]">
+                        Hover or Click to Audit
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* Breakdown List */}
-            <div className="space-y-2.5 text-xs">
-              {[
-                { label: 'Academic Orientation & Guidance', pct: '35%', color: 'bg-[#0284c7]' },
-                { label: 'University Application Support', pct: '28%', color: 'bg-[#0b5d51]' },
-                { label: 'LIEC-France PREPA Training', pct: '22%', color: 'bg-[#10b981]' },
-                { label: 'Family Consulting & Advisory', pct: '11%', color: 'bg-[#f4be37]' },
-                { label: 'Other Inquiries & Visas', pct: '4%', color: 'bg-slate-300' },
-              ].map((item) => (
-                <div key={item.label} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5 text-slate-600">
-                    <span className={`h-2.5 w-2.5 rounded-full ${item.color}`} />
-                    <span>{item.label}</span>
+            {/* Clickable Legend List */}
+            <div className="space-y-2 text-xs">
+              {serviceCategories.map((item, idx) => (
+                <div
+                  key={item.label}
+                  onMouseEnter={() => setHoveredSegment(idx)}
+                  onMouseLeave={() => setHoveredSegment(null)}
+                  onClick={() =>
+                    setSelectedBreakdownService({
+                      name: item.label,
+                      color: item.color,
+                      records: item.items,
+                      pct: item.pct,
+                      valueEur: item.valueEur,
+                    })
+                  }
+                  className={`flex items-center justify-between p-1.5 rounded-xl cursor-pointer transition ${
+                    hoveredSegment === idx ? 'bg-slate-100' : 'hover:bg-slate-50'
+                  }`}
+                  title={isEn ? 'Click to inspect detailed records' : 'Cliquer pour voir les dossiers'}
+                >
+                  <div className="flex items-center gap-2 text-slate-700 min-w-0">
+                    <span
+                      className="h-2.5 w-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: item.color }}
+                    />
+                    <span className="truncate max-w-[170px] font-medium">{item.label}</span>
                   </div>
-                  <span className="font-extrabold text-[#092342]">{item.pct}</span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-slate-400 text-[11px]">({item.count})</span>
+                    <span className="font-extrabold text-[#092342]">{item.pct}%</span>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="mt-5 pt-3 border-t border-slate-100 text-center">
+          <div className="mt-4 pt-3 border-t border-slate-100 text-center">
             <button
               onClick={() => onNavigate('ecoles')}
-              className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#092342] hover:text-[#0c685a] transition"
+              className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#092342] hover:text-[#0c685a] transition cursor-pointer"
             >
               <span>Explore Academic Partner Directory (Lyon)</span>
               <ArrowRight className="w-3.5 h-3.5" />
@@ -661,242 +793,112 @@ export default function OverviewScreen({
         </div>
       </div>
 
-      {/* 3 Highlight Info Cards Row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div
-          onClick={() => onNavigate('candidats')}
-          className="cursor-pointer rounded-2xl border border-[#e6eef6] bg-white p-3.5 shadow-card hover:border-slate-300 transition flex items-center gap-3.5"
-        >
-          <img
-            src="https://images.unsplash.com/photo-1523240795612-9a054b0db644?w=160&auto=format&fit=crop&q=80"
-            alt="Campus France"
-            className="h-14 w-14 rounded-xl object-cover shrink-0"
-          />
-          <div className="min-w-0">
-            <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#0c685a]">
-              CAMPUS FRANCE
-            </div>
-            <h3 className="text-sm font-extrabold text-[#092342] truncate">
-              Intake Session Open
-            </h3>
-            <p className="text-xs text-slate-500 truncate">
-              Etudes en France pipeline synchronized
-            </p>
-          </div>
-        </div>
+      {/* Detail Modal for Clicked Donut Segment */}
+      {selectedBreakdownService && (
+        <ServiceBreakdownDetailModal
+          serviceName={selectedBreakdownService.name}
+          serviceColor={selectedBreakdownService.color}
+          records={selectedBreakdownService.records}
+          totalRecordsCount={totalBreakdownCount}
+          percentage={selectedBreakdownService.pct}
+          totalValueEur={selectedBreakdownService.valueEur}
+          isEn={isEn}
+          onClose={() => setSelectedBreakdownService(null)}
+          onOpenRecord={(record) => {
+            setSelectedBreakdownService(null);
+            if (record.sourceModule === 'demandes') {
+              onSelectDemande(record.ref);
+            } else if (record.sourceModule === 'candidats') {
+              onNavigate('candidats');
+            } else if (record.sourceModule === 'avi') {
+              onNavigate('avi');
+            } else if (record.sourceModule === 'accommodation') {
+              onNavigate('accommodation');
+            }
+          }}
+        />
+      )}
 
-        <div
-          onClick={() => onNavigate('prepa')}
-          className="cursor-pointer rounded-2xl border border-[#e6eef6] bg-white p-3.5 shadow-card hover:border-slate-300 transition flex items-center gap-3.5"
-        >
-          <img
-            src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=160&auto=format&fit=crop&q=80"
-            alt="PREPA Kinshasa"
-            className="h-14 w-14 rounded-xl object-cover shrink-0"
-          />
-          <div className="min-w-0">
-            <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#092342]">
-              PREPA KINSHASA & BRAZZAVILLE
+      {/* Priority Action Tasks and Filtered Application Records Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Recent Applications Feed */}
+        <div className="lg:col-span-8 rounded-2xl border border-[#e6eef6] bg-white p-6 shadow-card space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-extrabold text-[#092342]">
+                Incoming Student Applications
+              </h2>
+              <p className="text-xs text-slate-500">
+                Filtered by intake: <strong>{cohortLabel}</strong>
+              </p>
             </div>
-            <h3 className="text-sm font-extrabold text-[#092342] truncate">
-              Oral Interviews D-4
-            </h3>
-            <p className="text-xs text-slate-500 truncate">
-              18 candidates scheduled for Lyon entrance tests
-            </p>
-          </div>
-        </div>
-
-        <div
-          onClick={() => onNavigate('avi')}
-          className="cursor-pointer rounded-2xl border border-[#e6eef6] bg-white p-3.5 shadow-card hover:border-slate-300 transition flex items-center gap-3.5"
-        >
-          <img
-            src="https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=160&auto=format&fit=crop&q=80"
-            alt="Visa & AVI Desk"
-            className="h-14 w-14 rounded-xl object-cover shrink-0"
-          />
-          <div className="min-w-0">
-            <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#d99b16]">
-              VISA & AVI DESK (150€ LIEC)
+            <div className="relative w-48">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchFilter}
+                onChange={(e) => setSearchFilter(e.target.value)}
+                placeholder="Search dossiers..."
+                className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-slate-50 focus:outline-none focus:bg-white"
+              />
             </div>
-            <h3 className="text-sm font-extrabold text-[#092342] truncate">
-              Visa Issuance: 100%
-            </h3>
-            <p className="text-xs text-slate-500 truncate">
-              0 rejections across AVI-certified cohorts
-            </p>
           </div>
-        </div>
-      </div>
 
-      {/* Bottom Row: Latest Received Applications + Priority Actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Left Table Card: Latest Received Applications */}
-        <div className="lg:col-span-8 rounded-2xl border border-[#e6eef6] bg-white p-6 shadow-card flex flex-col justify-between">
-          <div>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-              <div>
-                <h2 className="text-lg font-extrabold text-[#092342]">Latest Received Applications</h2>
-                <p className="text-xs text-slate-500">
-                  Real-time CRM stream from student web forms and school partner channels
-                </p>
+          <div className="divide-y divide-slate-100">
+            {visibleDemandes.length === 0 ? (
+              <div className="py-12 text-center text-xs text-slate-400">
+                No application records found matching intake: {cohortLabel}
               </div>
-              <div className="relative w-full sm:w-64">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={searchFilter}
-                  onChange={(e) => {
-                    setSearchFilter(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  placeholder="Filter by name, ref, country..."
-                  className="w-full rounded-xl bg-[#f1f6fb] pl-8 pr-3 py-2 text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20"
-                />
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-y border-slate-100 bg-[#f8fafc] text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
-                    <th className="py-3 px-3">REF</th>
-                    <th className="py-3 px-3">CANDIDATE</th>
-                    <th className="py-3 px-3">COUNTRY</th>
-                    <th className="py-3 px-3">TARGET PROGRAM & SCHOOL</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-xs">
-                  {visibleDemandes.map((dem, idx) => {
-                    const badgePalette =
-                      idx % 4 === 1
-                        ? 'bg-[#6ee7b7]/40 text-[#095247]'
-                        : idx % 4 === 2
-                        ? 'bg-sky-100 text-sky-900'
-                        : idx % 4 === 3
-                        ? 'bg-blue-100 text-blue-900'
-                        : 'bg-slate-200 text-[#092342]';
-
-                    return (
-                      <tr
-                        key={dem.ref}
-                        onClick={() => {
-                          onSelectDemande(dem.ref);
-                          onNavigate('demandes');
-                        }}
-                        className="hover:bg-[#f8fbff] cursor-pointer transition"
-                      >
-                        <td className="py-3.5 px-3 font-extrabold text-[#092342] leading-tight">
-                          {formatDisplayRef(dem.ref)
-                            .split('-')
-                            .map((part: string, i: number) => (
-                              <span key={i} className="block">
-                                {i < 2 ? `${part}-` : part}
-                              </span>
-                            ))}
-                        </td>
-                        <td className="py-3.5 px-3">
-                          <div className="flex items-center gap-3">
-                            <span
-                              className={`h-8 w-8 rounded-full flex items-center justify-center text-[11px] font-extrabold shrink-0 ${badgePalette}`}
-                            >
-                              {dem.initials}
-                            </span>
-                            <div className="min-w-0">
-                              <div className="font-bold text-[#092342] truncate">
-                                {dem.full_name}
-                              </div>
-                              <div className="text-[11px] text-slate-400 truncate">{dem.email}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-3.5 px-3">
-                          <div className="inline-flex items-center gap-1.5 text-slate-700 font-medium">
-                            <span>{dem.flag}</span>
-                            <span>{dem.country_name}</span>
-                          </div>
-                        </td>
-                        <td className="py-3.5 px-3 text-slate-600 font-medium">{dem.program}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Pagination */}
-          <div className="mt-5 pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-500">
-            <span>
-              Showing 1 to {visibleDemandes.length} of {totalDemandesCount} entries
-            </span>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                className="h-7 w-7 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-              </button>
-              {[1, 2, 3].map((p) => (
-                <button
-                  key={p}
-                  onClick={() => setCurrentPage(p)}
-                  className={`h-7 w-7 rounded-lg text-xs font-bold transition ${
-                    currentPage === p
-                      ? 'bg-[#092342] text-white'
-                      : 'text-slate-600 hover:bg-slate-100'
-                  }`}
+            ) : (
+              visibleDemandes.map((d) => (
+                <div
+                  key={d.id}
+                  onClick={() => onSelectDemande(d.ref)}
+                  className="py-3 flex items-center justify-between hover:bg-slate-50 px-2 rounded-xl cursor-pointer transition"
                 >
-                  {p}
-                </button>
-              ))}
-              <span className="px-1 text-slate-400">...</span>
-              <button
-                onClick={() => setCurrentPage(1)}
-                className="h-7 w-7 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100"
-              >
-                12
-              </button>
-              <button
-                onClick={() => setCurrentPage((p) => (p < 3 ? p + 1 : 1))}
-                className="h-7 w-7 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100"
-              >
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xl">{d.flag || '🇨🇩'}</span>
+                    <div>
+                      <div className="text-xs font-bold text-[#092342] flex items-center gap-2">
+                        <span>{d.full_name}</span>
+                        <span className="font-mono text-[10px] text-slate-400 font-normal">
+                          {d.ref}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500">{d.program}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 text-right">
+                    <span className="rounded-full bg-[#f1f6fb] px-2.5 py-0.5 text-[10.5px] font-bold text-[#0c685a]">
+                      {d.status}
+                    </span>
+                    <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">
+                      {d.expected_start || d.submitted_at || '2026'}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
-        {/* Right Panel: Priority Actions */}
+        {/* Priority Action Tasks Column */}
         <div className="lg:col-span-4 rounded-2xl border border-[#e6eef6] bg-white p-6 shadow-card flex flex-col justify-between">
           <div>
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-full bg-red-600 shrink-0" />
-                <h2 className="text-lg font-extrabold text-[#092342] leading-tight">
-                  Priority
-                  <br />
-                  Actions
-                </h2>
-              </div>
-              <span className="rounded-xl bg-[#fee2e2] px-2.5 py-1 text-[10.5px] font-extrabold text-red-700 leading-tight text-center">
-                {urgentTasksCount}
-                <br />
-                urgent
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h2 className="text-lg font-extrabold text-[#092342]">Priority Tasks</h2>
+              <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-bold text-red-700">
+                {urgentTasksCount} Pending
               </span>
             </div>
-            <p className="mt-1.5 text-xs text-slate-500">
-              To be addressed within hours by the advisory team
-            </p>
 
             <div className="mt-4 space-y-3">
-              {priorityTasks.map((task) => (
+              {priorityTasks.slice(0, 4).map((task) => (
                 <div
                   key={task.id}
-                  className={`rounded-xl border p-3.5 transition ${
+                  className={`p-3 rounded-xl border transition ${
                     task.completed
-                      ? 'border-slate-200 bg-slate-50/70 opacity-65'
+                      ? 'border-slate-100 bg-slate-50 opacity-60'
                       : 'border-[#e4edf7] bg-[#f4f8fc]'
                   }`}
                 >
@@ -931,7 +933,7 @@ export default function OverviewScreen({
                       </p>
                       <button
                         onClick={() => onNavigate(task.target_module || 'demandes')}
-                        className="mt-2 inline-flex items-center gap-1 text-[11px] font-extrabold text-[#0c685a] hover:underline"
+                        className="mt-2 inline-flex items-center gap-1 text-[11px] font-extrabold text-[#0c685a] hover:underline cursor-pointer"
                       >
                         <span>{task.action_label}</span>
                         <ArrowRight className="w-3 h-3" />
@@ -949,7 +951,7 @@ export default function OverviewScreen({
             </span>
             <button
               onClick={onResetTasks}
-              className="font-extrabold text-[#0c685a] hover:underline text-[11.5px]"
+              className="font-extrabold text-[#0c685a] hover:underline text-[11.5px] cursor-pointer"
             >
               Reset All Tasks
             </button>

@@ -504,6 +504,38 @@ async function initSchemaAndSeed(client: DBClient) {
     );
 
     -- No demo parent_student_links
+
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS tour_completed BOOLEAN NOT NULL DEFAULT FALSE;
+
+    CREATE TABLE IF NOT EXISTS prospect_calls (
+      id SERIAL PRIMARY KEY,
+      prospect_id INTEGER NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+      scheduled_date VARCHAR(40) NOT NULL,
+      scheduled_time VARCHAR(20) NOT NULL,
+      subject VARCHAR(180) NOT NULL,
+      assigned_to VARCHAR(120) NOT NULL,
+      notes TEXT,
+      status VARCHAR(30) NOT NULL DEFAULT 'Scheduled',
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS prospect_notes (
+      id SERIAL PRIMARY KEY,
+      prospect_id INTEGER NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+      author_name VARCHAR(120) NOT NULL,
+      author_email VARCHAR(160),
+      author_role VARCHAR(60) DEFAULT 'Staff',
+      content TEXT NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS user_notification_reads (
+      id SERIAL PRIMARY KEY,
+      user_email VARCHAR(160) NOT NULL,
+      notification_id VARCHAR(100) NOT NULL,
+      read_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_email, notification_id)
+    );
   `);
 
   // Ensure Admin profile and technical roles are ALWAYS preserved

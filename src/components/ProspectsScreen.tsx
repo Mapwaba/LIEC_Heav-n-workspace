@@ -32,9 +32,18 @@ import {
 } from 'lucide-react';
 
 import { Lang } from './ServicesAndOtherScreens';
+import {
+  ScheduleCallModal,
+  EditProspectModal,
+  ProspectCommentsModal,
+  ProspectProfileModal,
+  ProspectItem,
+} from './ProspectCardModals';
 
 interface ProspectsScreenProps {
   prospects: any[];
+  staffList?: { name: string; email?: string; title?: string }[];
+  currentUser?: string;
   onAddProspect: (data: any) => Promise<void>;
   onMoveProspect: (id: number, stage: string) => Promise<void>;
   onRefresh: () => void;
@@ -71,14 +80,19 @@ const STAGES = [
 
 export default function ProspectsScreen({
   prospects,
+  staffList = [],
+  currentUser = 'Barthelemy MAPWABA NTORO',
   onAddProspect,
   onMoveProspect,
   onRefresh,
   onNotify,
+  lang = 'en',
 }: ProspectsScreenProps) {
+  const isEn = lang === 'en';
+
   const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban');
   const [searchQuery, setSearchQuery] = useState('');
-  const [adviserFilter, setAdviserFilter] = useState('All (Sarah, Marc, Aïcha)');
+  const [adviserFilter, setAdviserFilter] = useState('all');
   const [quickFilter, setQuickFilter] = useState<'all' | 'urgent' | 'prepa'>('all');
   const [showAddModal, setShowAddModal] = useState(false);
   const [newProspectStage, setNewProspectStage] = useState('nouveau');
@@ -86,8 +100,25 @@ export default function ProspectsScreen({
   const [formCountry, setFormCountry] = useState('RDC');
   const [formCity, setFormCity] = useState('Kinshasa');
   const [formProgram, setFormProgram] = useState('MyDigitalSchool Lyon — Dév. Web & UX/UI');
-  const [formAdviser, setFormAdviser] = useState('S. Mwamba');
+  const [formAdviser, setFormAdviser] = useState(
+    staffList[0]?.name || 'Barthelemy MAPWABA NTORO'
+  );
   const [formUrgent, setFormUrgent] = useState(false);
+
+  // Modal interaction states for prospect cards
+  const [selectedProspectForProfile, setSelectedProspectForProfile] =
+    useState<ProspectItem | null>(null);
+  const [selectedProspectForCall, setSelectedProspectForCall] =
+    useState<ProspectItem | null>(null);
+  const [selectedProspectForEdit, setSelectedProspectForEdit] =
+    useState<ProspectItem | null>(null);
+  const [selectedProspectForComments, setSelectedProspectForComments] =
+    useState<ProspectItem | null>(null);
+
+  // Active advisors resolved from staff directory
+  const activeAdvisors = staffList.length > 0
+    ? staffList
+    : [{ name: 'Barthelemy MAPWABA NTORO', title: 'Managing Director' }];
 
   const filteredProspects = prospects.filter((p) => {
     const q = searchQuery.toLowerCase().trim();
@@ -98,7 +129,7 @@ export default function ProspectsScreen({
       p.program_tag.toLowerCase().includes(q);
 
     const matchAdviser =
-      adviserFilter === 'All (Sarah, Marc, Aïcha)' ||
+      adviserFilter === 'all' ||
       p.adviser_name.toLowerCase().includes(adviserFilter.toLowerCase());
 
     const matchQuick =
@@ -118,12 +149,13 @@ export default function ProspectsScreen({
       flag: formCountry === 'RDC' ? '🇨🇩' : '🇨🇬',
       country_city: `${formCountry} (${formCity})`,
       program_tag: formProgram,
-      adviser_name: formAdviser,
+      adviser_name: formAdviser || activeAdvisors[0]?.name,
       is_urgent: formUrgent,
       is_prepa: formProgram.includes('PREPA') || formProgram.includes('ISCOM'),
     });
     setFormName('');
     setShowAddModal(false);
+    onRefresh();
   };
 
   const getNextStage = (current: string) => {
@@ -141,7 +173,7 @@ export default function ProspectsScreen({
             <span className="rounded-full bg-[#d8f6ea] px-2.5 py-0.5 font-extrabold text-[#0c685a] uppercase">
               ACQUISITION & MENTORSHIP
             </span>
-            <span className="text-slate-500 font-medium">• Fall 2025 Session</span>
+            <span className="text-slate-500 font-medium">• Academic Session 2026–2027</span>
           </div>
           <h1 className="text-[28px] sm:text-[32px] font-extrabold tracking-tight text-[#092342] leading-[1.15]">
             Prospects & CRM
@@ -184,16 +216,16 @@ export default function ProspectsScreen({
               setNewProspectStage('nouveau');
               setShowAddModal(true);
             }}
-            className="inline-flex items-center gap-2 rounded-xl bg-[#f4be37] hover:bg-[#e5ae28] px-5 py-2.5 text-xs font-extrabold text-[#092342] shadow-sm transition"
+            className="inline-flex items-center gap-2 rounded-xl bg-[#092342] hover:bg-[#153a70] text-white px-5 py-2.5 text-xs font-extrabold shadow-sm transition cursor-pointer"
           >
-            <UserPlus className="w-4 h-4" />
-            <span>+ New Prospect</span>
+            <UserPlus className="w-4 h-4 text-[#5eead4]" />
+            <span>+ Add Prospect to Pipeline</span>
           </button>
         </div>
       </div>
 
-      {/* 4 KPI Cards with Progress Bars */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      {/* 4 Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1 */}
         <div className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card relative overflow-hidden flex flex-col justify-between">
           <div className="flex items-start justify-between">
@@ -216,8 +248,8 @@ export default function ProspectsScreen({
           </div>
           <div className="mt-4">
             <div className="flex items-center justify-between text-[11px] mb-1.5">
-              <span className="text-slate-500 font-medium">Pipeline Intake</span>
-              <span className="font-extrabold text-[#092342]">2025–2026</span>
+              <span className="text-slate-500 font-medium">Active Pipeline</span>
+              <span className="font-extrabold text-[#092342]">{activeAdvisors.length} Advisors</span>
             </div>
             <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
               <div
@@ -349,292 +381,272 @@ export default function ProspectsScreen({
         </div>
       </div>
 
-      {/* Filter & Search Bar */}
-      <div className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-        <div className="space-y-2.5 flex-1">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <div className="relative w-full sm:w-64">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Filter by name, country, program..."
-                className="w-full rounded-xl bg-[#f1f6fb] pl-9 pr-3 py-2 text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20"
-              />
-            </div>
-
-            <div className="inline-flex items-center gap-2 rounded-xl bg-[#f1f6fb] px-3 py-2 text-xs text-slate-600">
-              <Compass className="w-3.5 h-3.5 text-[#0c685a]" />
-              <span>Advisor:</span>
-              <select
-                value={adviserFilter}
-                onChange={(e) => setAdviserFilter(e.target.value)}
-                className="bg-transparent font-extrabold text-[#092342] focus:outline-none cursor-pointer"
-              >
-                <option value="All (Sarah, Marc, Aïcha)">All (Sarah, Marc, Aïcha)</option>
-                <option value="Mwamba">S. Mwamba</option>
-                <option value="Kouassi">M. Kouassi</option>
-                <option value="Diallo">A. Diallo</option>
-              </select>
-            </div>
+      {/* Control Bar: Search + Dynamic Advisors + Filters */}
+      <div className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-3 flex-1">
+          <div className="relative flex-1 min-w-[220px] max-w-sm">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Filter by name, country, city, program..."
+              className="w-full rounded-xl border border-slate-200 bg-[#fbfcfd] pl-9 pr-4 py-2 text-xs font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20"
+            />
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setQuickFilter('all')}
-              className={`rounded-full px-3 py-1 text-[11px] font-extrabold transition ${
-                quickFilter === 'all'
-                  ? 'bg-[#092342] text-white'
-                  : 'bg-[#f1f6fb] text-slate-600 hover:bg-slate-200/70'
-              }`}
+          {/* Dynamic Advisor Dropdown populated from Staff Table */}
+          <div className="inline-flex items-center gap-2 rounded-xl bg-[#f1f6fb] px-3 py-2 text-xs text-slate-600">
+            <Compass className="w-3.5 h-3.5 text-[#0c685a]" />
+            <span>Advisor:</span>
+            <select
+              value={adviserFilter}
+              onChange={(e) => setAdviserFilter(e.target.value)}
+              className="bg-transparent font-extrabold text-[#092342] focus:outline-none cursor-pointer max-w-[200px] truncate"
             >
-              All ({prospects.length})
-            </button>
-            <button
-              onClick={() => setQuickFilter('urgent')}
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-extrabold transition ${
-                quickFilter === 'urgent'
-                  ? 'bg-[#092342] text-white'
-                  : 'bg-[#f1f6fb] text-[#092342] hover:bg-slate-200/70'
-              }`}
-            >
-              <span className="h-2 w-2 rounded-full bg-red-600" />
-              <span>Urgent &lt;24h ({prospects.filter((p) => p.is_urgent).length})</span>
-            </button>
-            <button
-              onClick={() => setQuickFilter('prepa')}
-              className={`rounded-full px-3 py-1 text-[11px] font-extrabold transition ${
-                quickFilter === 'prepa'
-                  ? 'bg-[#092342] text-white'
-                  : 'bg-[#f1f6fb] text-[#092342] hover:bg-slate-200/70'
-              }`}
-            >
-              PREPA 2025 ({prospects.filter((p) => p.is_prepa).length})
-            </button>
+              <option value="all">
+                All Active Advisors ({activeAdvisors.length})
+              </option>
+              {activeAdvisors.map((staff) => (
+                <option key={staff.name} value={staff.name}>
+                  {staff.name}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 self-end lg:self-center text-xs text-slate-500">
-          <div className="flex items-center gap-2">
-            <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
-            <span className="text-[11px]">
-              Sort
-              <br />
-              by:
-            </span>
-            <span className="font-extrabold text-[#092342] leading-tight">
-              Last
-              <br />
-              Activity
-            </span>
-          </div>
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => onNotify('CRM Pipeline report exported.')}
-            className="p-2 rounded-xl hover:bg-slate-100 text-slate-600 cursor-pointer"
+            onClick={() => setQuickFilter('all')}
+            className={`rounded-xl px-3.5 py-2 text-xs font-extrabold transition cursor-pointer ${
+              quickFilter === 'all'
+                ? 'bg-[#092342] text-white shadow-xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
           >
-            <Download className="w-4 h-4" />
+            All Leads ({prospects.length})
+          </button>
+          <button
+            onClick={() => setQuickFilter('urgent')}
+            className={`rounded-xl px-3.5 py-2 text-xs font-extrabold transition cursor-pointer ${
+              quickFilter === 'urgent'
+                ? 'bg-red-600 text-white shadow-xs'
+                : 'bg-red-50 text-red-700 hover:bg-red-100'
+            }`}
+          >
+            Urgent (&lt; 24h)
+          </button>
+          <button
+            onClick={() => setQuickFilter('prepa')}
+            className={`rounded-xl px-3.5 py-2 text-xs font-extrabold transition cursor-pointer ${
+              quickFilter === 'prepa'
+                ? 'bg-[#0c685a] text-white shadow-xs'
+                : 'bg-[#d8f6ea] text-[#0c685a] hover:bg-[#bcf0dc]'
+            }`}
+          >
+            LIEC-France PREPA
           </button>
           <button
             onClick={onRefresh}
-            className="p-2 rounded-xl hover:bg-slate-100 text-slate-600 cursor-pointer"
+            className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition cursor-pointer"
+            title="Refresh Pipeline"
           >
             <RotateCw className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {/* Kanban Board or Table View */}
+      {/* Main View: Kanban or Table */}
       {viewMode === 'kanban' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           {STAGES.map((stage) => {
             const stageCards = filteredProspects.filter((p) => p.stage === stage.key);
-            const stageTotalEur = stageCards.length * 1800;
             return (
               <div
                 key={stage.key}
-                className="rounded-2xl bg-[#f1f6fb]/90 border border-[#e3edf7] p-3 space-y-3"
+                className="rounded-2xl border border-[#e6eef6] bg-[#fbfcfd] p-3 flex flex-col space-y-3"
               >
-                {/* Column Header */}
-                <div className="flex items-center justify-between px-1 pt-0.5">
+                <div className="flex items-center justify-between px-1">
                   <div className="flex items-center gap-2">
                     <span className={`h-2.5 w-2.5 rounded-full ${stage.dot}`} />
-                    <h3 className="text-xs font-extrabold text-[#092342]">{stage.label}</h3>
-                    <span
-                      className={`rounded-md px-2 py-0.5 text-[10.5px] font-extrabold ${stage.badgeBg}`}
-                    >
-                      {stageCards.length}
-                    </span>
+                    <h3 className="text-xs font-extrabold text-[#092342] uppercase tracking-wider">
+                      {stage.label}
+                    </h3>
                   </div>
-                  <span className="text-xs font-bold text-slate-500">
-                    {stageCards.length > 0 ? `€${stageTotalEur.toLocaleString()}` : '€0'}
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-[11px] font-extrabold ${stage.badgeBg}`}
+                  >
+                    {stageCards.length}
                   </span>
                 </div>
 
-                {/* Cards */}
-                <div className="space-y-3">
+                <div className="space-y-3 flex-1 overflow-y-auto max-h-[70vh]">
                   {stageCards.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-slate-200 bg-white/50 p-4 text-center text-xs text-slate-400">
+                    <div className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-xs text-slate-400">
                       No prospects in this stage
                     </div>
                   ) : (
                     stageCards.map((card, cardIdx) => {
-                    const topBorderClass =
-                      stage.key === 'nouveau' || stage.key === 'qualifie'
-                        ? 'border-t-[3px] border-t-[#092342]'
-                        : stage.key === 'premier_contact' && cardIdx === 0
-                        ? 'border-t-[3px] border-t-[#10b981]'
-                        : stage.key === 'premier_contact'
-                        ? 'border-t-[3px] border-t-[#092342]'
-                        : 'border-t-[3px] border-t-[#f4be37]';
+                      const topBorderClass =
+                        stage.key === 'nouveau' || stage.key === 'qualifie'
+                          ? 'border-t-[3px] border-t-[#092342]'
+                          : stage.key === 'premier_contact' && cardIdx === 0
+                          ? 'border-t-[3px] border-t-[#10b981]'
+                          : stage.key === 'premier_contact'
+                          ? 'border-t-[3px] border-t-[#092342]'
+                          : 'border-t-[3px] border-t-[#f4be37]';
 
-                    const badgeClass =
-                      card.badge_tone === 'urgent'
-                        ? 'bg-[#fee2e2] text-red-700'
-                        : card.badge_tone === 'amber'
-                        ? 'bg-[#fde6b8] text-[#784e06]'
-                        : card.badge_tone === 'gold'
-                        ? 'bg-[#f8dca0] text-[#5c3a04]'
-                        : 'bg-[#eaf1f9] text-[#092342]';
+                      const badgeClass =
+                        card.badge_tone === 'urgent'
+                          ? 'bg-[#fee2e2] text-red-700'
+                          : card.badge_tone === 'amber'
+                          ? 'bg-[#fde6b8] text-[#784e06]'
+                          : card.badge_tone === 'gold'
+                          ? 'bg-[#f8dca0] text-[#5c3a04]'
+                          : 'bg-[#eaf1f9] text-[#092342]';
 
-                    const adviserBadgeClass =
-                      card.adviser_color === 'teal'
-                        ? 'bg-[#0c685a] text-white'
-                        : card.adviser_color === 'amber'
-                        ? 'bg-[#784e06] text-white'
-                        : 'bg-[#092342] text-white';
+                      const adviserBadgeClass =
+                        card.adviser_color === 'teal'
+                          ? 'bg-[#0c685a] text-white'
+                          : card.adviser_color === 'amber'
+                          ? 'bg-[#784e06] text-white'
+                          : 'bg-[#092342] text-white';
 
-                    return (
-                      <div
-                        key={card.id}
-                        className={`rounded-2xl border border-[#e3edf7] ${topBorderClass} bg-white p-3.5 shadow-sm hover:shadow-md transition space-y-2.5`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <h4 className="text-[13px] font-extrabold text-[#092342] leading-snug">
-                            {card.full_name}
-                          </h4>
-                          <span
-                            className={`shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-extrabold leading-tight ${badgeClass}`}
-                          >
-                            {card.badge_text}
-                          </span>
-                        </div>
+                      const isCallScheduled = card.meta_right && card.meta_right.includes('Call:');
 
-                        <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                          <span>{card.flag}</span>
-                          <span>{card.country_city}</span>
-                        </div>
-
-                        <div>
-                          <span
-                            className={`inline-block rounded-md px-2.5 py-0.5 text-[10.5px] font-extrabold ${
-                              card.program_tag_tone === 'mint'
-                                ? 'bg-[#d8f6ea] text-[#0c685a]'
-                                : 'bg-[#edf3fb] text-[#092342]'
-                            }`}
-                          >
-                            {card.program_tag}
-                          </span>
-                        </div>
-
-                        {card.highlight_box && (
-                          <div className="rounded-lg bg-[#f1f6fb] px-2.5 py-1.5 flex items-center gap-1.5 text-[11px] font-bold text-[#092342]">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-[#0c685a] shrink-0" />
-                            <span>{card.highlight_box}</span>
-                          </div>
-                        )}
-
-                        <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px]">
-                          <span className="text-slate-600 font-medium inline-flex items-center gap-1">
-                            {card.meta_left.includes('Formulaire') || card.meta_left.includes('Web') ? (
-                              <Mail className="w-3 h-3 text-slate-400" />
-                            ) : card.meta_left.includes('WhatsApp') ? (
-                              <MessageSquare className="w-3 h-3 text-slate-400" />
-                            ) : card.meta_left.includes('Appel') || card.meta_left.includes('Call') ? (
-                              <CheckCircle2 className="w-3 h-3 text-slate-400" />
-                            ) : card.meta_left.includes('Grille') || card.meta_left.includes('Eligibility') ? (
-                              <Sliders className="w-3 h-3 text-slate-400" />
-                            ) : card.meta_left.includes('Échéance') || card.meta_left.includes('Deadline') ? (
-                              <Calendar className="w-3 h-3 text-slate-400" />
-                            ) : (
-                              <Clock className="w-3 h-3 text-slate-400" />
-                            )}
-                            <span>{card.meta_left}</span>
-                          </span>
-
-                          <span
-                            className={`font-extrabold inline-flex items-center gap-1 ${
-                              card.meta_right_tone === 'teal'
-                                ? 'text-[#0c685a]'
-                                : 'text-[#092342]'
-                            }`}
-                          >
-                            {card.meta_right.includes('Visio') || card.meta_right.includes('Video') ? (
-                              <Video className="w-3 h-3" />
-                            ) : card.meta_right.includes('Appel') ||
-                              card.meta_right.includes('Call') ||
-                              card.meta_right.includes('Reminder') ? (
-                              <Phone className="w-3 h-3" />
-                            ) : card.meta_right.includes('Attente') || card.meta_right.includes('Awaiting') ? (
-                              <FileText className="w-3 h-3" />
-                            ) : card.meta_right.includes('Rapport') || card.meta_right.includes('Report') ? (
-                              <Send className="w-3 h-3" />
-                            ) : card.meta_right.includes('Signature') ? (
-                              <FileSignature className="w-3 h-3" />
-                            ) : card.meta_right.includes('Acompte') || card.meta_right.includes('Deposit') ? (
-                              <CreditCard className="w-3 h-3" />
-                            ) : (
-                              <MessageSquare className="w-3 h-3" />
-                            )}
-                            <span>{card.meta_right}</span>
-                          </span>
-                        </div>
-
-                        {/* Card Footer */}
-                        <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                          <div className="flex items-center gap-2">
+                      return (
+                        <div
+                          key={card.id}
+                          className={`rounded-2xl border border-[#e3edf7] ${topBorderClass} bg-white p-3.5 shadow-sm hover:shadow-md transition space-y-2.5`}
+                        >
+                          {/* Card Header: Clickable Name to open profile */}
+                          <div className="flex items-start justify-between gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedProspectForProfile(card)}
+                              className="text-[13px] font-extrabold text-[#092342] hover:text-[#0c685a] hover:underline text-left leading-snug cursor-pointer transition"
+                              title="Click to view full prospect profile"
+                            >
+                              {card.full_name}
+                            </button>
                             <span
-                              className={`h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-extrabold ${adviserBadgeClass}`}
+                              className={`shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-extrabold leading-tight ${badgeClass}`}
                             >
-                              {card.adviser_initials}
-                            </span>
-                            <span className="text-[11px] font-bold text-[#092342]">
-                              {card.adviser_name}
+                              {card.badge_text}
                             </span>
                           </div>
 
-                          <div className="flex items-center gap-1 text-slate-400">
-                            <button
-                              onClick={() =>
-                                onMoveProspect(card.id, getNextStage(card.stage))
-                              }
-                              title="Advance to next stage"
-                              className="p-1 rounded hover:bg-slate-100 hover:text-[#092342]"
+                          <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                            <span>{card.flag}</span>
+                            <span>{card.country_city}</span>
+                          </div>
+
+                          <div>
+                            <span
+                              className={`inline-block rounded-md px-2.5 py-0.5 text-[10.5px] font-extrabold ${
+                                card.program_tag_tone === 'mint'
+                                  ? 'bg-[#d8f6ea] text-[#0c685a]'
+                                  : 'bg-[#edf3fb] text-[#092342]'
+                              }`}
                             >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
+                              {card.program_tag}
+                            </span>
+                          </div>
+
+                          {card.highlight_box && (
+                            <div className="rounded-lg bg-[#f1f6fb] px-2.5 py-1.5 flex items-center gap-1.5 text-[11px] font-bold text-[#092342]">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-[#0c685a] shrink-0" />
+                              <span>{card.highlight_box}</span>
+                            </div>
+                          )}
+
+                          {/* Middle row: Ingestion + Schedule a Call */}
+                          <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px]">
+                            <span className="text-slate-600 font-medium inline-flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-slate-400" />
+                              <span>{card.meta_left}</span>
+                            </span>
+
+                            {/* Actionable Call Button (translated and functional) */}
                             <button
-                              onClick={() =>
-                                onNotify(`Message sent to ${card.full_name}.`)
-                              }
-                              className="p-1 rounded hover:bg-slate-100 hover:text-[#0c685a]"
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedProspectForCall(card);
+                              }}
+                              className={`inline-flex items-center gap-1 font-extrabold px-2 py-0.5 rounded-lg transition cursor-pointer ${
+                                isCallScheduled
+                                  ? 'bg-[#d8f6ea] text-[#0c685a] hover:bg-[#bcf0dc]'
+                                  : 'bg-slate-100 text-[#092342] hover:bg-[#092342] hover:text-white'
+                              }`}
+                              title="Click to schedule or view call appointment"
                             >
-                              <MessageSquare className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() =>
-                                onMoveProspect(card.id, getNextStage(card.stage))
-                              }
-                              className="p-1 rounded hover:bg-slate-100 hover:text-[#092342]"
-                            >
-                              <MoreVertical className="w-3.5 h-3.5" />
+                              <Phone className="w-3 h-3" />
+                              <span className="truncate max-w-[130px]">
+                                {isCallScheduled ? card.meta_right : 'Schedule a Call'}
+                              </span>
                             </button>
                           </div>
+
+                          {/* Card Footer: Advisor Info & Action Icons */}
+                          <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-extrabold ${adviserBadgeClass}`}
+                              >
+                                {card.adviser_initials}
+                              </span>
+                              <span className="text-[11px] font-bold text-[#092342] truncate max-w-[100px]">
+                                {card.adviser_name}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1 text-slate-400">
+                              {/* Edit Pen Icon: Opens Edit Modal */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedProspectForEdit(card);
+                                }}
+                                title="Edit prospect record"
+                                className="p-1 rounded hover:bg-slate-100 hover:text-[#092342] transition cursor-pointer"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-slate-600" />
+                              </button>
+
+                              {/* Comment Icon: Opens Comments & Notes Modal */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedProspectForComments(card);
+                                }}
+                                title="Open & enter team comments"
+                                className="p-1 rounded hover:bg-slate-100 hover:text-[#0c685a] transition cursor-pointer"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5 text-slate-600" />
+                              </button>
+
+                              {/* Advance Stage Icon */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onMoveProspect(card.id, getNextStage(card.stage));
+                                }}
+                                title="Advance to next stage"
+                                className="p-1 rounded hover:bg-slate-100 hover:text-[#092342] transition cursor-pointer"
+                              >
+                                <MoreVertical className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })
-                )}
+                      );
+                    })
+                  )}
                 </div>
 
                 {/* Add to stage button */}
@@ -643,7 +655,7 @@ export default function ProspectsScreen({
                     setNewProspectStage(stage.key);
                     setShowAddModal(true);
                   }}
-                  className="w-full rounded-xl border border-dashed border-slate-300 hover:border-[#092342] py-2.5 text-xs font-bold text-slate-500 hover:text-[#092342] flex items-center justify-center gap-1.5 transition"
+                  className="w-full rounded-xl border border-dashed border-slate-300 hover:border-[#092342] py-2 text-xs font-bold text-slate-500 hover:text-[#092342] flex items-center justify-center gap-1.5 transition cursor-pointer"
                 >
                   <PlusCircle className="w-3.5 h-3.5" />
                   <span>+ Add to this stage</span>
@@ -663,7 +675,7 @@ export default function ProspectsScreen({
                 <th className="py-3.5 px-4">TARGET PROGRAM</th>
                 <th className="py-3.5 px-4">PIPELINE STAGE</th>
                 <th className="py-3.5 px-4">ADVISOR</th>
-                <th className="py-3.5 px-4">ACTION</th>
+                <th className="py-3.5 px-4">ACTIONS</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -676,7 +688,14 @@ export default function ProspectsScreen({
               ) : (
                 filteredProspects.map((p) => (
                   <tr key={p.id} className="hover:bg-slate-50">
-                    <td className="py-3.5 px-4 font-extrabold text-[#092342]">{p.full_name}</td>
+                    <td className="py-3.5 px-4">
+                      <button
+                        onClick={() => setSelectedProspectForProfile(p)}
+                        className="font-extrabold text-[#092342] hover:text-[#0c685a] hover:underline cursor-pointer text-left"
+                      >
+                        {p.full_name}
+                      </button>
+                    </td>
                     <td className="py-3.5 px-4">
                       {p.flag} {p.country_city}
                     </td>
@@ -688,12 +707,35 @@ export default function ProspectsScreen({
                     </td>
                     <td className="py-3.5 px-4 font-bold text-slate-700">{p.adviser_name}</td>
                     <td className="py-3.5 px-4">
-                      <button
-                        onClick={() => onMoveProspect(p.id, getNextStage(p.stage))}
-                        className="rounded-lg bg-[#092342] text-white px-3 py-1 text-[11px] font-bold hover:bg-[#12365a] cursor-pointer"
-                      >
-                        Advance stage →
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setSelectedProspectForCall(p)}
+                          className="rounded-lg bg-slate-100 hover:bg-slate-200 px-2.5 py-1 text-[11px] font-bold text-[#092342] flex items-center gap-1 cursor-pointer"
+                        >
+                          <Phone className="w-3 h-3 text-[#0c685a]" />
+                          <span>Schedule</span>
+                        </button>
+                        <button
+                          onClick={() => setSelectedProspectForComments(p)}
+                          className="p-1 rounded hover:bg-slate-100 text-slate-600 cursor-pointer"
+                          title="Notes"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setSelectedProspectForEdit(p)}
+                          className="p-1 rounded hover:bg-slate-100 text-slate-600 cursor-pointer"
+                          title="Edit"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => onMoveProspect(p.id, getNextStage(p.stage))}
+                          className="rounded-lg bg-[#092342] text-white px-2.5 py-1 text-[11px] font-bold hover:bg-[#12365a] cursor-pointer"
+                        >
+                          Advance →
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -703,7 +745,7 @@ export default function ProspectsScreen({
         </div>
       )}
 
-      {/* Modal: Add Prospect */}
+      {/* Modal: Add Prospect to Pipeline */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-elevated border border-slate-100 space-y-4">
@@ -713,7 +755,7 @@ export default function ProspectsScreen({
               </h3>
               <button
                 onClick={() => setShowAddModal(false)}
-                className="text-slate-400 hover:text-slate-600 text-sm font-bold"
+                className="text-slate-400 hover:text-slate-600 text-sm font-bold cursor-pointer"
               >
                 ✕
               </button>
@@ -749,88 +791,73 @@ export default function ProspectsScreen({
                   </select>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">City</label>
-                  <select
+                  <label className="block font-bold text-slate-700 mb-1">City *</label>
+                  <input
+                    type="text"
+                    required
                     value={formCity}
                     onChange={(e) => setFormCity(e.target.value)}
                     className="w-full rounded-xl border border-slate-200 px-3 py-2.5"
-                  >
-                    {formCountry === 'RDC' ? (
-                      <>
-                        <option value="Kinshasa">Kinshasa</option>
-                        <option value="Lubumbashi">Lubumbashi</option>
-                        <option value="Goma">Goma</option>
-                      </>
-                    ) : (
-                      <>
-                        <option value="Brazzaville">Brazzaville</option>
-                        <option value="Pointe-Noire">Pointe-Noire</option>
-                      </>
-                    )}
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Partner School in Lyon *</label>
-                  <select
-                    value={formProgram}
-                    onChange={(e) => setFormProgram(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5"
-                  >
-                    <option value="ISCOM Lyon — Communication & Marketing">1. ISCOM Lyon</option>
-                    <option value="MyDigitalSchool Lyon — Dév. Web & UX/UI">2. MyDigitalSchool Lyon</option>
-                    <option value="École Internationale Tunon Lyon">3. École Internationale Tunon Lyon</option>
-                    <option value="IHECF Lyon — Comptabilité & Finance">4. IHECF Lyon</option>
-                    <option value="Ipac Bachelor Factory Lyon">5. Ipac Bachelor Factory Lyon</option>
-                    <option value="MBway Lyon — Management & Commerce Int.">6. MBway Lyon</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Initial Stage</label>
-                  <select
-                    value={newProspectStage}
-                    onChange={(e) => setNewProspectStage(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5"
-                  >
-                    <option value="nouveau">New Lead</option>
-                    <option value="premier_contact">First Contact</option>
-                    <option value="diagnostic">Eligibility Check</option>
-                    <option value="qualifie">Qualified</option>
-                  </select>
-                </div>
-              </div>
-              <div className="flex items-center justify-between pt-1">
-                <label className="inline-flex items-center gap-2 font-semibold text-slate-600 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formUrgent}
-                    onChange={(e) => setFormUrgent(e.target.checked)}
-                    className="rounded border-slate-300 text-[#0c685a]"
                   />
-                  <span>High Priority (&lt; 24h)</span>
+                </div>
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Program or School *</label>
+                <select
+                  value={formProgram}
+                  onChange={(e) => setFormProgram(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5"
+                >
+                  <option>LIEC-France PREPA (2026–2027 Cohort)</option>
+                  <option>MyDigitalSchool Lyon — Dév. Web & UX/UI</option>
+                  <option>ISCOM Lyon — Com & Marketing</option>
+                  <option>École Internationale Tunon — Tourisme & Hôtellerie</option>
+                  <option>IHECF Lyon — Audit & Expertise Comptable</option>
+                  <option>MBway Lyon — Management & Affaires Internationales</option>
+                </select>
+              </div>
+
+              {/* Dynamic Advisor Select from Staff Directory */}
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Assigned Staff Advisor *
                 </label>
                 <select
                   value={formAdviser}
                   onChange={(e) => setFormAdviser(e.target.value)}
-                  className="rounded-lg border border-slate-200 px-2.5 py-1.5 font-bold text-[#092342]"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 font-bold text-[#092342]"
                 >
-                  <option>S. Mwamba</option>
-                  <option>M. Kouassi</option>
-                  <option>A. Diallo</option>
+                  {activeAdvisors.map((staff) => (
+                    <option key={staff.name} value={staff.name}>
+                      {staff.name} {staff.title ? `(${staff.title})` : ''}
+                    </option>
+                  ))}
                 </select>
               </div>
+
+              <div className="pt-1">
+                <label className="inline-flex items-center gap-2 cursor-pointer font-bold text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={formUrgent}
+                    onChange={(e) => setFormUrgent(e.target.checked)}
+                    className="rounded text-red-600 focus:ring-red-500"
+                  />
+                  <span>High Priority (&lt; 24h follow-up)</span>
+                </label>
+              </div>
+
               <div className="pt-3 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="rounded-xl border border-slate-200 px-4 py-2 font-bold text-slate-600"
+                  className="rounded-xl border border-slate-200 px-4 py-2 font-bold text-slate-600 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-[#092342] text-white px-5 py-2 font-extrabold"
+                  className="rounded-xl bg-[#092342] text-white px-5 py-2 font-extrabold cursor-pointer"
                 >
                   Save Prospect
                 </button>
@@ -838,6 +865,61 @@ export default function ProspectsScreen({
             </form>
           </div>
         </div>
+      )}
+
+      {/* Interactive Modals */}
+      {selectedProspectForCall && (
+        <ScheduleCallModal
+          prospect={selectedProspectForCall}
+          staffList={activeAdvisors}
+          currentUser={currentUser}
+          isEn={isEn}
+          onClose={() => setSelectedProspectForCall(null)}
+          onSaved={() => {
+            onRefresh();
+            onNotify(`Call scheduled for ${selectedProspectForCall.full_name}`);
+          }}
+        />
+      )}
+
+      {selectedProspectForEdit && (
+        <EditProspectModal
+          prospect={selectedProspectForEdit}
+          staffList={activeAdvisors}
+          isEn={isEn}
+          onClose={() => setSelectedProspectForEdit(null)}
+          onSaved={() => {
+            onRefresh();
+            onNotify(`Prospect ${selectedProspectForEdit.full_name} updated successfully.`);
+          }}
+        />
+      )}
+
+      {selectedProspectForComments && (
+        <ProspectCommentsModal
+          prospect={selectedProspectForComments}
+          currentUser={currentUser}
+          isEn={isEn}
+          onClose={() => setSelectedProspectForComments(null)}
+        />
+      )}
+
+      {selectedProspectForProfile && (
+        <ProspectProfileModal
+          prospect={selectedProspectForProfile}
+          isEn={isEn}
+          onClose={() => setSelectedProspectForProfile(null)}
+          onScheduleCall={() => setSelectedProspectForCall(selectedProspectForProfile)}
+          onEdit={() => setSelectedProspectForEdit(selectedProspectForProfile)}
+          onOpenComments={() => setSelectedProspectForComments(selectedProspectForProfile)}
+          onAdvanceStage={() => {
+            onMoveProspect(
+              selectedProspectForProfile.id,
+              getNextStage(selectedProspectForProfile.stage)
+            );
+            setSelectedProspectForProfile(null);
+          }}
+        />
       )}
     </div>
   );
