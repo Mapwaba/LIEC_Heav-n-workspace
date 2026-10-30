@@ -32,6 +32,19 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [twoFaData, setTwoFaData] = useState<TwoFaSetupData | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
+  const [sessionTimeoutNotice, setSessionTimeoutNotice] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('reason') === 'session_timeout') {
+        const timeout = params.get('timeout') || '15';
+        setSessionTimeoutNotice(
+          `⏱️ Session expirée après ${timeout} minutes d'inactivité. Conformément à la politique de sécurité fixée par l'administrateur, votre session a été fermée pour protéger vos données. Veuillez vous reconnecter.`
+        );
+      }
+    }
+  }, []);
 
   // Mandatory First-Login Password Change State
   const [firstLoginUser, setFirstLoginUser] = useState<any>(null);
@@ -788,6 +801,25 @@ export default function LoginPage() {
               <>
                 <h2>Welcome back</h2>
                 <p className="sub">Sign in to your LIEC Heav’n workspace.</p>
+
+                {sessionTimeoutNotice && (
+                  <div
+                    style={{
+                      backgroundColor: '#fffbeb',
+                      border: '1px solid #fde68a',
+                      color: '#92400e',
+                      padding: '12px 14px',
+                      borderRadius: '12px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      marginBottom: '16px',
+                      lineHeight: '1.5',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                    }}
+                  >
+                    {sessionTimeoutNotice}
+                  </div>
+                )}
 
                 {error && <div className="error">{error}</div>}
 

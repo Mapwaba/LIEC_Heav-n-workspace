@@ -125,6 +125,14 @@ export default function LiecWorkspacePage() {
   const [prepaPayments, setPrepaPayments] = useState<any[]>([]);
   const [prepaReceipts, setPrepaReceipts] = useState<any[]>([]);
 
+  // Session Inactivity Timeout State (Enforces 10 to 30 min Range)
+  const [sessionTimeouts, setSessionTimeouts] = useState<any[]>([]);
+  const [sessionTimeoutMinutes, setSessionTimeoutMinutes] = useState<number>(15);
+  const [lastActivity, setLastActivity] = useState<number>(Date.now());
+  const [secondsRemaining, setSecondsRemaining] = useState<number>(900);
+  const [showSessionWarning, setShowSessionWarning] = useState<boolean>(false);
+  const lastActivityRef = React.useRef<number>(Date.now());
+
   const [selectedDemandeRef, setSelectedDemandeRef] = useState('');
   const [selectedCandidatRef, setSelectedCandidatRef] = useState('');
 
@@ -224,6 +232,23 @@ export default function LiecWorkspacePage() {
       if (data.accommodationRequests) setAccommodationRequests(data.accommodationRequests);
       if (data.prepaPayments) setPrepaPayments(data.prepaPayments);
       if (data.prepaReceipts) setPrepaReceipts(data.prepaReceipts);
+      if (data.sessionTimeouts && Array.isArray(data.sessionTimeouts)) {
+        setSessionTimeouts(data.sessionTimeouts);
+        const activeRole = (currentUser?.role || rolePreview || userRole || 'admin').toLowerCase();
+        const activeProfile = (currentUser?.business_profile || '').toLowerCase();
+        const match = data.sessionTimeouts.find(
+          (t: any) =>
+            t.role_id?.toLowerCase() === activeRole ||
+            t.business_profile?.toLowerCase() === activeProfile
+        );
+        if (match?.timeout_minutes) {
+          const clamped = Math.min(30, Math.max(10, match.timeout_minutes));
+          setSessionTimeoutMinutes(clamped);
+          try {
+            localStorage.setItem('liec_session_timeout', String(clamped));
+          } catch {}
+        }
+      }
     } catch (err) {
       console.error('Failed to fetch workspace:', err);
     } finally {
@@ -349,6 +374,113 @@ export default function LiecWorkspacePage() {
       return next;
     });
   };
+
+  // Sync session timeout whenever role preview or user role changes
+  useEffect(() => {
+    if (sessionTimeouts.length > 0) {
+      const targetRole = (rolePreview || userRole || '').toLowerCase();
+      const match = sessionTimeouts.find(
+        (t: any) => t.role_id?.toLowerCase() === targetRole
+      );
+      if (match?.timeout_minutes) {
+        const minutes = Math.min(30, Math.max(10, match.timeout_minutes));
+        setSessionTimeoutMinutes(minutes);
+      }
+    }
+  }, [rolePreview, userRole, sessionTimeouts]);
+
+  // Session Inactivity Tracking (across window events and synchronized across browser tabs)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const initialNow = Date.now();
+    lastActivityRef.current = initialNow;
+    setLastActivity(initialNow);
+    try {
+      localStorage.setItem('liec_last_activity', String(initialNow));
+    } catch {}
+
+    const onUserActivity = () => {
+      const now = Date.now();
+      // Throttle activity updates to at most once every 2 seconds
+      if (now - lastActivityRef.current > 2000) {
+        lastActivityRef.current = now;
+        setLastActivity(now);
+        try {
+          localStorage.setItem('liec_last_activity', String(now));
+        } catch {}
+      }
+    };
+
+    const trackedEvents = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
+    trackedEvents.forEach((evt) => window.addEventListener(evt, onUserActivity, { passive: true }));
+
+    return () => {
+      trackedEvents.forEach((evt) => window.removeEventListener(evt, onUserActivity));
+    };
+  }, [isAuthenticated]);
+
+  const handleSessionTimeoutLogout = useCallback(() => {
+    try {
+      localStorage.removeItem('liec_user');
+      localStorage.removeItem('liec_role');
+      localStorage.removeItem('liec_last_activity');
+      document.cookie = 'liec_user_email=; path=/; max-age=0; SameSite=Lax';
+    } catch {}
+    setIsAuthenticated(false);
+    setShowSessionWarning(false);
+    router.replace(
+      `/login?reason=session_timeout&role=${encodeURIComponent(userRole || 'staff')}&timeout=${sessionTimeoutMinutes}`
+    );
+  }, [router, userRole, sessionTimeoutMinutes]);
+
+  const handleExtendSession = () => {
+    const now = Date.now();
+    lastActivityRef.current = now;
+    setLastActivity(now);
+    setShowSessionWarning(false);
+    setSecondsRemaining(sessionTimeoutMinutes * 60);
+    try {
+      localStorage.setItem('liec_last_activity', String(now));
+    } catch {}
+    showToast(isEn ? 'Session extended successfully.' : 'Session prolongée avec succès.');
+  };
+
+  // Countdown ticker and timeout logout enforcement
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const timer = setInterval(() => {
+      let storedLast = lastActivityRef.current;
+      try {
+        const fromStorage = Number(localStorage.getItem('liec_last_activity'));
+        if (fromStorage && fromStorage > storedLast) {
+          storedLast = fromStorage;
+          lastActivityRef.current = fromStorage;
+        }
+      } catch {}
+
+      const elapsedMs = Date.now() - storedLast;
+      const totalTimeoutMs = sessionTimeoutMinutes * 60 * 1000;
+      const remaining = Math.max(0, Math.round((totalTimeoutMs - elapsedMs) / 1000));
+      setSecondsRemaining(remaining);
+
+      // Warning prompt when <= 60 seconds remain
+      if (remaining <= 60 && remaining > 0) {
+        setShowSessionWarning(true);
+      } else if (remaining > 60) {
+        setShowSessionWarning(false);
+      }
+
+      // Session expired: logout and redirect to login page
+      if (remaining <= 0) {
+        clearInterval(timer);
+        handleSessionTimeoutLogout();
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [isAuthenticated, sessionTimeoutMinutes, handleSessionTimeoutLogout]);
 
   // Keyboard shortcut ⌘K / Ctrl+K for search
   useEffect(() => {
@@ -1351,6 +1483,7 @@ export default function LiecWorkspacePage() {
                   rolePreview={rolePreview}
                   users={users}
                   roles={roles}
+                  sessionTimeouts={sessionTimeouts}
                   onRefreshWorkspace={fetchWorkspace}
                 />
               )}
@@ -1878,6 +2011,60 @@ export default function LiecWorkspacePage() {
                 className="rounded-xl bg-[#092342] hover:bg-[#12365a] text-white px-5 py-2 text-xs font-extrabold transition cursor-pointer"
               >
                 {isEn ? 'Done' : 'Terminer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Session Inactivity Warning Modal (60s countdown) */}
+      {showSessionWarning && isAuthenticated && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl space-y-5 border-2 border-amber-300 text-center animate-scaleUp">
+            <div className="mx-auto h-16 w-16 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 animate-pulse">
+              <Clock className="w-8 h-8" />
+            </div>
+
+            <div className="space-y-2">
+              <span className="inline-block px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800">
+                {isEn ? 'Security Notice • Session Timeout' : 'Alerte de Sécurité • Délai d’Inactivité'}
+              </span>
+              <h3 className="text-lg font-extrabold text-[#092342]">
+                {isEn ? 'Session Expiring Soon' : 'Votre session va expirer'}
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                {isEn
+                  ? `No activity detected. In accordance with administrator security policy (${sessionTimeoutMinutes} min for your role), you will be logged out in:`
+                  : `Aucune activité détectée. Conformément à la politique de sécurité fixée par l’administrateur (${sessionTimeoutMinutes} min pour votre rôle), vous serez déconnecté dans :`}
+              </p>
+            </div>
+
+            {/* Countdown Display */}
+            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200">
+              <div className="text-3xl font-black font-mono text-amber-700">
+                00:{String(secondsRemaining).padStart(2, '0')}
+              </div>
+              <div className="text-[11px] font-bold text-amber-600 mt-1">
+                {isEn ? 'seconds remaining' : 'secondes restantes'}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={handleSessionTimeoutLogout}
+                className="flex-1 py-3 px-4 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-extrabold transition cursor-pointer"
+              >
+                {isEn ? 'Log Out Now' : 'Se déconnecter'}
+              </button>
+              <button
+                type="button"
+                onClick={handleExtendSession}
+                className="flex-1 py-3 px-4 rounded-xl bg-[#0c685a] hover:bg-[#094e45] text-white text-xs font-extrabold shadow-sm transition flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Check className="w-4 h-4" />
+                <span>{isEn ? "I'm Still Here" : 'Rester connecté'}</span>
               </button>
             </div>
           </div>

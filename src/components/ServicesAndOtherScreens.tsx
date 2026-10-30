@@ -3398,6 +3398,7 @@ export function ParametresGovernanceScreen({
   rolePreview = 'admin',
   users: initialUsers = [],
   roles: initialRoles = [],
+  sessionTimeouts: initialSessionTimeouts = [],
   onRefreshWorkspace,
 }: {
   auditLogs?: any[];
@@ -3407,6 +3408,7 @@ export function ParametresGovernanceScreen({
   rolePreview?: 'admin' | 'secretary' | 'avi';
   users?: any[];
   roles?: any[];
+  sessionTimeouts?: any[];
   onRefreshWorkspace?: () => void;
 }) {
   const isEn = lang === 'en';
@@ -3415,9 +3417,14 @@ export function ParametresGovernanceScreen({
     currentUser?.business_profile === 'Admin' ||
     currentUser?.role === 'admin';
 
-  const [subTab, setSubTab] = useState<'matrix' | 'roles' | 'users' | 'audit'>('users');
+  const [subTab, setSubTab] = useState<'matrix' | 'roles' | 'users' | 'audit' | 'session'>('users');
   const [userList, setUserList] = useState<any[]>(initialUsers);
   const [roleList, setRoleList] = useState<any[]>(initialRoles);
+  const [sessionTimeoutsList, setSessionTimeoutsList] = useState<any[]>(initialSessionTimeouts);
+  const [timeoutValues, setTimeoutValues] = useState<Record<string, number>>({});
+  const [loadingTimeouts, setLoadingTimeouts] = useState(false);
+  const [savingTimeoutRole, setSavingTimeoutRole] = useState<string | null>(null);
+  const [activeUserTimeout, setActiveUserTimeout] = useState<number>(15);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
   const [loadingAction, setLoadingAction] = useState(false);
 
@@ -3477,6 +3484,128 @@ export function ParametresGovernanceScreen({
       setRoleList(initialRoles);
     }
   }, [initialRoles]);
+
+  useEffect(() => {
+    if (initialSessionTimeouts && initialSessionTimeouts.length > 0) {
+      setSessionTimeoutsList(initialSessionTimeouts);
+      const map: Record<string, number> = {};
+      initialSessionTimeouts.forEach((item: any) => {
+        map[item.role_id] = item.timeout_minutes;
+      });
+      setTimeoutValues((prev) => ({ ...map, ...prev }));
+    }
+  }, [initialSessionTimeouts]);
+
+  const fetchTimeouts = useCallback(async () => {
+    try {
+      setLoadingTimeouts(true);
+      const activeEmail = currentUser?.email || 'bmapwabantoro@liecconsulting.com';
+      const res = await fetch('/api/session-timeout', {
+        headers: { 'x-user-email': activeEmail },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.timeouts && Array.isArray(data.timeouts)) {
+          setSessionTimeoutsList(data.timeouts);
+          const map: Record<string, number> = {};
+          data.timeouts.forEach((item: any) => {
+            map[item.role_id] = item.timeout_minutes;
+          });
+          setTimeoutValues((prev) => ({ ...map, ...prev }));
+        }
+        if (data.userTimeout) {
+          setActiveUserTimeout(data.userTimeout);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch session timeouts:', e);
+    } finally {
+      setLoadingTimeouts(false);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    fetchTimeouts();
+  }, [fetchTimeouts]);
+
+  const handleSaveTimeout = async (roleId: string, roleName?: string, businessProfile?: string) => {
+    const rawVal = timeoutValues[roleId] ?? 15;
+    const minutes = Math.min(30, Math.max(10, Math.round(Number(rawVal))));
+
+    setSavingTimeoutRole(roleId);
+    try {
+      const res = await fetch('/api/session-timeout', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
+        },
+        body: JSON.stringify({
+          role_id: roleId,
+          role_name: roleName,
+          business_profile: businessProfile,
+          timeout_minutes: minutes,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.timeouts) {
+          setSessionTimeoutsList(data.timeouts);
+        }
+        onRefreshWorkspace?.();
+        showFeedback(
+          isEn
+            ? `Session timeout for '${roleName || roleId}' successfully saved to ${minutes} min.`
+            : `Délai de session pour '${roleName || roleId}' enregistré à ${minutes} min avec succès.`
+        );
+      } else {
+        const err = await res.json();
+        showFeedback(err.error_en || err.error || 'Erreur lors de la sauvegarde');
+      }
+    } catch {
+      showFeedback(isEn ? 'Network error saving timeout' : 'Erreur réseau');
+    } finally {
+      setSavingTimeoutRole(null);
+    }
+  };
+
+  const handleSaveAllTimeouts = async () => {
+    setSavingTimeoutRole('all');
+    try {
+      const updates = Object.keys(timeoutValues).map((roleId) => ({
+        role_id: roleId,
+        timeout_minutes: Math.min(30, Math.max(10, Math.round(Number(timeoutValues[roleId])))),
+      }));
+
+      const res = await fetch('/api/session-timeout', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
+        },
+        body: JSON.stringify({ updates }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.timeouts) setSessionTimeoutsList(data.timeouts);
+        onRefreshWorkspace?.();
+        showFeedback(
+          isEn
+            ? 'All role session timeouts updated successfully (10-30m range enforced).'
+            : 'Tous les délais de session par rôle ont été mis à jour avec succès (plage 10-30 min respectée).'
+        );
+      } else {
+        const err = await res.json();
+        showFeedback(err.error || 'Erreur lors de la mise à jour des délais');
+      }
+    } catch {
+      showFeedback('Erreur réseau lors de la mise à jour');
+    } finally {
+      setSavingTimeoutRole(null);
+    }
+  };
 
   const showFeedback = (msg: string) => {
     setFeedbackMsg(msg);
@@ -3754,6 +3883,7 @@ export function ParametresGovernanceScreen({
         {[
           { id: 'users', label: isEn ? 'User Management (Workflow)' : 'Gestion des Utilisateurs', icon: Users },
           { id: 'roles', label: isEn ? 'Technical Roles Table' : 'Table des Rôles Techniques', icon: Key },
+          { id: 'session', label: isEn ? 'Session Timeouts (10-30m)' : 'Délais de Session (10-30 min)', icon: Clock },
           { id: 'matrix', label: isEn ? 'Access Matrix' : 'Matrice d’Accès (Matrix)', icon: SlidersHorizontal },
           { id: 'audit', label: isEn ? 'Audit & Security Trail' : 'Journal d’Audit & Sécurité', icon: ShieldCheck },
         ].map((tab) => {
@@ -4160,6 +4290,405 @@ export function ParametresGovernanceScreen({
               <div className="text-xs text-slate-400 py-6 text-center">Aucun événement d’audit enregistré.</div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* TAB: SESSION TIMEOUT POLICIES (Admin Only, Manageable Range: 10 - 30 minutes) */}
+      {subTab === 'session' && (
+        <div className="space-y-6 animate-fadeIn">
+          {!isAdmin ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-amber-900 text-xs shadow-xs">
+              <div className="flex items-center gap-2 text-sm font-extrabold mb-1">
+                <ShieldAlert className="w-5 h-5 text-amber-700" />
+                <span>{isEn ? 'Restricted to Platform Administrators' : 'Accès Restreint aux Administrateurs'}</span>
+              </div>
+              <p>
+                {isEn
+                  ? 'Only Platform Administrators with the Admin role can manage session timeout policies. This ensures unauthorized users cannot modify session inactivity rules.'
+                  : 'Seul un Administrateur doté du profil Admin peut gérer et modifier les délais d’expiration de session par rôle.'}
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Header Banner & Save All Action */}
+              <div className="rounded-2xl border border-[#d8f6ea] bg-gradient-to-r from-[#f0faf7] to-white p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
+                <div className="flex items-start gap-3.5">
+                  <div className="h-11 w-11 rounded-2xl bg-[#0c685a] text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <Clock className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-base font-extrabold text-[#092342]">
+                        {isEn ? 'Session Inactivity Timeout Management' : 'Gestion des Délais d’Inactivité de Session'}
+                      </h3>
+                      <span className="rounded-full bg-[#0c685a] text-white px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide">
+                        {isEn ? 'Strict Range: 10 to 30 min' : 'Plage Stricte : 10 à 30 min'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 mt-1 max-w-2xl leading-relaxed">
+                      {isEn
+                        ? 'Configure the inactivity timeout for each role and for yourself. Sessions automatically lock and redirect to login after the defined period of inactivity. Value must be set between 10 and 30 minutes.'
+                        : 'Définissez le délai de déconnexion automatique par rôle et pour vous-même (Admin). La session est clôturée après cette durée sans activité souris ou clavier. La plage doit être comprise entre 10 et 30 minutes.'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                  <button
+                    onClick={fetchTimeouts}
+                    disabled={loadingTimeouts}
+                    className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                    title={isEn ? 'Refresh timeouts from server' : 'Recharger les délais depuis le serveur'}
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingTimeouts ? 'animate-spin' : ''}`} />
+                    <span className="hidden sm:inline">{isEn ? 'Refresh' : 'Actualiser'}</span>
+                  </button>
+
+                  <button
+                    onClick={handleSaveAllTimeouts}
+                    disabled={savingTimeoutRole !== null}
+                    className="px-4 py-2.5 rounded-xl bg-[#0c685a] hover:bg-[#094e45] text-white text-xs font-extrabold flex items-center gap-2 shadow-xs transition"
+                  >
+                    {savingTimeoutRole === 'all' ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>{isEn ? 'Saving All...' : 'Enregistrement...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>{isEn ? 'Save All Policies' : 'Enregistrer Tous les Délais'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Current Admin Active Session Status */}
+              <div className="rounded-xl border border-slate-200 bg-[#f8fafc] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-3 w-3 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="font-bold text-[#092342]">
+                    {isEn ? 'Your Current Active Session Policy:' : 'Politique active sur votre session actuelle :'}
+                  </span>
+                  <span className="font-extrabold text-[#0c685a] bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full font-mono">
+                    {activeUserTimeout} {isEn ? 'minutes' : 'minutes'}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-[#0c685a]" />
+                  <span>
+                    {isEn
+                      ? 'Inactivity warning modal appears at 60s remaining.'
+                      : 'Une alerte visuelle préventive apparaît à 60 secondes de l’expiration.'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Primary Business Profiles Section */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-500 flex items-center gap-2">
+                    <Users className="w-4 h-4 text-[#0c685a]" />
+                    <span>{isEn ? '1. Primary Business Profiles & Roles' : '1. Profils Métiers & Rôles Principaux'}</span>
+                  </h4>
+                  <span className="text-[11px] text-slate-400">
+                    {isEn ? 'Governs login sessions across workspace' : 'Régit les sessions de travail'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  {[
+                    {
+                      role_id: 'admin',
+                      title: isEn ? 'Platform Administrator (Admin / Self)' : 'Administrateur de Plateforme (Vous-même)',
+                      desc: isEn
+                        ? 'Highest privilege. Session duration applied to your own login and other administrators.'
+                        : 'Privilège maximal. Délai appliqué à votre propre session et aux autres administrateurs.',
+                      profile: 'Admin',
+                      badgeBg: 'bg-purple-100 text-purple-900 border-purple-200',
+                      iconBg: 'bg-purple-700 text-white',
+                      defaultVal: 15,
+                    },
+                    {
+                      role_id: 'secretary',
+                      title: isEn ? 'Secretary (Intake & Admissions)' : 'Secrétariat (Intake, Admissions & Suivi)',
+                      desc: isEn
+                        ? 'Applicant intake, dossier tracking, cohort planning and parent liaison.'
+                        : 'Réception des candidatures, dossiers scolaires, planning prépa et suivi familles.',
+                      profile: 'Secretary',
+                      badgeBg: 'bg-blue-100 text-blue-900 border-blue-200',
+                      iconBg: 'bg-blue-600 text-white',
+                      defaultVal: 20,
+                    },
+                    {
+                      role_id: 'avi',
+                      title: isEn ? 'Finance Officer (Blocked Accounts & AVI)' : 'Pôle Finance (Caution Bancaire AVI & Yimmiline)',
+                      desc: isEn
+                        ? 'AVI certificates, blocked account calculations, and parent-financing agreements.'
+                        : 'Délivrance attestations AVI, simulation caution bancaire et dossiers de financement.',
+                      profile: 'Finance Officer',
+                      badgeBg: 'bg-emerald-100 text-emerald-900 border-emerald-200',
+                      iconBg: 'bg-emerald-700 text-white',
+                      defaultVal: 15,
+                    },
+                  ].map((roleSpec) => {
+                    const currentVal = timeoutValues[roleSpec.role_id] ?? roleSpec.defaultVal;
+                    const isSaving = savingTimeoutRole === roleSpec.role_id;
+                    const pct = Math.round(((currentVal - 10) / (30 - 10)) * 100);
+
+                    return (
+                      <div
+                        key={roleSpec.role_id}
+                        className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs flex flex-col justify-between space-y-4 hover:border-[#0c685a]/40 transition"
+                      >
+                        {/* Top: Header */}
+                        <div>
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${roleSpec.badgeBg}`}
+                            >
+                              {roleSpec.profile}
+                            </span>
+                            <span className="font-mono text-xs font-extrabold text-[#092342] bg-slate-100 px-2.5 py-0.5 rounded-md">
+                              role_id: {roleSpec.role_id}
+                            </span>
+                          </div>
+
+                          <h5 className="font-extrabold text-[#092342] text-sm leading-tight mb-1">
+                            {roleSpec.title}
+                          </h5>
+                          <p className="text-[11px] text-slate-500 leading-relaxed">
+                            {roleSpec.desc}
+                          </p>
+                        </div>
+
+                        {/* Middle: Slider & Value Control */}
+                        <div className="space-y-3 pt-2 border-t border-slate-100">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-slate-700">
+                              {isEn ? 'Session Inactivity Timeout:' : 'Délai d’inactivité :'}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="number"
+                                min={10}
+                                max={30}
+                                step={1}
+                                value={currentVal}
+                                onChange={(e) => {
+                                  const num = Number(e.target.value);
+                                  if (!isNaN(num)) {
+                                    setTimeoutValues((prev) => ({
+                                      ...prev,
+                                      [roleSpec.role_id]: Math.min(30, Math.max(10, num)),
+                                    }));
+                                  }
+                                }}
+                                className="w-14 text-center font-mono font-extrabold text-sm rounded-lg border border-slate-300 py-1 px-1 text-[#092342] focus:outline-none focus:ring-2 focus:ring-[#0c685a]"
+                              />
+                              <span className="text-xs font-bold text-slate-600">min</span>
+                            </div>
+                          </div>
+
+                          {/* Interactive Range Slider */}
+                          <div className="space-y-1">
+                            <input
+                              type="range"
+                              min={10}
+                              max={30}
+                              step={1}
+                              value={currentVal}
+                              onChange={(e) => {
+                                const v = Number(e.target.value);
+                                setTimeoutValues((prev) => ({
+                                  ...prev,
+                                  [roleSpec.role_id]: v,
+                                }));
+                              }}
+                              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#0c685a]"
+                            />
+                            <div className="flex justify-between text-[10px] text-slate-400 font-bold px-0.5">
+                              <span>10 min (Min)</span>
+                              <span>20 min</span>
+                              <span>30 min (Max)</span>
+                            </div>
+                          </div>
+
+                          {/* Quick Preset Buttons */}
+                          <div className="flex items-center gap-1.5 pt-1">
+                            <span className="text-[10px] text-slate-400 font-bold mr-1">Presets:</span>
+                            {[10, 15, 20, 25, 30].map((preset) => (
+                              <button
+                                key={preset}
+                                type="button"
+                                onClick={() =>
+                                  setTimeoutValues((prev) => ({
+                                    ...prev,
+                                    [roleSpec.role_id]: preset,
+                                  }))
+                                }
+                                className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold transition ${
+                                  currentVal === preset
+                                    ? 'bg-[#0c685a] text-white shadow-xs'
+                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                                }`}
+                              >
+                                {preset}m
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Visual Duration Gauge */}
+                          <div className="rounded-xl bg-slate-50 border border-slate-100 p-2.5 space-y-1.5">
+                            <div className="flex justify-between text-[10px] text-slate-500 font-semibold">
+                              <span>{isEn ? 'Session Duration Intensity' : 'Étendue de Session'}</span>
+                              <span className="font-extrabold text-[#0c685a]">{currentVal * 60} {isEn ? 'sec' : 'sec'}</span>
+                            </div>
+                            <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-emerald-500 to-[#0c685a] transition-all duration-300 rounded-full"
+                                style={{ width: `${Math.max(10, pct)}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Bottom: Save Button */}
+                        <div className="pt-2">
+                          <button
+                            type="button"
+                            onClick={() => handleSaveTimeout(roleSpec.role_id, roleSpec.title, roleSpec.profile)}
+                            disabled={isSaving || savingTimeoutRole === 'all'}
+                            className="w-full py-2.5 px-3 rounded-xl bg-[#0c685a] hover:bg-[#094e45] text-white text-xs font-extrabold flex items-center justify-center gap-2 shadow-xs transition disabled:opacity-50"
+                          >
+                            {isSaving ? (
+                              <>
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                <span>{isEn ? 'Saving...' : 'Enregistrement...'}</span>
+                              </>
+                            ) : (
+                              <>
+                                <Check className="w-3.5 h-3.5" />
+                                <span>{isEn ? 'Apply Timeout Policy' : 'Appliquer ce Délai'}</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Technical Roles Section (ServiceNow / RBAC Technical Mapping) */}
+              <div className="space-y-4 pt-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-500 flex items-center gap-2">
+                    <Key className="w-4 h-4 text-[#0c685a]" />
+                    <span>{isEn ? '2. Technical Roles Session Policies' : '2. Rôles Techniques & Délais Spécifiques'}</span>
+                  </h4>
+                  <span className="text-[11px] text-slate-400">
+                    {isEn ? 'Enforced for granular technical role assignments' : 'Assignations techniques détaillées'}
+                  </span>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-xs">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-100 bg-[#f8fafc] text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                          <th className="py-3 px-4">{isEn ? 'Technical Role' : 'Rôle Technique'}</th>
+                          <th className="py-3 px-4">{isEn ? 'Business Profile' : 'Profil Métier'}</th>
+                          <th className="py-3 px-4">{isEn ? 'Timeout (10 - 30 min)' : 'Délai (10 - 30 min)'}</th>
+                          <th className="py-3 px-4">{isEn ? 'Quick Range Select' : 'Sélection Rapide'}</th>
+                          <th className="py-3 px-4 text-right">{isEn ? 'Action' : 'Action'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {[
+                          { role_id: 'lh_security_admin', name: 'Security Administrator', profile: 'Admin' },
+                          { role_id: 'ITIL', name: 'ITIL Workflow Operator', profile: 'Secretary' },
+                          { role_id: 'lh_internal', name: 'Internal Application Access', profile: 'Secretary' },
+                          { role_id: 'lh_finance', name: 'Finance & AVI Officer', profile: 'Finance Officer' },
+                        ].map((tRole) => {
+                          const val = timeoutValues[tRole.role_id] ?? (tRole.profile === 'Secretary' ? 20 : 15);
+                          const isSaving = savingTimeoutRole === tRole.role_id;
+
+                          return (
+                            <tr key={tRole.role_id} className="hover:bg-slate-50 transition">
+                              <td className="py-3 px-4">
+                                <div className="font-extrabold text-[#092342] font-mono">{tRole.role_id}</div>
+                                <div className="text-[11px] text-slate-500">{tRole.name}</div>
+                              </td>
+                              <td className="py-3 px-4">
+                                <span className="rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+                                  {tRole.profile}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4">
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="range"
+                                    min={10}
+                                    max={30}
+                                    step={1}
+                                    value={val}
+                                    onChange={(e) => {
+                                      const v = Number(e.target.value);
+                                      setTimeoutValues((prev) => ({ ...prev, [tRole.role_id]: v }));
+                                    }}
+                                    className="w-28 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#0c685a]"
+                                  />
+                                  <span className="font-mono font-bold text-[#0c685a] w-12 text-center bg-[#f0faf7] py-0.5 rounded border border-[#d8f6ea]">
+                                    {val} min
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="py-3 px-4">
+                                <div className="flex items-center gap-1">
+                                  {[10, 15, 20, 25, 30].map((preset) => (
+                                    <button
+                                      key={preset}
+                                      type="button"
+                                      onClick={() =>
+                                        setTimeoutValues((prev) => ({ ...prev, [tRole.role_id]: preset }))
+                                      }
+                                      className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold transition ${
+                                        val === preset
+                                          ? 'bg-[#0c685a] text-white'
+                                          : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                                      }`}
+                                    >
+                                      {preset}m
+                                    </button>
+                                  ))}
+                                </div>
+                              </td>
+                              <td className="py-3 px-4 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveTimeout(tRole.role_id, tRole.name, tRole.profile)}
+                                  disabled={isSaving || savingTimeoutRole === 'all'}
+                                  className="px-3 py-1.5 rounded-lg bg-[#0c685a] hover:bg-[#094e45] text-white text-[11px] font-extrabold transition disabled:opacity-50"
+                                >
+                                  {isSaving ? (
+                                    <RefreshCw className="w-3 h-3 animate-spin inline" />
+                                  ) : (
+                                    <span>{isEn ? 'Save' : 'Enregistrer'}</span>
+                                  )}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 

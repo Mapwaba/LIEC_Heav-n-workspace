@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
       accRes,
       prepaPaymentsRes,
       prepaReceiptsRes,
+      sessionTimeoutsRes,
     ] = await Promise.all([
       db.query('SELECT * FROM demandes ORDER BY id DESC'),
       db.query('SELECT * FROM demande_notes ORDER BY id ASC'),
@@ -51,6 +52,7 @@ export async function GET(req: NextRequest) {
       db.query('SELECT * FROM accommodation_requests ORDER BY id DESC'),
       db.query('SELECT * FROM prepa_payments ORDER BY id DESC'),
       db.query('SELECT * FROM prepa_receipts ORDER BY id DESC'),
+      db.query('SELECT * FROM role_session_timeouts ORDER BY id ASC').catch(() => ({ rows: [] })),
     ]);
 
     // Parse JSON fields on candidats
@@ -137,6 +139,7 @@ export async function GET(req: NextRequest) {
       accommodationRequests: filteredAccommodation,
       prepaPayments: filteredPrepaPayments,
       prepaReceipts: filteredPrepaReceipts,
+      sessionTimeouts: sessionTimeoutsRes?.rows || [],
     });
   } catch (error: any) {
     console.error('Error in workspace RBAC query:', error);

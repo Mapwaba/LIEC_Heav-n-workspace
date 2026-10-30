@@ -11,10 +11,32 @@ CREATE TABLE IF NOT EXISTS roles (
   description TEXT NOT NULL,
   safeguards TEXT NOT NULL,
   active BOOLEAN NOT NULL DEFAULT TRUE,
+  timeout_minutes INTEGER NOT NULL DEFAULT 15 CHECK (timeout_minutes >= 10 AND timeout_minutes <= 30),
   suspended_at TIMESTAMP WITH TIME ZONE,
   suspended_by VARCHAR(120),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 1b. ROLE SESSION TIMEOUTS TABLE (Admin-Managed Session Policies: 10 to 30 min)
+CREATE TABLE IF NOT EXISTS role_session_timeouts (
+  id SERIAL PRIMARY KEY,
+  role_id VARCHAR(50) UNIQUE NOT NULL,
+  role_name VARCHAR(100) NOT NULL,
+  business_profile VARCHAR(50) NOT NULL,
+  timeout_minutes INTEGER NOT NULL DEFAULT 15 CHECK (timeout_minutes >= 10 AND timeout_minutes <= 30),
+  updated_by VARCHAR(120) DEFAULT 'Platform Administrator',
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO role_session_timeouts (role_id, role_name, business_profile, timeout_minutes, updated_by) VALUES
+  ('admin', 'Platform Administrator (Admin / Self)', 'Admin', 15, 'System Initializer'),
+  ('lh_security_admin', 'Security Administrator', 'Admin', 15, 'System Initializer'),
+  ('secretary', 'Secretary (Admissions & Intake)', 'Secretary', 20, 'System Initializer'),
+  ('ITIL', 'ITIL Workflow Operator', 'Secretary', 20, 'System Initializer'),
+  ('lh_internal', 'Internal Application Access', 'Secretary', 20, 'System Initializer'),
+  ('avi', 'Finance Officer (Blocked Account / AVI)', 'Finance Officer', 15, 'System Initializer'),
+  ('lh_finance', 'Finance & AVI Officer', 'Finance Officer', 15, 'System Initializer')
+ON CONFLICT (role_id) DO NOTHING;
 
 
 

@@ -394,6 +394,18 @@ async function initSchemaAndSeed(client: DBClient) {
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS role_session_timeouts (
+      id SERIAL PRIMARY KEY,
+      role_id VARCHAR(50) UNIQUE NOT NULL,
+      role_name VARCHAR(100) NOT NULL,
+      business_profile VARCHAR(50) NOT NULL,
+      timeout_minutes INTEGER NOT NULL DEFAULT 15 CHECK (timeout_minutes >= 10 AND timeout_minutes <= 30),
+      updated_by VARCHAR(120) DEFAULT 'Platform Administrator',
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    ALTER TABLE roles ADD COLUMN IF NOT EXISTS timeout_minutes INTEGER DEFAULT 15;
+
     ALTER TABLE users ADD COLUMN IF NOT EXISTS business_profile VARCHAR(50) DEFAULT 'Secretary';
     ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMP WITH TIME ZONE;
@@ -412,6 +424,17 @@ async function initSchemaAndSeed(client: DBClient) {
       ('ITIL', 'ITIL Workflow Operator', 'Secretary', 'Secretary workflows (as configured). Applicant intake and administrative tracking.', 'Do not assume this role means full administrator access. Verify permissions and inherited access.', TRUE),
       ('lh_internal', 'Internal Application Access', 'Secretary', 'Internal application access. Restrict to applicant intake, assigned records, comments and history.', 'Restrict to applicant intake, assigned records, comments and history.', TRUE),
       ('lh_finance', 'Finance & AVI Officer', 'Finance Officer', 'AVI and parent-financing operations, YIMMILINE desk calculations and loan requests.', 'Restrict to AVI-related functions and records; do not grant unrelated finance or system configuration access.', TRUE)
+    ON CONFLICT (role_id) DO NOTHING;
+
+    -- Seed Default Role Session Timeouts (Enforces 10 to 30 min Range)
+    INSERT INTO role_session_timeouts (role_id, role_name, business_profile, timeout_minutes, updated_by) VALUES
+      ('admin', 'Platform Administrator (Admin / Self)', 'Admin', 15, 'System Initializer'),
+      ('lh_security_admin', 'Security Administrator', 'Admin', 15, 'System Initializer'),
+      ('secretary', 'Secretary (Admissions & Intake)', 'Secretary', 20, 'System Initializer'),
+      ('ITIL', 'ITIL Workflow Operator', 'Secretary', 20, 'System Initializer'),
+      ('lh_internal', 'Internal Application Access', 'Secretary', 20, 'System Initializer'),
+      ('avi', 'Finance Officer (Blocked Account / AVI)', 'Finance Officer', 15, 'System Initializer'),
+      ('lh_finance', 'Finance & AVI Officer', 'Finance Officer', 15, 'System Initializer')
     ON CONFLICT (role_id) DO NOTHING;
 
     -- Ensure Admin user exists with default credentials
