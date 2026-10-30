@@ -39,8 +39,14 @@ export default function LoginPage() {
       const params = new URLSearchParams(window.location.search);
       if (params.get('reason') === 'session_timeout') {
         const timeout = params.get('timeout') || '15';
+        const langParam = params.get('lang');
+        const savedLang = typeof localStorage !== 'undefined' ? localStorage.getItem('liec_lang') : null;
+        const isEn = langParam === 'en' || (!langParam && savedLang !== 'fr');
+
         setSessionTimeoutNotice(
-          `⏱️ Session expirée après ${timeout} minutes d'inactivité. Conformément à la politique de sécurité fixée par l'administrateur, votre session a été fermée pour protéger vos données. Veuillez vous reconnecter.`
+          isEn
+            ? `⏱️ Session timed out after ${timeout} minutes of inactivity. In accordance with administrator security policy, your session was closed to protect data. Please sign in again.`
+            : `⏱️ Session expirée après ${timeout} minutes d'inactivité. Conformément à la politique de sécurité fixée par l'administrateur, votre session a été fermée pour protéger vos données. Veuillez vous reconnecter.`
         );
       }
     }

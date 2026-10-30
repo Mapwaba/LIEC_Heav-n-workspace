@@ -123,21 +123,34 @@ const ALL_TOUR_STEPS: GuidedTourStep[] = [
 ];
 
 export function GuidedTour({
+  isOpen = true,
   userEmail,
   userRole = 'admin',
   lang = 'en',
+  onClose,
   onComplete,
   onDismiss,
+  onNavigate,
   onNavigateTab,
 }: {
-  userEmail: string;
+  isOpen?: boolean;
+  userEmail?: string;
   userRole?: string;
   lang?: 'fr' | 'en';
-  onComplete: () => void;
-  onDismiss: () => void;
+  onClose?: () => void;
+  onComplete?: () => void;
+  onDismiss?: () => void;
+  onNavigate?: (tab: string) => void;
   onNavigateTab?: (tab: string) => void;
 }) {
   const isEn = lang === 'en';
+
+  const navigateFn = onNavigate || onNavigateTab;
+  const closeTour = () => {
+    if (onClose) onClose();
+    if (onComplete) onComplete();
+    if (onDismiss) onDismiss();
+  };
 
   // Filter steps by role
   const steps = ALL_TOUR_STEPS.filter((s) => {
@@ -149,19 +162,20 @@ export function GuidedTour({
   const currentStep = steps[currentIndex] || steps[0];
 
   const handleFinish = async (discard: boolean = false) => {
-    try {
-      await fetch('/api/users/tour', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: userEmail, completed: true }),
-      });
-    } catch (e) {
-      console.warn('Could not persist tour state:', e);
-    }
-    if (discard) {
-      onDismiss();
-    } else {
-      onComplete();
+    // 1. Immediately close the tour modal in UI
+    closeTour();
+
+    // 2. Persist completion to DB in background
+    if (userEmail) {
+      try {
+        await fetch('/api/users/tour', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: userEmail, completed: true }),
+        });
+      } catch (e) {
+        console.warn('Could not persist tour state:', e);
+      }
     }
   };
 
@@ -169,8 +183,8 @@ export function GuidedTour({
     if (currentIndex < steps.length - 1) {
       const nextIdx = currentIndex + 1;
       setCurrentIndex(nextIdx);
-      if (onNavigateTab && steps[nextIdx]?.tabTarget) {
-        onNavigateTab(steps[nextIdx].tabTarget!);
+      if (navigateFn && steps[nextIdx]?.tabTarget) {
+        navigateFn(steps[nextIdx].tabTarget!);
       }
     } else {
       handleFinish(false);
@@ -181,11 +195,13 @@ export function GuidedTour({
     if (currentIndex > 0) {
       const prevIdx = currentIndex - 1;
       setCurrentIndex(prevIdx);
-      if (onNavigateTab && steps[prevIdx]?.tabTarget) {
-        onNavigateTab(steps[prevIdx].tabTarget!);
+      if (navigateFn && steps[prevIdx]?.tabTarget) {
+        navigateFn(steps[prevIdx].tabTarget!);
       }
     }
   };
+
+  if (!isOpen) return null;
 
   const IconComponent = currentStep.icon;
 

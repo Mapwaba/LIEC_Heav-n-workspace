@@ -485,7 +485,7 @@ export default function LiecWorkspacePage() {
     router.replace(
       `/login?reason=session_timeout&role=${encodeURIComponent(userRole || 'staff')}&timeout=${sessionTimeoutMinutes}`
     );
-  }, [router, userRole, sessionTimeoutMinutes]);
+  }, [router, userRole, sessionTimeoutMinutes, lang]);
 
   const handleExtendSession = () => {
     const now = Date.now();
