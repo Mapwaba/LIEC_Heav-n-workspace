@@ -27,6 +27,9 @@ import {
   Globe,
   Home,
   RotateCw,
+  Clock,
+  Check,
+  AlertTriangle,
 } from 'lucide-react';
 
 import OverviewScreen from '@/components/OverviewScreen';
@@ -286,6 +289,12 @@ export default function LiecWorkspacePage() {
       setRolePreview(u.role);
       setIsAuthenticated(true);
       setCheckingAuth(false);
+      const freshNow = Date.now();
+      lastActivityRef.current = freshNow;
+      setLastActivity(freshNow);
+      try {
+        localStorage.setItem('liec_last_activity', String(freshNow));
+      } catch {}
 
       if (u.role === 'avi') {
         setActiveTab('services');
