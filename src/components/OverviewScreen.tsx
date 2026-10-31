@@ -647,8 +647,8 @@ export default function OverviewScreen({
             </div>
 
             {/* SVG Interactive Donut Chart */}
-            <div className="my-5 flex flex-col items-center">
-              <div className="relative w-48 h-48 flex items-center justify-center">
+            <div className="my-4 flex flex-col items-center">
+              <div className="relative w-52 h-52 flex items-center justify-center">
                 <svg viewBox="0 0 120 120" className="w-full h-full -rotate-90">
                   {/* Background Track */}
                   <circle
@@ -657,7 +657,7 @@ export default function OverviewScreen({
                     r="44"
                     fill="none"
                     stroke="#f1f5f9"
-                    strokeWidth="14"
+                    strokeWidth="13"
                   />
 
                   {/* Dynamic Segments */}
@@ -668,7 +668,7 @@ export default function OverviewScreen({
                       r="44"
                       fill="none"
                       stroke="#e2e8f0"
-                      strokeWidth="14"
+                      strokeWidth="13"
                     />
                   ) : (
                     serviceCategories.map((cat, idx) => {
@@ -686,7 +686,7 @@ export default function OverviewScreen({
                           r="44"
                           fill="none"
                           stroke={cat.color}
-                          strokeWidth={isHovered ? 18 : 14}
+                          strokeWidth={isHovered ? 16 : 13}
                           strokeDasharray={`${dashLength} ${circumference - dashLength}`}
                           strokeDashoffset={offset}
                           opacity={
@@ -711,32 +711,32 @@ export default function OverviewScreen({
                 </svg>
 
                 {/* Center Content / Tooltip Display */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-3 pointer-events-none">
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-2 pointer-events-none">
                   {activeHoverCategory ? (
-                    <div className="animate-in fade-in zoom-in-95 duration-100">
+                    <div className="animate-in fade-in zoom-in-95 duration-100 max-w-[105px] px-1">
                       <span
-                        className="text-[9px] font-extrabold uppercase tracking-wider block truncate max-w-[110px]"
+                        className="text-[8.5px] font-extrabold uppercase tracking-wider block truncate"
                         style={{ color: activeHoverCategory.color }}
                       >
                         {activeHoverCategory.label}
                       </span>
                       <span className="text-xl font-extrabold text-[#092342] leading-tight my-0.5 block">
-                        {activeHoverCategory.count} files
+                        {activeHoverCategory.count} {isEn ? 'files' : 'dossiers'}
                       </span>
-                      <span className="text-[10px] font-bold text-[#0c685a] block">
+                      <span className="text-[9px] font-bold text-[#0c685a] block truncate">
                         {activeHoverCategory.pct}% (€{activeHoverCategory.valueEur.toLocaleString()})
                       </span>
                     </div>
                   ) : (
-                    <div>
-                      <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">
-                        TOTAL VOLUME
+                    <div className="max-w-[96px] px-1 flex flex-col items-center justify-center">
+                      <span className="text-[8.5px] font-bold uppercase tracking-wider text-slate-400 block">
+                        {isEn ? 'TOTAL VOLUME' : 'VOLUME TOTAL'}
                       </span>
                       <span className="text-2xl font-extrabold text-[#092342] leading-none my-0.5 block">
                         {totalBreakdownCount}
                       </span>
-                      <span className="text-[10px] font-bold text-[#0c685a]">
-                        Hover or Click to Audit
+                      <span className="text-[8px] font-semibold text-[#0c685a] block leading-tight max-w-[85px] mx-auto">
+                        {isEn ? 'Hover or click to audit' : 'Survoler ou cliquer'}
                       </span>
                     </div>
                   )}
