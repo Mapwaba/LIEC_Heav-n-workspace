@@ -23,8 +23,6 @@ export const STAFF_ACCOUNTS: StaffAccount[] = [
       'admin@liecconsulting.com',
       'admin@liec-education.com',
       'admin@liec.com',
-      'sarah.mwamba@liec-education.com',
-      'sarah.mwamba@liecconsulting.com',
     ],
   },
 ];

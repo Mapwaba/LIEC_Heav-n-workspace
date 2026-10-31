@@ -46,6 +46,106 @@ import {
 
 import { Lang } from './ServicesAndOtherScreens';
 
+// Translation helpers for localized Student Record display
+const translateStatus = (status: string, isEn: boolean) => {
+  if (!isEn || !status) return status;
+  return status
+    .replace(/En cours \(Jalon (\d+)\)/gi, 'In Progress (Milestone $1)')
+    .replace(/En cours/gi, 'In Progress')
+    .replace(/Jalon (\d+)/gi, 'Milestone $1')
+    .replace(/Termin[ée]|Valide|Valid[ée]/gi, 'Completed')
+    .replace(/Attente|En attente/gi, 'Pending')
+    .replace(/[ÀA] venir/gi, 'Upcoming')
+    .replace(/Qualifi[ée] CRM/gi, 'CRM Qualified');
+};
+
+const translateMilestone = (label: string, isEn: boolean) => {
+  if (!isEn || !label) return label;
+  return label.replace(/JALON\s*(\d+)/gi, 'MILESTONE $1');
+};
+
+const translateMilestoneTitle = (title: string, isEn: boolean) => {
+  if (!isEn || !title) return title;
+  const map: Record<string, string> = {
+    'Orientation & Dossier': 'Orientation & Application Dossier',
+    'Pièces Académiques': 'Academic Documents & Transcripts',
+    'Dépôt Officiel': 'Official Submission & Consular Review',
+    'Visa & Installation': 'Visa Issuance & Relocation',
+  };
+  return map[title] || title;
+};
+
+const translateMilestoneStatus = (status: string, isEn: boolean) => {
+  if (!isEn || !status) return status;
+  const s = status.toUpperCase();
+  if (s === 'EN COURS') return 'IN PROGRESS';
+  if (s === 'À VENIR' || s === 'A VENIR') return 'UPCOMING';
+  if (s === 'ATTENTE' || s === 'EN ATTENTE') return 'PENDING';
+  if (s === 'VALIDÉ' || s === 'VALIDE' || s === 'TERMINÉ') return 'COMPLETED';
+  return status;
+};
+
+const translateMilestoneDesc = (desc: string, isEn: boolean) => {
+  if (!isEn || !desc) return desc;
+  if (desc.includes('Candidature reçue depuis le site web')) {
+    return 'Application received from public portal for partner school. Initial file qualification in progress.';
+  }
+  if (desc.includes('Collecte et certification des relevés')) {
+    return 'Collection, verification, and certification of academic transcripts and prerequisite records.';
+  }
+  if (desc.includes('Soumission Campus France')) {
+    return 'Campus France official submission and partner school registration.';
+  }
+  if (desc.includes('Attestation bancaire YimmiLine AVI')) {
+    return 'YIMMILINE Blocked Account (AVI) issuance and accommodation reservation in Lyon.';
+  }
+  return desc;
+};
+
+const translateRankBadge = (badge: string, idx: number, isEn: boolean) => {
+  if (!isEn || !badge) return badge || `Choice #${idx + 1}`;
+  return badge.replace(/Vœu\s*n°(\d+)/gi, 'Choice #$1').replace(/Voeu\s*n°(\d+)/gi, 'Choice #$1') || `Choice #${idx + 1}`;
+};
+
+const translateTargetStatus = (status: string, isEn: boolean) => {
+  if (!isEn || !status) return status;
+  const map: Record<string, string> = {
+    'Dossier Reçu': 'Application Received',
+    'Dossier Validé': 'Application Validated',
+    'Cible Ajoutée': 'Target Added',
+    'En attente': 'Pending Review',
+    'Admis': 'Admitted',
+    'Ready File': 'Ready File',
+  };
+  return map[status] || status;
+};
+
+const translatePieceName = (name: string, isEn: boolean) => {
+  if (!isEn || !name) return name;
+  const map: Record<string, string> = {
+    'Passeport biométrique': 'Biometric Passport',
+    'Relevés de notes L1/L2 ou Bac': 'Transcripts (L1/L2 or Baccalaureate)',
+    'Attestation TCF B2': 'TCF B2 French Language Certificate',
+    'CV & Projet': 'CV & Statement of Purpose',
+    'Diplôme du Bac': 'Baccalaureate Diploma',
+  };
+  return map[name] || name;
+};
+
+const translatePieceMeta = (meta: string, isEn: boolean) => {
+  if (!isEn || !meta) return meta;
+  const clean = meta.replace(/^\(|\)$/g, '').trim();
+  const map: Record<string, string> = {
+    'En révision': 'Under review',
+    'À vérifier': 'To verify',
+    'Non requis': 'Optional / Not required',
+    'Validé': 'Verified & Validated',
+    'Reçu': 'Received',
+  };
+  const translated = map[clean] || clean;
+  return `(${translated})`;
+};
+
 interface CandidatsScreenProps {
   candidats: any[];
   selectedRef: string;
@@ -397,13 +497,15 @@ export default function CandidatsScreen({
           <div>
             <div className="flex items-center gap-1.5 text-[10.5px] font-extrabold uppercase tracking-wider text-[#0c685a] mb-1">
               <span className="h-2 w-2 rounded-full bg-[#0c685a]" />
-              <span>LIEC HEAV’N • STUDENT RECORD MANAGEMENT</span>
+              <span>{isEn ? 'LIEC HEAV’N • STUDENT RECORD MANAGEMENT' : 'LIEC HEAV’N • GESTION DES DOSSIERS ÉTUDIANTS'}</span>
             </div>
             <h1 className="text-[26px] sm:text-[30px] font-extrabold tracking-tight text-[#092342] leading-[1.15]">
-              Centralised Student Record
+              {isEn ? 'Centralised Student Record' : 'Dossier Étudiant Centralisé'}
             </h1>
             <p className="mt-1 text-xs text-slate-500 max-w-lg">
-              ServiceNow Incident-inspired unified record, tracking personal data, activity stream, and linked secondary requests.
+              {isEn
+                ? 'Comprehensive student dossier management for tracking admissions, academic milestones, documentation, and linked service requests.'
+                : 'Gestion centralisée du dossier étudiant : suivi des admissions, jalons académiques, pièces justificatives et demandes de services associées.'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
@@ -412,7 +514,7 @@ export default function CandidatsScreen({
               className="inline-flex items-center gap-2 rounded-xl bg-[#092342] hover:bg-[#12365a] px-4 py-2 text-xs font-extrabold text-white shadow-sm transition"
             >
               <UserPlus className="w-3.5 h-3.5" />
-              <span>+ New Student Record</span>
+              <span>{isEn ? '+ New Student Record' : '+ Nouveau Dossier Étudiant'}</span>
             </button>
           </div>
         </div>
@@ -457,7 +559,7 @@ export default function CandidatsScreen({
               <form onSubmit={handleCreateCandSubmit} className="space-y-3">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    {isEn ? 'Student Full Name *' : 'Nom et Prénom *'}
+                    {isEn ? 'Student Full Name *' : 'Nom & Prénom de l’Étudiant *'}
                   </label>
                   <input
                     type="text"
@@ -498,10 +600,10 @@ export default function CandidatsScreen({
         <div>
           <div className="flex items-center gap-1.5 text-[10.5px] font-extrabold uppercase tracking-wider text-[#0c685a] mb-1">
             <span className="h-2 w-2 rounded-full bg-[#0c685a]" />
-            <span>LIEC HEAV’N • STUDENT RECORD MANAGEMENT</span>
+            <span>{isEn ? 'LIEC HEAV’N • STUDENT RECORD MANAGEMENT' : 'LIEC HEAV’N • GESTION DES DOSSIERS ÉTUDIANTS'}</span>
           </div>
           <h1 className="text-[26px] sm:text-[30px] font-extrabold tracking-tight text-[#092342] leading-[1.15]">
-            Centralised Student Record
+            {isEn ? 'Centralised Student Record' : 'Dossier Étudiant Centralisé'}
           </h1>
           <p className="mt-1 text-xs text-slate-500 max-w-lg">
             ServiceNow Incident-inspired unified record, tracking personal data, activity stream, and linked secondary requests.
@@ -514,7 +616,7 @@ export default function CandidatsScreen({
             className="inline-flex items-center gap-2 rounded-xl bg-[#092342] hover:bg-[#12365a] px-4 py-2 text-xs font-extrabold text-white shadow-sm transition"
           >
             <UserPlus className="w-3.5 h-3.5" />
-            <span>+ New Student Record</span>
+            <span>{isEn ? '+ New Student Record' : '+ Nouveau Dossier Étudiant'}</span>
           </button>
         </div>
       </div>
@@ -542,7 +644,7 @@ export default function CandidatsScreen({
               type="text"
               value={cohortFilter}
               onChange={(e) => setCohortFilter(e.target.value)}
-              placeholder="Search ref or student..."
+              placeholder={isEn ? "Search ref or student..." : "Rechercher réf ou nom..."}
               className="w-full rounded-xl bg-[#f1f6fb] pl-8 pr-3 py-2 text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20"
             />
           </div>
@@ -571,7 +673,7 @@ export default function CandidatsScreen({
                   <div className="font-bold text-slate-900 text-xs truncate">{cand.full_name}</div>
                   <div className="text-[11px] text-slate-500 truncate">{cand.program}</div>
                   <div className="mt-2 flex items-center justify-between text-[10.5px] text-slate-400 pt-1 border-t border-slate-100">
-                    <span className="font-medium text-slate-600">{cand.stage_badge || 'Milestone 2'}</span>
+                    <span className="font-medium text-slate-600">{translateStatus(cand.stage_badge || cand.procedure_status || "Milestone 2", isEn)}</span>
                     <span>{cand.adviser}</span>
                   </div>
                 </div>
@@ -622,7 +724,7 @@ export default function CandidatsScreen({
                   title="Initiate Accommodation Reservation for this student"
                 >
                   <Home className="w-3.5 h-3.5" />
-                  <span>+ New Accommodation</span>
+                  <span>{isEn ? '+ New Accommodation' : '+ Nouveau Logement'}</span>
                 </button>
               )}
 
@@ -673,7 +775,7 @@ export default function CandidatsScreen({
                   title="Delete record with safeguard check"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  <span>Delete</span>
+                  <span>{isEn ? 'Delete' : 'Supprimer'}</span>
                 </button>
               )}
             </div>
@@ -690,7 +792,7 @@ export default function CandidatsScreen({
               }`}
             >
               <FileText className="w-4 h-4" />
-              <span>ServiceNow Student Record Form</span>
+              <span>{isEn ? 'Student Profile & Details' : 'Profil & Dossier Étudiant'}</span>
             </button>
 
             <button
@@ -702,7 +804,7 @@ export default function CandidatsScreen({
               }`}
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>Academic Milestones (Jalons)</span>
+              <span>{isEn ? 'Academic Milestones' : 'Jalons Académiques'}</span>
             </button>
 
             <button
@@ -714,7 +816,7 @@ export default function CandidatsScreen({
               }`}
             >
               <Building2 className="w-4 h-4" />
-              <span>Partner School Targets ({linkedSchoolApplications.length})</span>
+              <span>{isEn ? `Partner School Targets (${linkedSchoolApplications.length})` : `Vœux Écoles Partenaires (${linkedSchoolApplications.length})`}</span>
             </button>
 
             <button
@@ -726,7 +828,7 @@ export default function CandidatsScreen({
               }`}
             >
               <ClipboardCheck className="w-4 h-4" />
-              <span>Documents ({selectedCandidat.pieces?.length || 0})</span>
+              <span>{isEn ? `Documents (${selectedCandidat.pieces?.length || 0})` : `Pièces Justificatives (${selectedCandidat.pieces?.length || 0})`}</span>
             </button>
           </div>
 
@@ -745,7 +847,7 @@ export default function CandidatsScreen({
                   <div className="space-y-3 text-xs">
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                        LIEC Reference (Unique Identifier)
+                        {isEn ? 'LIEC Reference (Unique Identifier)' : 'Référence LIEC (Identifiant Unique)'}
                       </label>
                       <input
                         type="text"
@@ -757,7 +859,7 @@ export default function CandidatsScreen({
 
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                        Student Full Name *
+                        {isEn ? 'Student Full Name *' : 'Nom & Prénom de l’Étudiant *'}
                       </label>
                       <input
                         type="text"
@@ -771,7 +873,7 @@ export default function CandidatsScreen({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       <div>
                         <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                          Email Address *
+                          {isEn ? 'Email Address *' : 'Adresse Email *'}
                         </label>
                         <input
                           type="email"
@@ -783,7 +885,7 @@ export default function CandidatsScreen({
                       </div>
                       <div>
                         <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                          Phone / WhatsApp (max 14 digits) *
+                          {isEn ? 'Phone / WhatsApp (max 14 digits) *' : 'Téléphone / WhatsApp (max 14 chiffres) *'}
                         </label>
                         <input
                           type="text"
@@ -799,7 +901,7 @@ export default function CandidatsScreen({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       <div>
                         <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                          Nationality
+                          {isEn ? "Nationality" : "Nationalité"}
                         </label>
                         <input
                           type="text"
@@ -810,7 +912,7 @@ export default function CandidatsScreen({
                       </div>
                       <div>
                         <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                          Location / Residence
+                          {isEn ? "Location / Residence" : "Lieu / Résidence"}
                         </label>
                         <input
                           type="text"
@@ -824,7 +926,7 @@ export default function CandidatsScreen({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       <div>
                         <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                          Admission Status
+                          {isEn ? "Admission Status" : "Statut d’Admission"}
                         </label>
                         <input
                           type="text"
@@ -836,7 +938,7 @@ export default function CandidatsScreen({
                       </div>
                       <div>
                         <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                          Procedure Status
+                          {isEn ? "Procedure Status" : "Statut de Procédure"}
                         </label>
                         <input
                           type="text"
@@ -854,13 +956,13 @@ export default function CandidatsScreen({
                 <div className="bg-slate-50/70 p-5 rounded-xl border border-slate-200/80 space-y-4">
                   <div className="flex items-center gap-2 pb-2 border-b border-slate-200 text-indigo-950 font-bold text-xs uppercase tracking-wider">
                     <Shield className="w-4 h-4 text-teal-600" />
-                    <span>B. Parent / Tutor Information</span>
+                    <span>{isEn ? 'B. PARENT / TUTOR INFORMATION' : 'B. INFORMATIONS PARENT / TUTEUR'}</span>
                   </div>
 
                   <div className="space-y-3 text-xs">
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                        Parent or Tutor Full Name
+                        {isEn ? "Parent or Tutor Full Name" : "Nom du Parent ou Tuteur"}
                       </label>
                       <input
                         type="text"
@@ -873,25 +975,25 @@ export default function CandidatsScreen({
 
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                        Relationship to Student
+                        {isEn ? "Relationship to Student" : "Lien de Parenté"}
                       </label>
                       <select
                         value={formParentRelation}
                         onChange={(e) => setFormParentRelation(e.target.value)}
                         className="w-full py-2 px-3 rounded-lg border border-slate-300 bg-white text-slate-900"
                       >
-                        <option value="Father">Father (Père)</option>
-                        <option value="Mother">Mother (Mère)</option>
-                        <option value="Legal Tutor">Legal Guardian / Tutor (Tuteur légal)</option>
-                        <option value="Uncle / Aunt">Uncle / Aunt (Oncle / Tante)</option>
-                        <option value="Sponsor">Financial Sponsor (Garant financier)</option>
-                        <option value="Other">Other</option>
+                        <option value="Father">{isEn ? 'Father' : 'Père'}</option>
+                        <option value="Mother">{isEn ? 'Mother' : 'Mère'}</option>
+                        <option value="Legal Tutor">{isEn ? 'Legal Guardian / Tutor' : 'Tuteur légal'}</option>
+                        <option value="Uncle / Aunt">{isEn ? 'Uncle / Aunt' : 'Oncle / Tante'}</option>
+                        <option value="Sponsor">{isEn ? 'Financial Sponsor' : 'Garant financier'}</option>
+                        <option value="Other">{isEn ? 'Other' : 'Autre'}</option>
                       </select>
                     </div>
 
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                        Parent Phone / WhatsApp (max 14 digits)
+                        {isEn ? "Parent Phone / WhatsApp (max 14 digits)" : "Téléphone Parent / WhatsApp (max 14 chiffres)"}
                       </label>
                       <input
                         type="text"
@@ -904,7 +1006,7 @@ export default function CandidatsScreen({
 
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                        Parent Email Address
+                        {isEn ? "Parent Email Address" : "Adresse Email du Parent"}
                       </label>
                       <input
                         type="email"
@@ -916,7 +1018,7 @@ export default function CandidatsScreen({
                     </div>
 
                     <div className="p-3 bg-teal-50/60 rounded-lg border border-teal-200/80 text-[11px] text-teal-800">
-                      <strong>Guarantor Verification:</strong> Financial sponsor records are linked to AVI calculations and consulate certificates.
+                      <strong>{isEn ? "Guarantor Verification:" : "Vérification du Garant :"}</strong> {isEn ? "Financial sponsor records are linked to AVI calculations and consulate certificates." : "Les données du garant sont associées aux calculs AVI et attestations consulaires."}
                     </div>
                   </div>
                 </div>
@@ -929,7 +1031,7 @@ export default function CandidatsScreen({
                   <span>C. Description &amp; Candidate Situation</span>
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  Comprehensive background, career plan, academic prerequisites, special constraints, or requirements.
+                  {isEn ? 'Comprehensive background, career plan, academic prerequisites, special constraints, or requirements.' : 'Projet d’études, débouchés visés, prérequis académiques et besoins spécifiques.'}
                 </p>
                 <textarea
                   rows={3}
@@ -951,7 +1053,7 @@ export default function CandidatsScreen({
                     type="text"
                     value={formNewComment}
                     onChange={(e) => setFormNewComment(e.target.value)}
-                    placeholder="Enter an internal advisor note or student communication update..."
+                    placeholder={isEn ? "Enter an internal advisor note or student communication update..." : "Ajouter une note de suivi interne ou communication étudiant..."}
                     className="flex-1 py-2 px-3 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500"
                   />
                   <button
@@ -967,7 +1069,7 @@ export default function CandidatsScreen({
                 {selectedCandidat.notes && selectedCandidat.notes.length > 0 && (
                   <div className="space-y-2 pt-2 border-t border-slate-200">
                     <p className="text-[10.5px] font-semibold text-slate-400 uppercase">
-                      Historical Communications:
+                      {isEn ? 'Historical Communications:' : 'Historique des échanges :'}
                     </p>
                     {selectedCandidat.notes.map((n: any, idx: number) => (
                       <div
@@ -975,10 +1077,24 @@ export default function CandidatsScreen({
                         className="p-2.5 rounded-lg bg-white border border-slate-200 text-xs"
                       >
                         <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
-                          <span className="font-bold text-slate-800">{n.author}</span>
-                          <span>{n.date}</span>
+                          <span className="font-bold text-slate-800">
+                            {isEn && (n.author === 'Système' || n.author === 'Systeme') ? 'System' : n.author}
+                          </span>
+                          <span>
+                            {isEn && (n.date === "À l'instant" || n.date === "A l'instant")
+                              ? 'Just now'
+                              : isEn && n.date === "Aujourd'hui, à l'instant"
+                              ? 'Today, just now'
+                              : n.date}
+                          </span>
                         </div>
-                        <p className="text-slate-700">{n.text}</p>
+                        <p className="text-slate-700">
+                          {isEn && n.text?.startsWith('Demande web reçue')
+                            ? n.text.replace('Demande web reçue', 'Web application received')
+                            : isEn && n.text?.startsWith('Passeport et Diplome')
+                            ? 'Passport and Diploma documents submitted'
+                            : n.text}
+                        </p>
                       </div>
                     ))}
                   </div>
@@ -989,7 +1105,7 @@ export default function CandidatsScreen({
               <div className="bg-slate-50/70 p-5 rounded-xl border border-slate-200/80 space-y-3 text-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-slate-200 text-indigo-950 font-bold text-xs uppercase tracking-wider">
                   <History className="w-4 h-4 text-indigo-600" />
-                  <span>E. Activities &amp; Lifecycle History Stream</span>
+                  <span>{isEn ? 'E. Activities & Lifecycle History Stream' : 'E. Journal d’Activités & Historique'}</span>
                 </div>
 
                 <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
@@ -1001,7 +1117,11 @@ export default function CandidatsScreen({
                       >
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="font-semibold text-slate-800">{item.author}</span>
+                            <span className="font-semibold text-slate-800">
+                              {isEn && item.author === 'Portail Web (demarrer-mon-projet)'
+                                ? 'Public Website Portal (Start My Project)'
+                                : item.author}
+                            </span>
                             <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-600 font-mono">
                               {item.activity_type || 'UPDATE'}
                             </span>
@@ -1027,10 +1147,10 @@ export default function CandidatsScreen({
                   <div>
                     <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
                       <Layers className="w-4 h-4 text-indigo-600" />
-                      <span>Related Lists (Secondary Requests)</span>
+                      <span>{isEn ? 'Related Lists (Secondary Requests)' : 'Listes Associées (Dossiers Annexes)'}</span>
                     </h3>
                     <p className="text-[11px] text-slate-500">
-                      Directly view, track, or initiate secondary service requests linked to this student.
+                      {isEn ? 'Directly view, track, or initiate secondary service requests linked to this student.' : 'Visualisez, suivez ou initiez directement les demandes de services associées à cet étudiant.'}
                     </p>
                   </div>
 
@@ -1045,7 +1165,7 @@ export default function CandidatsScreen({
                           : 'hover:text-slate-900'
                       }`}
                     >
-                      Accommodation ({linkedAccommodationRequests.length})
+                      {isEn ? `Accommodation (${linkedAccommodationRequests.length})` : `Logement (${linkedAccommodationRequests.length})`}
                     </button>
                     <button
                       type="button"
@@ -1056,7 +1176,7 @@ export default function CandidatsScreen({
                           : 'hover:text-slate-900'
                       }`}
                     >
-                      AVI Requests ({linkedAviRequests.length})
+                      {isEn ? `AVI Requests (${linkedAviRequests.length})` : `Dossiers AVI (${linkedAviRequests.length})`}
                     </button>
                     <button
                       type="button"
@@ -1067,7 +1187,7 @@ export default function CandidatsScreen({
                           : 'hover:text-slate-900'
                       }`}
                     >
-                      School Applications ({linkedSchoolApplications.length})
+                      {isEn ? `School Applications (${linkedSchoolApplications.length})` : `Candidatures Écoles (${linkedSchoolApplications.length})`}
                     </button>
                   </div>
                 </div>
@@ -1079,7 +1199,7 @@ export default function CandidatsScreen({
                     <div>
                       <div className="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs">
                         <span className="font-semibold text-slate-700">
-                          Accommodation Reservation Requests for {selectedCandidat.full_name}
+                          {isEn ? `Accommodation Reservation Requests for ${selectedCandidat.full_name}` : `Demandes de Réservation de Logement pour ${selectedCandidat.full_name}`}
                         </span>
                         {isAuthorizedToEdit && (
                           <button
@@ -1102,7 +1222,7 @@ export default function CandidatsScreen({
                       {linkedAccommodationRequests.length === 0 ? (
                         <div className="py-8 text-center text-xs text-slate-500 space-y-2">
                           <Home className="w-6 h-6 text-slate-300 mx-auto" />
-                          <p>No accommodation requests linked to this student.</p>
+                          <p>{isEn ? 'No accommodation requests linked to this student.' : 'Aucune demande de logement associée à cet étudiant.'}</p>
                           {isAuthorizedToEdit && (
                             <button
                               type="button"
@@ -1113,7 +1233,7 @@ export default function CandidatsScreen({
                               }}
                               className="text-indigo-600 font-semibold hover:underline"
                             >
-                              + Create New Accommodation Request
+                              {isEn ? '+ Create New Accommodation Request' : '+ Créer une demande de logement'}
                             </button>
                           )}
                         </div>
@@ -1313,7 +1433,7 @@ export default function CandidatsScreen({
           {/* TAB 2: MILESTONES (Existing Jalons View) */}
           {activeSubTab === 2 && (
             <div className="p-6 space-y-4">
-              <h3 className="font-bold text-slate-900 text-sm mb-2">Academic &amp; Consular Milestones</h3>
+              <h3 className="font-bold text-slate-900 text-sm mb-2">{isEn ? "Academic & Consular Milestones" : "Jalons Académiques & Consulaires"}</h3>
               <div className="space-y-3">
                 {selectedCandidat.jalons?.map((jalon: any) => (
                   <div
@@ -1323,9 +1443,11 @@ export default function CandidatsScreen({
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-xs font-bold text-indigo-600">
-                          {jalon.label}
+                          {translateMilestone(jalon.label, isEn)}
                         </span>
-                        <h4 className="font-bold text-slate-900 text-xs">{jalon.title}</h4>
+                        <h4 className="font-bold text-slate-900 text-xs">
+                          {translateMilestoneTitle(jalon.title, isEn)}
+                        </h4>
                         <span
                           className={`text-[10px] px-2 py-0.5 rounded font-bold ${
                             jalon.tone === 'done'
@@ -1335,10 +1457,12 @@ export default function CandidatsScreen({
                               : 'bg-slate-200 text-slate-700'
                           }`}
                         >
-                          {jalon.status}
+                          {translateMilestoneStatus(jalon.status, isEn)}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-600 mt-1">{jalon.description}</p>
+                      <p className="text-xs text-slate-600 mt-1">
+                        {translateMilestoneDesc(jalon.description, isEn)}
+                      </p>
                     </div>
 
                     {isAuthorizedToEdit && (
@@ -1359,7 +1483,7 @@ export default function CandidatsScreen({
           {activeSubTab === 3 && (
             <div className="p-6 space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="font-bold text-slate-900 text-sm">Lyon Partner Schools</h3>
+                <h3 className="font-bold text-slate-900 text-sm">{isEn ? "Lyon Partner Schools" : "Écoles Partenaires de Lyon"}</h3>
                 {isAuthorizedToEdit && (
                   <button
                     onClick={() => setShowNewVoeuModal(true)}
@@ -1373,12 +1497,12 @@ export default function CandidatsScreen({
                 {selectedCandidat.voeux?.map((voeu: any, idx: number) => (
                   <div key={idx} className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-1">
                     <span className="text-[10px] font-bold text-indigo-600 font-mono">
-                      {voeu.rankBadge}
+                      {translateRankBadge(voeu.rankBadge, idx, isEn)}
                     </span>
                     <h4 className="font-bold text-slate-900 text-xs">{voeu.university}</h4>
                     <p className="text-xs text-slate-600">{voeu.program}</p>
                     <span className="inline-block mt-2 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800">
-                      {voeu.statusBadge}
+                      {translateTargetStatus(voeu.statusBadge, isEn)}
                     </span>
                   </div>
                 ))}
@@ -1389,7 +1513,7 @@ export default function CandidatsScreen({
           {/* TAB 4: DOCUMENTS */}
           {activeSubTab === 4 && (
             <div className="p-6 space-y-3">
-              <h3 className="font-bold text-slate-900 text-sm mb-2">Student Dossier Documents</h3>
+              <h3 className="font-bold text-slate-900 text-sm mb-2">{isEn ? "Student Dossier Documents" : "Pièces Justificatives du Dossier"}</h3>
               <div className="space-y-2">
                 {selectedCandidat.pieces?.map((piece: any, idx: number) => (
                   <div
@@ -1397,8 +1521,12 @@ export default function CandidatsScreen({
                     className="p-3 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-between text-xs"
                   >
                     <div>
-                      <span className="font-semibold text-slate-900">{piece.name}</span>
-                      <span className="text-slate-400 text-[11px] ml-2 font-mono">({piece.meta})</span>
+                      <span className="font-semibold text-slate-900">
+                        {translatePieceName(piece.name, isEn)}
+                      </span>
+                      <span className="text-slate-400 text-[11px] ml-2 font-mono">
+                        {translatePieceMeta(piece.meta, isEn)}
+                      </span>
                     </div>
                     <button
                       onClick={() => onTogglePiece(selectedCandidat.ref, idx)}
@@ -1408,7 +1536,9 @@ export default function CandidatsScreen({
                           : 'bg-amber-100 text-amber-800'
                       }`}
                     >
-                      {piece.status === 'valid' ? '✓ Verified' : 'Pending Review'}
+                      {piece.status === 'valid'
+                        ? (isEn ? '✓ Verified' : '✓ Validé')
+                        : (isEn ? 'Pending Review' : 'En attente')}
                     </button>
                   </div>
                 ))}
@@ -1517,7 +1647,7 @@ export default function CandidatsScreen({
             <form onSubmit={handleCreateCandSubmit} className="space-y-3">
               <div>
                 <label className="block font-bold text-slate-700 mb-1">
-                  {isEn ? 'Student Full Name *' : 'Nom et Prénom *'}
+                  {isEn ? 'Student Full Name *' : 'Nom & Prénom de l’Étudiant *'}
                 </label>
                 <input
                   type="text"

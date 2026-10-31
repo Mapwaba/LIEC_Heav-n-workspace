@@ -656,7 +656,7 @@ export async function PATCH(req: NextRequest) {
           full_name, stage, badge_text, badge_tone, flag, country_city, program_tag,
           program_tag_tone, highlight_box, meta_left, meta_right, meta_right_tone,
           adviser_initials, adviser_name, adviser_color, estimated_value, is_urgent, is_prepa
-        ) VALUES ($1,'qualifie','Qualifié CRM','gold',$2,$3,$4,'mint',NULL,'1 800 € TTC','Converti Candidat','teal','SM','S. Mwamba','navy',1800,FALSE,TRUE)`,
+        ) VALUES ($1,'qualifie','Qualifié CRM','gold',$2,$3,$4,'mint',NULL,'1 800 € TTC','Converti Candidat','teal','BM','Barthelemy MAPWABA NTORO','navy',1800,FALSE,TRUE)`,
         [dem.full_name, dem.flag, dem.city, dem.program]
       );
 

@@ -78,7 +78,7 @@ async function main() {
   const currentHistory = JSON.parse(student.history_json || '[]');
   currentHistory.unshift({
     timestamp,
-    author: 'Sarah Mwamba (Admin)',
+    author: 'Barthelemy MAPWABA NTORO (Admin)',
     activity_type: 'RECORD_UPDATED',
     details: 'Persisted ServiceNow Student Record form with verified parent details and situation description.',
   });
@@ -149,7 +149,7 @@ async function main() {
       '550 € / month',
       'High-speed WiFi for web development coursework, near Metro B, quiet study space.',
       'Draft',
-      'Sarah Mwamba',
+      'Barthelemy MAPWABA NTORO',
       JSON.stringify(accHistory),
     ]
   );
@@ -283,7 +283,7 @@ async function main() {
   // Update status in database to 'Sent' only after confirmed delivery
   accHistory.unshift({
     timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-    author: 'Sarah Mwamba (Admin)',
+    author: 'Barthelemy MAPWABA NTORO (Admin)',
     action: 'EMAIL_SENT',
     details: `Dispatched official partner email to ${partnerEmail} (Message ID: ${mailResult.messageId}).`,
     status: 'Sent',
@@ -293,7 +293,7 @@ async function main() {
     `UPDATE accommodation_requests SET
       status = 'Sent',
       email_sent_at = CURRENT_TIMESTAMP,
-      email_sent_by = 'Sarah Mwamba (Admin)',
+      email_sent_by = 'Barthelemy MAPWABA NTORO (Admin)',
       email_recipient = $1,
       email_status = 'Sent',
       history_json = $2
@@ -304,7 +304,7 @@ async function main() {
   // Record audit log
   await db.query(
     `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
-     VALUES ('Sarah Mwamba (Admin)', 'Send Accommodation Partner Email', $1, 'Success', $2)`,
+     VALUES ('Barthelemy MAPWABA NTORO (Admin)', 'Send Accommodation Partner Email', $1, 'Success', $2)`,
     [testAccRef, `Dispatched partner email to ${partnerEmail}`]
   );
 

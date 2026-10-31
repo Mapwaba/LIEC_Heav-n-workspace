@@ -4,7 +4,7 @@ import { enforceRbac } from '@/lib/rbac';
 import { generateSecureTemporaryPassword, hashPassword } from '@/lib/passwordSecurity';
 
 /**
- * Admin User-Management Workflow API (ServiceNow-Inspired RBAC)
+ * Admin User-Management Workflow API (Enterprise RBAC)
  * Section 4: Create user, Assign roles, Retrieve roles, Suspend/Reactivate, Audit
  */
 

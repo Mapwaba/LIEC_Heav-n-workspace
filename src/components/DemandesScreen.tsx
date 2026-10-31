@@ -761,36 +761,45 @@ export default function DemandesScreen({
           {/* Table Footer Pagination */}
           <div className="px-4 py-3.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
             <span>
-              Showing <strong className="text-[#092342]">1–{Math.min(7, filteredList.length)}</strong> of{' '}
-              <strong className="text-[#092342]">{totalCount}</strong> applications
+              {isEn ? (
+                <>
+                  Showing <strong className="text-[#092342]">{filteredList.length === 0 ? 0 : (page - 1) * 7 + 1}–{Math.min(page * 7, filteredList.length)}</strong> of{' '}
+                  <strong className="text-[#092342]">{filteredList.length}</strong> applications
+                </>
+              ) : (
+                <>
+                  Affichage de <strong className="text-[#092342]">{filteredList.length === 0 ? 0 : (page - 1) * 7 + 1}–{Math.min(page * 7, filteredList.length)}</strong> sur{' '}
+                  <strong className="text-[#092342]">{filteredList.length}</strong> candidatures
+                </>
+              )}
             </span>
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="h-7 w-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-400 hover:bg-slate-50"
+                disabled={page <= 1}
+                aria-label={isEn ? 'Previous page' : 'Page précédente'}
+                className="h-7 w-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-400 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
               </button>
-              {[1, 2, 3].map((p) => (
+              {Array.from({ length: Math.max(1, Math.ceil(filteredList.length / 7)) }, (_, i) => i + 1).map((p) => (
                 <button
                   key={p}
                   onClick={() => setPage(p)}
-                  className={`h-7 w-7 rounded-lg text-xs font-bold transition ${
+                  className={`h-7 w-7 rounded-lg text-xs font-bold transition cursor-pointer ${
                     page === p
-                      ? 'bg-[#092342] text-white'
+                      ? 'bg-[#092342] text-white shadow-xs'
                       : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
                   }`}
                 >
                   {p}
                 </button>
               ))}
-              <span className="px-1">...</span>
-              <button className="h-7 w-7 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">
-                13
-              </button>
               <button
-                onClick={() => setPage((p) => (p < 3 ? p + 1 : 1))}
-                className="h-7 w-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-400 hover:bg-slate-50"
+                onClick={() => setPage((p) => Math.min(Math.max(1, Math.ceil(filteredList.length / 7)), p + 1))}
+                disabled={page >= Math.max(1, Math.ceil(filteredList.length / 7))}
+                aria-label={isEn ? 'Next page' : 'Page suivante'}
+                className="h-7 w-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-400 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -820,7 +829,11 @@ export default function DemandesScreen({
                 >
                   <ExternalLink className="w-4 h-4" />
                 </button>
-                <button className="p-1.5 rounded-lg hover:bg-slate-100 hover:text-slate-600">
+                <button
+                  onClick={() => onSelectRef('')}
+                  title={isEn ? 'Close panel' : 'Fermer le panneau'}
+                  className="p-1.5 rounded-lg hover:bg-slate-100 hover:text-slate-600 cursor-pointer"
+                >
                   <X className="w-4 h-4" />
                 </button>
               </div>

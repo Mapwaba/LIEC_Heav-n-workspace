@@ -1,5 +1,5 @@
 async function runTests() {
-  const adminEmail = 'sarah.mwamba@liec-education.com';
+  const adminEmail = 'contact@liecconsulting.com';
   const secEmail = 'marc.kouassi@liec-education.com';
   const aviEmail = 'alain.kanza@liec-education.com';
 

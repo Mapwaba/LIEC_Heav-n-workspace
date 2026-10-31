@@ -3830,8 +3830,8 @@ export function ParametresGovernanceScreen({
         <div>
           <span className="inline-block rounded-full bg-[#d8f6ea] px-3 py-0.5 text-[10.5px] font-extrabold uppercase tracking-wider text-[#0c685a] mb-2">
             {isEn
-              ? 'SERVICENOW-INSPIRED RBAC & SECURITY ARCHITECTURE'
-              : 'ARCHITECTURE RBAC & SÉCURITÉ SERVICENOW'}
+              ? 'ENTERPRISE RBAC & PLATFORM SECURITY ARCHITECTURE'
+              : 'ARCHITECTURE RBAC & SÉCURITÉ DE LA PLATEFORME'}
           </span>
           <h1 className="text-[26px] font-extrabold text-[#092342] leading-tight">
             {isEn

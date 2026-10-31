@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { DBClient, getDb } from './db';
 
 /**
- * LIEC_Heav'n ServiceNow-Inspired Role-Based Access Control (RBAC)
+ * LIEC_Heav'n Enterprise Role-Based Access Control (RBAC)
  * Specification Reference: LIEC_Heav'n Role-Based Access Control Document
  *
  * Core Principle:
@@ -118,16 +118,6 @@ export const PRECONFIGURED_USERS_RBAC: Record<string, AuthenticatedUserContext> 
     initials: 'BM',
     active: true,
   },
-  'sarah.mwamba@liec-education.com': {
-    id: 1,
-    name: 'Barthelemy MAPWABA NTORO',
-    email: 'bmapwabantoro@liecconsulting.com',
-    business_profile: 'Admin',
-    technical_roles: ['admin', 'lh_security_admin'],
-    title: 'Platform Administrator & Managing Director',
-    initials: 'BM',
-    active: true,
-  },
 };
 
 export function canonicalizeUserEmail(rawEmail?: string | null): string {
@@ -136,10 +126,7 @@ export function canonicalizeUserEmail(rawEmail?: string | null): string {
     e === 'bmapwabantoro@liecconsulting.com' ||
     e === 'admin@liecconsulting.com' ||
     e === 'admin@liec-education.com' ||
-    e === 'admin@liec.com' ||
-    e === 'sarah.mwamba@liecconsulting.com' ||
-    e === 'sarah@liecconsulting.com' ||
-    e === 'sarah.mwamba@liec-education.com'
+    e === 'admin@liec.com'
   ) {
     return 'bmapwabantoro@liecconsulting.com';
   }
@@ -357,8 +344,7 @@ export async function authenticateServerRequest(
       const isRoleAdmin =
         r.role === 'admin' ||
         r.business_profile === 'Admin' ||
-        r.email === 'bmapwabantoro@liecconsulting.com' ||
-        r.email === 'sarah.mwamba@liec-education.com';
+        r.email === 'bmapwabantoro@liecconsulting.com';
       user = {
         id: r.id,
         name: r.name,
