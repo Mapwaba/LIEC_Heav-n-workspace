@@ -2168,9 +2168,9 @@ export function PublicSiteIntakeScreen({
 }
 
 export const PREPA_TOTAL_FEE = 2800.00;
-export const PREPA_INSTALMENT_1_AMOUNT = 1800.12;
+export const PREPA_INSTALMENT_1_AMOUNT = 1800.00;
 export const PREPA_INSTALMENT_1_PCT = 64.29;
-export const PREPA_INSTALMENT_2_AMOUNT = 999.88;
+export const PREPA_INSTALMENT_2_AMOUNT = 1000.00;
 export const PREPA_INSTALMENT_2_PCT = 35.71;
 
 export function RapportsFinanceScreen({
@@ -2207,6 +2207,9 @@ export function RapportsFinanceScreen({
   const [registerTransactionRef, setRegisterTransactionRef] = useState<string>('');
   const [registerNotes, setRegisterNotes] = useState<string>('');
   const [registerAutoValidate, setRegisterAutoValidate] = useState<boolean>(true);
+  const [registerIsSettledTotally, setRegisterIsSettledTotally] = useState<boolean>(true);
+  const [registerCustomAmount, setRegisterCustomAmount] = useState<string>('1800');
+  const [registerPaymentDate, setRegisterPaymentDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [isSubmittingPayment, setIsSubmittingPayment] = useState<boolean>(false);
 
   // Active Receipt Preview State
@@ -2297,6 +2300,15 @@ export function RapportsFinanceScreen({
   const handleRegisterPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentCandidate) return;
+
+    if (!registerIsSettledTotally) {
+      const parsed = parseFloat(registerCustomAmount.replace(',', '.').trim());
+      if (isNaN(parsed) || parsed <= 0) {
+        alert(isEn ? 'Please enter a valid amount greater than €0.00.' : 'Veuillez saisir un montant valide supérieur à 0,00 €.');
+        return;
+      }
+    }
+
     setIsSubmittingPayment(true);
 
     try {
@@ -2313,6 +2325,9 @@ export function RapportsFinanceScreen({
           transaction_ref: registerTransactionRef || `TXN-PREPA-${Date.now().toString().slice(-6)}`,
           auto_validate: registerAutoValidate && isAuthorizedValidator,
           notes: registerNotes,
+          is_settled_totally: registerIsSettledTotally,
+          custom_amount: registerIsSettledTotally ? undefined : registerCustomAmount,
+          payment_date: registerPaymentDate,
         }),
       });
 
@@ -2428,8 +2443,8 @@ export function RapportsFinanceScreen({
           </h1>
           <p className="mt-1 text-sm text-slate-500 max-w-3xl">
             {isEn
-              ? 'Authorized payment schedule: €2,800.00 total tuition (Instalment 1: €1,800.12 / 64.29% • Instalment 2: €999.88 / 35.71% due within 30 calendar days). Independent validation and official printable receipt generation.'
-              : 'Échéancier officiel : 2 800,00 € (1er acompte : 1 800,12 € / 64,29% • 2nd acompte : 999,88 € / 35,71% à 30 jours). Validation indépendante et génération de reçus officiels.'}
+              ? 'Authorized payment schedule: €2,800.00 total tuition (Instalment 1: €1,800.00 / 64.29% • Instalment 2: €1,000.00 / 35.71% due within 30 calendar days). Independent validation and official printable receipt generation.'
+              : 'Échéancier officiel : 2 800,00 € (1er acompte : 1 800,00 € / 64,29% • 2nd acompte : 1 000,00 € / 35,71% à 30 jours). Validation indépendante et génération de reçus officiels.'}
           </p>
         </div>
 
@@ -2504,7 +2519,7 @@ export function RapportsFinanceScreen({
             {prepaMetrics.thresholdCount} {isEn ? 'Candidates' : 'Candidats'}
           </div>
           <span className="text-[11px] text-[#0c685a] font-semibold">
-            ≥ €1,800.12 (Visa Ready)
+            ≥ €1,800.00 (Visa Ready)
           </span>
         </div>
 
@@ -2555,8 +2570,8 @@ export function RapportsFinanceScreen({
               </h2>
               <p className="text-xs text-slate-500">
                 {isEn
-                  ? 'First instalment: €1,800.12 (64.29%) • Second instalment: €999.88 (35.71%) due 30 calendar days after instalment 1.'
-                  : '1er acompte : 1 800,12 € (64,29%) • 2nd acompte : 999,88 € (35,71%) exigible 30 jours calendaires après le 1er.'}
+                  ? 'First instalment: €1,800.00 (64.29%) • Second instalment: €1,000.00 (35.71%) due 30 calendar days after instalment 1.'
+                  : '1er acompte : 1 800,00 € (64,29%) • 2nd acompte : 1 000,00 € (35,71%) exigible 30 jours calendaires après le 1er.'}
               </p>
             </div>
 
@@ -2578,8 +2593,8 @@ export function RapportsFinanceScreen({
                 <tr className="border-y border-slate-100 bg-[#f8fafc] text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
                   <th className="py-3 px-3">REF ID</th>
                   <th className="py-3 px-3">{isEn ? 'CANDIDATE' : 'CANDIDAT'}</th>
-                  <th className="py-3 px-3">{isEn ? 'INSTALMENT 1 (€1,800.12 / 64.29%)' : '1ER ACOMPTE (1 800,12 €)'}</th>
-                  <th className="py-3 px-3">{isEn ? 'INSTALMENT 2 (€999.88 / 35.71%)' : '2ND ACOMPTE (999,88 €)'}</th>
+                  <th className="py-3 px-3">{isEn ? 'INSTALMENT 1 (€1,800.00 / 64.29%)' : '1ER ACOMPTE (1 800,00 €)'}</th>
+                  <th className="py-3 px-3">{isEn ? 'INSTALMENT 2 (€1,000.00 / 35.71%)' : '2ND ACOMPTE (1 000,00 €)'}</th>
                   <th className="py-3 px-3">{isEn ? 'TOTAL VALIDATED' : 'TOTAL VALIDÉ'}</th>
                   <th className="py-3 px-3">{isEn ? 'OUTSTANDING' : 'SOLDE RESTANT'}</th>
                   <th className="py-3 px-3 text-right">{isEn ? 'ACTIONS' : 'ACTIONS'}</th>
@@ -2625,7 +2640,7 @@ export function RapportsFinanceScreen({
                               }`}
                             >
                               {inst1.status === 'Validated' ? '✓ ' : '⏳ '}
-                              {inst1.status} (€1,800.12)
+                              {inst1.status} (€{Number(inst1.amount).toFixed(2)})
                             </span>
                           ) : (
                             <span className="text-slate-400 text-[11px] italic">
@@ -2647,7 +2662,7 @@ export function RapportsFinanceScreen({
                               }`}
                             >
                               {inst2.status === 'Validated' ? '✓ ' : '⏳ '}
-                              {inst2.status} (€999.88)
+                              {inst2.status} (€{Number(inst2.amount).toFixed(2)})
                             </span>
                           ) : (
                             <span className="text-slate-400 text-[11px] italic">
@@ -2775,7 +2790,7 @@ export function RapportsFinanceScreen({
                     {isEn ? 'LIEC-France PREPA — Receipt & Payment Schedule Workflow' : 'LIEC-France PREPA — Gestion des Paiements & Reçus'}
                   </h3>
                   <span className="text-[11px] text-slate-500">
-                    Programme fee: €2,800.00 • Instalment 1: €1,800.12 (64.29%) • Instalment 2: €999.88 (35.71%)
+                    Programme fee: €2,800.00 • Instalment 1: €1,800.00 (64.29%) • Instalment 2: €1,000.00 (35.71%)
                   </span>
                 </div>
               </div>
@@ -2858,7 +2873,9 @@ export function RapportsFinanceScreen({
                       <span className="font-extrabold text-xs text-[#092342]">
                         Instalment 1 of 2 (64.29%)
                       </span>
-                      <span className="text-sm font-extrabold text-[#0c685a]">€1,800.12</span>
+                      <span className="text-sm font-extrabold text-[#0c685a]">
+                        €{candidatePayments.instalment1 ? Number(candidatePayments.instalment1.amount).toFixed(2) : '1,800.00'}
+                      </span>
                     </div>
 
                     <div className="text-xs space-y-1.5 text-slate-600">
@@ -2910,11 +2927,14 @@ export function RapportsFinanceScreen({
                         <button
                           onClick={() => {
                             setRegisterInstalmentNumber(1);
+                            setRegisterIsSettledTotally(true);
+                            setRegisterCustomAmount('1800');
+                            setRegisterPaymentDate(new Date().toISOString().slice(0, 10));
                             setShowPaymentRegisterModal(true);
                           }}
                           className="w-full rounded-xl bg-[#092342] hover:bg-[#12365a] text-white py-2 text-xs font-extrabold cursor-pointer transition"
                         >
-                          + Record Payment (€1,800.12)
+                          + Record Payment (€1,800.00)
                         </button>
                       ) : candidatePayments.instalment1.status === 'Pending' ? (
                         <>
@@ -2958,7 +2978,9 @@ export function RapportsFinanceScreen({
                       <span className="font-extrabold text-xs text-[#092342]">
                         Instalment 2 of 2 (35.71%)
                       </span>
-                      <span className="text-sm font-extrabold text-[#0c685a]">€999.88</span>
+                      <span className="text-sm font-extrabold text-[#0c685a]">
+                        €{candidatePayments.instalment2 ? Number(candidatePayments.instalment2.amount).toFixed(2) : '1,000.00'}
+                      </span>
                     </div>
 
                     <div className="text-xs space-y-1.5 text-slate-600">
@@ -3008,11 +3030,14 @@ export function RapportsFinanceScreen({
                         <button
                           onClick={() => {
                             setRegisterInstalmentNumber(2);
+                            setRegisterIsSettledTotally(true);
+                            setRegisterCustomAmount('1000');
+                            setRegisterPaymentDate(new Date().toISOString().slice(0, 10));
                             setShowPaymentRegisterModal(true);
                           }}
                           className="w-full rounded-xl bg-[#092342] hover:bg-[#12365a] text-white py-2 text-xs font-extrabold cursor-pointer transition"
                         >
-                          + Record Payment (€999.88)
+                          + Record Payment (€1,000.00)
                         </button>
                       ) : candidatePayments.instalment2.status === 'Pending' ? (
                         <>
@@ -3236,7 +3261,7 @@ export function RapportsFinanceScreen({
                       }`}>
                         {Number(activeReceipt.cumulative_paid) >= PREPA_TOTAL_FEE
                           ? '✓ FULL PROGRAMME PAYMENT SETTLED (100.00%) — Total Validated: €2,800.00. Outstanding Balance: €0.00. All LIEC-France PREPA Financial Requirements Fully Satisfied.'
-                          : `✓ PARTIAL INSTALMENT PAYMENT (64.29%) — Initial Payment Validated (€1,800.12). Candidate Eligible for Visa Lodging & Partner University Procedure. Outstanding Balance: €999.88 (Due within 30 calendar days).`}
+                          : `✓ PARTIAL INSTALMENT PAYMENT — Payment Validated (€${Number(activeReceipt.amount_paid || 1800).toFixed(2)}). Candidate Eligible for Visa Lodging & Partner University Procedure. Outstanding Balance: €${Number(activeReceipt.outstanding_balance || 0).toFixed(2)} (Due within 30 calendar days).`}
                       </div>
 
                       {/* FOOTER: ACKNOWLEDGEMENT, LEGAL INFO & OFFICIAL STAMP */}
@@ -3322,13 +3347,113 @@ export function RapportsFinanceScreen({
                 <label className="block text-slate-600 font-bold mb-1">Instalment</label>
                 <div className="font-extrabold text-[#092342]">
                   {registerInstalmentNumber === 1
-                    ? 'Instalment 1 of 2: €1,800.12 (64.29%)'
-                    : 'Instalment 2 of 2: €999.88 (35.71%)'}
+                    ? 'Instalment 1 of 2: €1,800.00 (64.29%)'
+                    : 'Instalment 2 of 2: €1,000.00 (35.71%)'}
                 </div>
               </div>
 
+              {/* Editable Payment Date */}
               <div>
-                <label className="block text-slate-600 font-bold mb-1">Payment Method</label>
+                <label className="block text-slate-600 font-bold mb-1">
+                  {isEn ? 'Payment Date *' : 'Date du Paiement *'}
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={registerPaymentDate}
+                  onChange={(e) => setRegisterPaymentDate(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-semibold text-[#092342] focus:ring-2 focus:ring-[#0c685a]/20 focus:border-[#0c685a]"
+                />
+              </div>
+
+              {/* True/False field: Was instalment settled totally? */}
+              <div>
+                <label className="block text-slate-700 font-extrabold mb-1.5">
+                  {isEn ? 'Instalment Settled Totally? *' : 'Acompte soldé totalement ? *'}
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRegisterIsSettledTotally(true);
+                      setRegisterCustomAmount(registerInstalmentNumber === 1 ? '1800' : '1000');
+                    }}
+                    className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                      registerIsSettledTotally
+                        ? 'border-emerald-500 bg-emerald-50/70 text-emerald-950 font-bold ring-2 ring-emerald-500/20'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                        registerIsSettledTotally ? 'bg-emerald-600 text-white' : 'border border-slate-300 text-transparent'
+                      }`}>
+                        ✓
+                      </span>
+                      <span className="font-extrabold text-[#092342]">
+                        {isEn ? 'True (Totally Settled)' : 'Vrai (Totalement soldé)'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1 pl-6">
+                      {registerInstalmentNumber === 1 ? 'Full €1,800.00' : 'Full €1,000.00'}
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setRegisterIsSettledTotally(false)}
+                    className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                      !registerIsSettledTotally
+                        ? 'border-amber-500 bg-amber-50/70 text-amber-950 font-bold ring-2 ring-amber-500/20'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                        !registerIsSettledTotally ? 'bg-amber-600 text-white' : 'border border-slate-300 text-transparent'
+                      }`}>
+                        ✓
+                      </span>
+                      <span className="font-extrabold text-[#092342]">
+                        {isEn ? 'False (Partial / Other)' : 'Faux (Partiel / Autre)'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1 pl-6">
+                      {isEn ? 'Enter custom amount' : 'Saisie montant manuel'}
+                    </p>
+                  </button>
+                </div>
+              </div>
+
+              {/* If false: active new string-type field to fill in amount manually */}
+              {!registerIsSettledTotally && (
+                <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-200 space-y-1.5 animate-in fade-in duration-150">
+                  <label className="block text-amber-950 font-extrabold text-xs">
+                    {isEn ? 'Custom Amount Paid (€) *' : 'Montant Personnalisé Réglé (€) *'}
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2.5 font-bold text-slate-400">€</span>
+                    <input
+                      type="text"
+                      required={!registerIsSettledTotally}
+                      value={registerCustomAmount}
+                      onChange={(e) => setRegisterCustomAmount(e.target.value)}
+                      placeholder={registerInstalmentNumber === 1 ? 'e.g. 1500 or 900.00' : 'e.g. 500 or 750.00'}
+                      className="w-full rounded-xl border border-amber-300 bg-white pl-8 pr-3 py-2 font-bold text-[#092342] focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                    />
+                  </div>
+                  <p className="text-[10.5px] text-amber-800">
+                    {isEn
+                      ? 'Partial settlement will be recorded and subtracted from candidate\'s total balance.'
+                      : 'Le montant partiel sera enregistré et déduit du solde restant du candidat.'}
+                  </p>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-slate-600 font-bold mb-1">
+                  {isEn ? 'Payment Method' : 'Méthode de Paiement'}
+                </label>
                 <select
                   value={registerPaymentMethod}
                   onChange={(e) => setRegisterPaymentMethod(e.target.value)}

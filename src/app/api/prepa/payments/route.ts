@@ -4,9 +4,9 @@ import { authenticateServerRequest } from '@/lib/rbac';
 
 // Exact configured fee and payment schedule for LIEC-France PREPA
 export const PREPA_TOTAL_FEE = 2800.00;
-export const PREPA_INSTALMENT_1_AMOUNT = 1800.12;
+export const PREPA_INSTALMENT_1_AMOUNT = 1800.00;
 export const PREPA_INSTALMENT_1_PCT = 64.29;
-export const PREPA_INSTALMENT_2_AMOUNT = 999.88;
+export const PREPA_INSTALMENT_2_AMOUNT = 1000.00;
 export const PREPA_INSTALMENT_2_PCT = 35.71;
 
 export async function GET(req: NextRequest) {
@@ -59,6 +59,9 @@ export async function POST(req: NextRequest) {
       proof_filename,
       auto_validate = false,
       notes,
+      is_settled_totally = true,
+      custom_amount,
+      payment_date,
     } = body;
 
     if (!candidate_ref || !candidate_name || !instalment_number) {
@@ -69,24 +72,40 @@ export async function POST(req: NextRequest) {
     }
 
     const instNum = Number(instalment_number);
+    const isSettledTotally = is_settled_totally !== false && is_settled_totally !== 'false';
     let amount: number;
     let instalment_percentage: number;
     let instalment_label: string;
 
-    if (instNum === 1) {
-      amount = PREPA_INSTALMENT_1_AMOUNT; // €1,800.12
-      instalment_percentage = PREPA_INSTALMENT_1_PCT; // 64.29%
-      instalment_label = 'Instalment 1 of 2 (64.29%)';
-    } else if (instNum === 2) {
-      amount = PREPA_INSTALMENT_2_AMOUNT; // €999.88
-      instalment_percentage = PREPA_INSTALMENT_2_PCT; // 35.71%
-      instalment_label = 'Instalment 2 of 2 (35.71%)';
+    if (!isSettledTotally && custom_amount !== undefined && custom_amount !== null && String(custom_amount).trim() !== '') {
+      const parsed = parseFloat(String(custom_amount).replace(',', '.').trim());
+      if (isNaN(parsed) || parsed <= 0) {
+        return NextResponse.json(
+          { error: 'Invalid custom payment amount. Please enter a valid number greater than 0.' },
+          { status: 400 }
+        );
+      }
+      amount = Math.round(parsed * 100) / 100;
+      instalment_percentage = Number(((amount / PREPA_TOTAL_FEE) * 100).toFixed(2));
+      instalment_label = `Instalment ${instNum} of 2 (Partial: €${amount.toFixed(2)})`;
     } else {
-      return NextResponse.json(
-        { error: 'Invalid instalment number. Must be 1 or 2.' },
-        { status: 400 }
-      );
+      if (instNum === 1) {
+        amount = PREPA_INSTALMENT_1_AMOUNT; // €1,800.00
+        instalment_percentage = PREPA_INSTALMENT_1_PCT; // 64.29%
+        instalment_label = 'Instalment 1 of 2 (64.29%)';
+      } else if (instNum === 2) {
+        amount = PREPA_INSTALMENT_2_AMOUNT; // €1,000.00
+        instalment_percentage = PREPA_INSTALMENT_2_PCT; // 35.71%
+        instalment_label = 'Instalment 2 of 2 (35.71%)';
+      } else {
+        return NextResponse.json(
+          { error: 'Invalid instalment number. Must be 1 or 2.' },
+          { status: 400 }
+        );
+      }
     }
+
+    const finalPaymentDate = payment_date ? new Date(payment_date).toISOString() : new Date().toISOString();
 
     // Generate unique payment reference
     const randomSuffix = Math.floor(100000 + Math.random() * 900000);
@@ -122,8 +141,8 @@ export async function POST(req: NextRequest) {
         academic_intake, program, instalment_number, instalment_label,
         instalment_percentage, amount, payment_method, transaction_ref,
         proof_file_url, proof_filename, status, validated_by, validated_at,
-        expected_next_date, notes
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+        expected_next_date, notes, payment_date, is_settled_totally
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
       RETURNING *`,
       [
         payment_ref,
@@ -145,6 +164,8 @@ export async function POST(req: NextRequest) {
         validated_at,
         expected_next_date,
         notes || null,
+        finalPaymentDate,
+        isSettledTotally,
       ]
     );
 

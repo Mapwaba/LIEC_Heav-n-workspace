@@ -150,8 +150,8 @@ export function KnowledgeBaseScreen({
       stepNum: 2,
       title: 'Étape 2 — Premier paiement et engagement financier (2 800 €)',
       titleEn: 'Step 2 — Initial Payment & Financial Commitment (€2,800)',
-      summary: 'Modalités de paiement du programme LIEC-France Prépa : 1 800,12 € à l’inscription, 999,88 € à J+30.',
-      summaryEn: 'Payment schedule: €1,800.12 initial payment (64.29%), €999.88 second instalment due within 30 days.',
+      summary: 'Modalités de paiement du programme LIEC-France Prépa : 1 800,00 € à l’inscription, 1 000,00 € à J+30.',
+      summaryEn: 'Payment schedule: €1,800.00 initial payment (64.29%), €1,000.00 second instalment due within 30 days.',
       tags: ['Paiement', 'Finance', 'Rawbank', '2800 €', 'Reçu'],
       roleRestriction: 'all',
       contentFr: (
@@ -162,11 +162,11 @@ export function KnowledgeBaseScreen({
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="p-3 rounded-xl bg-white border border-slate-200 space-y-1">
-              <div className="font-bold text-[#092342]">1er Dépôt : 1 800,12 € (64,29 %)</div>
+              <div className="font-bold text-[#092342]">1er Dépôt : 1 800,00 € (64,29 %)</div>
               <p className="text-slate-500">Exigible immédiatement à l’inscription. Conditionne l’accès aux webinaires et le dépôt de candidature.</p>
             </div>
             <div className="p-3 rounded-xl bg-white border border-slate-200 space-y-1">
-              <div className="font-bold text-[#092342]">2ème Versement : 999,88 € (35,71 %)</div>
+              <div className="font-bold text-[#092342]">2ème Versement : 1 000,00 € (35,71 %)</div>
               <p className="text-slate-500">Exigible strictement dans un délai de <strong>30 jours calendaires</strong> après le 1er versement.</p>
             </div>
           </div>
@@ -189,11 +189,11 @@ export function KnowledgeBaseScreen({
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="p-3 rounded-xl bg-white border border-slate-200 space-y-1">
-              <div className="font-bold text-[#092342]">Instalment 1: €1,800.12 (64.29%)</div>
+              <div className="font-bold text-[#092342]">Instalment 1: €1,800.00 (64.29%)</div>
               <p className="text-slate-500">Due upon registration. Qualifies student for webinar access and school applications.</p>
             </div>
             <div className="p-3 rounded-xl bg-white border border-slate-200 space-y-1">
-              <div className="font-bold text-[#092342]">Instalment 2: €999.88 (35.71%)</div>
+              <div className="font-bold text-[#092342]">Instalment 2: €1,000.00 (35.71%)</div>
               <p className="text-slate-500">Due strictly within <strong>30 calendar days</strong> following instalment 1 validation.</p>
             </div>
           </div>
@@ -577,7 +577,7 @@ export function KnowledgeBaseScreen({
           </div>
           <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-[11px] space-y-1">
             <span className="font-bold block">Avis Administratif — Disparité Financière Source PDF vs Système</span>
-            <p>Le tableau récapitulatif de la page 7 du PDF source mentionne un budget indicatif en USD (3 230,16 $ pour LIEC, total 8 935,31 $). Conformément à la politique financière en Euros (€), le tarif officiel LIEC-France Prépa est strictement configuré à <strong>2 800,00 €</strong> (1 800,12 € + 999,88 €). Ne jamais convertir de montants avec des taux non homologués.</p>
+            <p>Le tableau récapitulatif de la page 7 du PDF source mentionne un budget indicatif en USD (3 230,16 $ pour LIEC, total 8 935,31 $). Conformément à la politique financière en Euros (€), le tarif officiel LIEC-France Prépa est strictement configuré à <strong>2 800,00 €</strong> (1 800,00 € + 1 000,00 €). Ne jamais convertir de montants avec des taux non homologués.</p>
           </div>
         </div>
       ),
@@ -597,7 +597,7 @@ export function KnowledgeBaseScreen({
           </div>
           <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-[11px] space-y-1">
             <span className="font-bold block">Administrative Notice — Currency Policy & Source Discrepancy</span>
-            <p>Page 7 of the source PDF features an illustrative summary table in USD ($3,230.16 USD LIEC fee, $8,935.31 USD total). In strict compliance with the platform’s Euro-Only Currency Policy, the LIEC-France PREPA fee is configured at exactly <strong>€2,800.00</strong> (€1,800.12 + €999.88). Unapproved exchange rate conversions are strictly prohibited.</p>
+            <p>Page 7 of the source PDF features an illustrative summary table in USD ($3,230.16 USD LIEC fee, $8,935.31 USD total). In strict compliance with the platform’s Euro-Only Currency Policy, the LIEC-France PREPA fee is configured at exactly <strong>€2,800.00</strong> (€1,800.00 + €1,000.00). Unapproved exchange rate conversions are strictly prohibited.</p>
           </div>
         </div>
       ),
@@ -1142,7 +1142,7 @@ export function KnowledgeBaseScreen({
             <h4 className="font-extrabold text-[#092342] uppercase text-xs">Workflow de Validation</h4>
             <ol className="list-decimal pl-5 space-y-1">
               <li><strong>Enregistrement du versement :</strong> Le conseiller ou le parent transmet le bordereau de versement bancaire (Rawbank).</li>
-              <li><strong>Contrôle de conformité :</strong> L'Officier Finance vérifie la concordance du montant (1er versement 1 800,12 € ou 2ème versement 999,88 €).</li>
+              <li><strong>Contrôle de conformité :</strong> L'Officier Finance vérifie la concordance du montant (1er versement 1 800,00 € ou 2ème versement 1 000,00 €).</li>
               <li><strong>Validation en base :</strong> Le paiement passe au statut « Validé ».</li>
               <li><strong>Génération du reçu officiel :</strong> Émission automatique d'un reçu avec horodatage certifié heure de Paris et référence unique d'audit.</li>
             </ol>
@@ -1156,7 +1156,7 @@ export function KnowledgeBaseScreen({
             <h4 className="font-extrabold text-[#092342] uppercase text-xs">Validation Workflow</h4>
             <ol className="list-decimal pl-5 space-y-1">
               <li><strong>Payment Registration:</strong> Advisor logs the bank slip from Rawbank.</li>
-              <li><strong>Compliance Verification:</strong> Finance officer validates amount against instalment schedule (€1,800.12 or €999.88).</li>
+              <li><strong>Compliance Verification:</strong> Finance officer validates amount against instalment schedule (€1,800.00 or €1,000.00).</li>
               <li><strong>Status Transition:</strong> Record updated to "Validated".</li>
               <li><strong>Receipt Delivery:</strong> Official receipt generated with Paris timezone timestamp and unique audit verification hash.</li>
             </ol>
@@ -1270,7 +1270,7 @@ export function KnowledgeBaseScreen({
           </div>
           <div className="space-y-2 pt-2 border-t border-slate-100">
             <h4 className="font-extrabold text-[#092342] uppercase text-xs">2. Workflow de l’Officier Finance & AVI</h4>
-            <p>1. Contrôler les bordereaux de virement pour l'acompte 1 (1 800,12 €) et l'acompte 2 (999,88 €).<br />
+            <p>1. Contrôler les bordereaux de virement pour l'acompte 1 (1 800,00 €) et l'acompte 2 (1 000,00 €).<br />
                2. Valider le règlement et émettre le reçu officiel d'encaissement.<br />
                3. Établir la simulation de caution bancaire YIMMILINE (Classique ou Partiel).<br />
                4. Délivrer l'attestation de virement irrévocable (AVI) pour le dépôt de visa.</p>
@@ -1288,7 +1288,7 @@ export function KnowledgeBaseScreen({
           </div>
           <div className="space-y-2 pt-2 border-t border-slate-100">
             <h4 className="font-extrabold text-[#092342] uppercase text-xs">2. Finance & AVI Officer Workflow</h4>
-            <p>1. Audit bank wire receipts for instalment 1 (€1,800.12) and instalment 2 (€999.88).<br />
+            <p>1. Audit bank wire receipts for instalment 1 (€1,800.00) and instalment 2 (€1,000.00).<br />
                2. Validate transaction and generate official verified receipt.<br />
                3. Configure YIMMILINE blocked account simulation (Classique or Partiel).<br />
                4. Transmit irrevocable wire certificate (AVI) for consular visa interview.</p>

@@ -328,6 +328,8 @@ async function initSchemaAndSeed(client: DBClient) {
       validated_by VARCHAR(150),
       validated_at TIMESTAMP WITH TIME ZONE,
       expected_next_date TIMESTAMP WITH TIME ZONE,
+      payment_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      is_settled_totally BOOLEAN DEFAULT TRUE,
       notes TEXT,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
