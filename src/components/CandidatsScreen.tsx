@@ -213,6 +213,8 @@ export default function CandidatsScreen({
   const [formEmail, setFormEmail] = useState('');
   const [formPhone, setFormPhone] = useState('');
   const [formSexe, setFormSexe] = useState('Male');
+  const [formProgram, setFormProgram] = useState('');
+  const [showEditModal, setShowEditModal] = useState(false);
   const [formCountry, setFormCountry] = useState('');
   const [formNationality, setFormNationality] = useState('');
   const [formAdmissionStatus, setFormAdmissionStatus] = useState('');
@@ -269,6 +271,7 @@ export default function CandidatsScreen({
       setFormEmail(selectedCandidat.email || '');
       setFormPhone(selectedCandidat.phone || '');
       setFormSexe((selectedCandidat.sexe === 'Female' || selectedCandidat.sexe === 'Féminin') ? 'Female' : 'Male');
+      setFormProgram(selectedCandidat.program || 'MyDigitalSchool Lyon — Dév. Web & UX/UI');
       setFormCountry(selectedCandidat.country || 'RDC (Kinshasa)');
       setFormNationality(selectedCandidat.nationality || 'Congolaise (RDC)');
       setFormAdmissionStatus(
@@ -344,6 +347,7 @@ export default function CandidatsScreen({
           email: formEmail.trim(),
           phone: formPhone.trim(),
           sexe: formSexe,
+          program: formProgram.trim(),
           country: formCountry.trim(),
           nationality: formNationality.trim(),
           admission_status: formAdmissionStatus.trim(),
@@ -610,8 +614,10 @@ export default function CandidatsScreen({
           <h1 className="text-[26px] sm:text-[30px] font-extrabold tracking-tight text-[#092342] leading-[1.15]">
             {isEn ? 'Centralised Student Record' : 'Dossier Étudiant Centralisé'}
           </h1>
-          <p className="mt-1 text-xs text-slate-500 max-w-lg">
-            ServiceNow Incident-inspired unified record, tracking personal data, activity stream, and linked secondary requests.
+                    <p className="mt-1 text-xs text-slate-500 max-w-lg">
+            {isEn
+              ? 'Unified student record tracking personal information, Campus France milestones, and partner school choices.'
+              : 'Dossier étudiant unifié pour le suivi des informations personnelles, des jalons Campus France et des vœux d’écoles.'}
           </p>
         </div>
 
@@ -1874,6 +1880,353 @@ export default function CandidatsScreen({
           </div>
         </div>
       )}
-    </div>
+    
+      {/* Modal: Comprehensive Edit Student Record */}
+      {showEditModal && selectedCandidat && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-2xl border border-slate-100 space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-md border border-indigo-200">
+                    {selectedCandidat.ref}
+                  </span>
+                  <h3 className="text-lg font-extrabold text-[#092342]">
+                    {isEn ? 'Edit Student Information' : 'Modifier les Informations de l’Étudiant'}
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {isEn
+                    ? 'Update candidate personal details, partner school assignment, and parent linkage.'
+                    : 'Mettez à jour les données personnelles, l’école partenaire visée et le lien parent.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowEditModal(false)}
+                className="text-slate-400 hover:text-slate-600 font-bold text-base p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSaveOrUpdateRecord();
+              }}
+              className="space-y-5 text-xs"
+            >
+              {/* Section 1: Personal Details */}
+              <div className="space-y-3">
+                <span className="text-[10.5px] font-extrabold uppercase tracking-wider text-indigo-700 block border-b border-slate-100 pb-1">
+                  {isEn ? '1. Personal & Contact Details' : '1. Coordonnées & Données Personnelles'}
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {isEn ? 'Student Full Name *' : 'Nom complet de l’étudiant *'}
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={formFullName}
+                      onChange={(e) => setFormFullName(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {isEn ? 'Email Address *' : 'Adresse Email *'}
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      value={formEmail}
+                      onChange={(e) => setFormEmail(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1 flex items-center justify-between">
+                      <span>{isEn ? 'Phone / WhatsApp *' : 'Téléphone / WhatsApp *'}</span>
+                      <span className="text-[10px] text-slate-400 font-normal">
+                        {formPhone.replace(/\D/g, '').length}/14 {isEn ? 'digits max' : 'chiffres max'}
+                      </span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={formPhone}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val.replace(/\D/g, '').length <= 14) {
+                          setFormPhone(val);
+                        }
+                      }}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {isEn ? 'Gender' : 'Sexe'}
+                    </label>
+                    <select
+                      value={formSexe}
+                      onChange={(e) => setFormSexe(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white text-slate-900 font-semibold"
+                    >
+                      <option value="Male">{isEn ? 'Male' : 'Masculin'}</option>
+                      <option value="Female">{isEn ? 'Female' : 'Féminin'}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {isEn ? 'Nationality' : 'Nationalité'}
+                    </label>
+                    <input
+                      type="text"
+                      value={formNationality}
+                      onChange={(e) => setFormNationality(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {isEn ? 'Location / Residence' : 'Lieu / Résidence'}
+                    </label>
+                    <input
+                      type="text"
+                      value={formCountry}
+                      onChange={(e) => setFormCountry(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 2: School & Program Assignment */}
+              <div className="space-y-3 pt-1">
+                <span className="text-[10.5px] font-extrabold uppercase tracking-wider text-indigo-700 block border-b border-slate-100 pb-1">
+                  {isEn ? '2. Partner School & Program Assignment' : '2. École Partenaire & Statut'}
+                </span>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {isEn ? 'Target Partner School & Program *' : 'École Partenaire & Programme Visé *'}
+                    </label>
+                    <select
+                      value={formProgram}
+                      onChange={(e) => setFormProgram(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white text-slate-900 font-semibold"
+                    >
+                      <option value="ISCOM Lyon — Communication, Publicité & Marketing">
+                        1. ISCOM Lyon (Communication, marketing & events)
+                      </option>
+                      <option value="MyDigitalSchool Lyon — Dév. Web & UX/UI">
+                        2. MyDigitalSchool Lyon (Web dev, digital & UX/UI)
+                      </option>
+                      <option value="École Internationale Tunon Lyon — Tourisme & Hôtellerie">
+                        3. École Internationale Tunon Lyon (Tourism, hospitality & PR)
+                      </option>
+                      <option value="IHECF Lyon — Comptabilité, Finance & Audit">
+                        4. IHECF Lyon (Accounting, finance & audit)
+                      </option>
+                      <option value="Ipac Bachelor Factory Lyon — Commerce & Logistique">
+                        5. Ipac Bachelor Factory Lyon (Commerce, management & logistics)
+                      </option>
+                      <option value="MBway Lyon — Management & Commerce International">
+                        6. MBway Lyon (Management, entrepreneurship & HR)
+                      </option>
+                      <optgroup label={isEn ? "7. ESMES Business School — Bachelors" : "7. ESMES Business School — Bachelors"}>
+                        <option value="ESMES Business School — Bachelor HR">
+                          {isEn ? "ESMES — Bachelor HR (Human Resources)" : "ESMES — Bachelor HR (Ressources Humaines)"}
+                        </option>
+                        <option value="ESMES Business School — Bachelor Business International">
+                          {isEn ? "ESMES — Bachelor International Business" : "ESMES — Bachelor Business International"}
+                        </option>
+                        <option value="ESMES Business School — Bachelor Marketing Digital and Communication">
+                          {isEn ? "ESMES — Bachelor Digital Marketing & Communication" : "ESMES — Bachelor Marketing Digital & Communication"}
+                        </option>
+                        <option value="ESMES Business School — Bachelor Comptabilité et Finance">
+                          {isEn ? "ESMES — Bachelor Accounting & Finance" : "ESMES — Bachelor Comptabilité & Finance"}
+                        </option>
+                        <option value="ESMES Business School — Bachelor Négociation et Relation Client">
+                          {isEn ? "ESMES — Bachelor Negotiation & Customer Relations" : "ESMES — Bachelor Négociation & Relation Client"}
+                        </option>
+                        <option value="ESMES Business School — Bachelor Informatique">
+                          {isEn ? "ESMES — Bachelor Computer Science & IT" : "ESMES — Bachelor Informatique"}
+                        </option>
+                        <option value="ESMES Business School — Bachelor Management">
+                          {isEn ? "ESMES — Bachelor Management" : "ESMES — Bachelor Management"}
+                        </option>
+                        <option value="ESMES Business School — Bachelor Commerce et Gestion des Entreprises">
+                          {isEn ? "ESMES — Bachelor Commerce & Business Administration" : "ESMES — Bachelor Commerce & Gestion des Entreprises"}
+                        </option>
+                        <option value="ESMES Business School — Bachelor Start-up Management">
+                          {isEn ? "ESMES — Bachelor Start-up Management" : "ESMES — Bachelor Start-up Management"}
+                        </option>
+                        <option value="ESMES Business School — Bachelor Entrepreneuriat Social">
+                          {isEn ? "ESMES — Bachelor Social Entrepreneurship" : "ESMES — Bachelor Entrepreneuriat Social"}
+                        </option>
+                      </optgroup>
+                      <optgroup label={isEn ? "7. ESMES Business School — Masters" : "7. ESMES Business School — Masters"}>
+                        <option value="ESMES Business School — Master Management, Commerce et Entrepreneuriat">
+                          {isEn ? "ESMES — Master Management, Commerce & Entrepreneurship" : "ESMES — Master Management, Commerce & Entrepreneuriat"}
+                        </option>
+                        <option value="ESMES Business School — Master Management des Ressources Humaines">
+                          {isEn ? "ESMES — Master Human Resources Management" : "ESMES — Master Management des Ressources Humaines"}
+                        </option>
+                        <option value="ESMES Business School — Master Responsabilité Sociale des Entreprises">
+                          {isEn ? "ESMES — Master Corporate Social Responsibility (CSR)" : "ESMES — Master Responsabilité Sociale des Entreprises (RSE)"}
+                        </option>
+                        <option value="ESMES Business School — Master Finance Conseil">
+                          {isEn ? "ESMES — Master Financial Advisory (Finance Conseil)" : "ESMES — Master Finance Conseil"}
+                        </option>
+                        <option value="ESMES Business School — Master Développement Fullstack">
+                          {isEn ? "ESMES — Master Fullstack Development" : "ESMES — Master Développement Fullstack"}
+                        </option>
+                        <option value="ESMES Business School — Master Management de la Santé">
+                          {isEn ? "ESMES — Master Healthcare Management" : "ESMES — Master Management de la Santé"}
+                        </option>
+                        <option value="ESMES Business School — Master Comptabilité">
+                          {isEn ? "ESMES — Master Accounting & Audit (Comptabilité)" : "ESMES — Master Comptabilité & Audit"}
+                        </option>
+                      </optgroup>
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">
+                        {isEn ? 'Admission Status' : 'Statut d’Admission'}
+                      </label>
+                      <input
+                        type="text"
+                        value={formAdmissionStatus}
+                        onChange={(e) => setFormAdmissionStatus(e.target.value)}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                        placeholder="Admitted — Partner School Lyon"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">
+                        {isEn ? 'Procedure Status' : 'Statut de Procédure'}
+                      </label>
+                      <input
+                        type="text"
+                        value={formProcedureStatus}
+                        onChange={(e) => setFormProcedureStatus(e.target.value)}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                        placeholder="Milestone 2 (Academic Records)"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 3: Parent / Tutor Information */}
+              <div className="space-y-3 pt-1">
+                <span className="text-[10.5px] font-extrabold uppercase tracking-wider text-indigo-700 block border-b border-slate-100 pb-1">
+                  {isEn ? '3. Parent / Tutor Information' : '3. Informations Parent / Tuteur'}
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {isEn ? 'Parent Full Name' : 'Nom complet du parent'}
+                    </label>
+                    <input
+                      type="text"
+                      value={formParentFullName}
+                      onChange={(e) => setFormParentFullName(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {isEn ? 'Relationship' : 'Lien de parenté'}
+                    </label>
+                    <select
+                      value={formParentRelation}
+                      onChange={(e) => setFormParentRelation(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white text-slate-900 font-semibold"
+                    >
+                      <option value="Father (Père)">{isEn ? 'Father' : 'Père'}</option>
+                      <option value="Mother (Mère)">{isEn ? 'Mother' : 'Mère'}</option>
+                      <option value="Legal Tutor (Tuteur Légal)">{isEn ? 'Legal Tutor' : 'Tuteur Légal'}</option>
+                      <option value="Sponsor (Garant Financier)">{isEn ? 'Sponsor / Guarantor' : 'Garant Financier'}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {isEn ? 'Parent Phone Number' : 'Téléphone du parent'}
+                    </label>
+                    <input
+                      type="tel"
+                      value={formParentPhone}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val.replace(/\D/g, '').length <= 14) {
+                          setFormParentPhone(val);
+                        }
+                      }}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {isEn ? 'Parent Email Address' : 'Email du parent'}
+                    </label>
+                    <input
+                      type="email"
+                      value={formParentEmail}
+                      onChange={(e) => setFormParentEmail(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 4: Situation & Description */}
+              <div className="space-y-1.5 pt-1">
+                <span className="text-[10.5px] font-extrabold uppercase tracking-wider text-indigo-700 block border-b border-slate-100 pb-1">
+                  {isEn ? '4. Situation & Notes' : '4. Situation & Notes'}
+                </span>
+                <textarea
+                  rows={3}
+                  value={formDescription}
+                  onChange={(e) => setFormDescription(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-slate-900"
+                  placeholder={isEn ? "Academic background, career goals, specific requirements..." : "Parcours académique, projet professionnel..."}
+                />
+              </div>
+
+              {/* Footer Actions */}
+              <div className="pt-3 flex justify-end gap-2.5 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 font-bold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+                >
+                  {isEn ? 'Cancel' : 'Annuler'}
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 font-extrabold shadow-sm transition disabled:opacity-50 inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isSaving ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Save className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isSaving ? (isEn ? 'Saving...' : 'Enregistrement...') : (isEn ? 'Save Changes' : 'Enregistrer')}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+</div>
   );
 }

@@ -398,6 +398,7 @@ export async function PUT(req: NextRequest) {
     const sexe = (rawSexe === 'Féminin' || rawSexe === 'Female') ? 'Female' : 'Male';
     const admissionStatus = body.admission_status !== undefined ? body.admission_status.trim() : cand.admission_status;
     const procedureStatus = body.procedure_status !== undefined ? body.procedure_status.trim() : cand.procedure_status;
+    const program = body.program !== undefined ? body.program.trim() : (cand.program || '');
     const description = body.description !== undefined ? body.description : cand.description;
     const newComment = (body.new_comment || body.comments || '').trim();
 
@@ -454,8 +455,9 @@ export async function PUT(req: NextRequest) {
         description = $12,
         notes_json = $13,
         history_json = $14,
-        sexe = $15
-       WHERE ref = $16`,
+        sexe = $15,
+        program = $16
+       WHERE ref = $17`,
       [
         fullName,
         email,
@@ -472,6 +474,7 @@ export async function PUT(req: NextRequest) {
         JSON.stringify(notes),
         JSON.stringify(history),
         sexe,
+        program,
         ref,
       ]
     );

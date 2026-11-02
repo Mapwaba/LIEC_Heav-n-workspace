@@ -41,7 +41,8 @@ interface DemandesScreenProps {
   onAddNote?: (ref: string, content: string) => Promise<void>;
   onUpdateStatus?: (ref: string, status: string, adviser?: string) => Promise<void>;
   onConvertCandidat?: (ref: string) => Promise<void>;
-  onArchiveDemande?: (ref: string) => Promise<void>;
+  onArchiveDemande?: (refs: string | string[]) => Promise<void>;
+  onDeleteDemande?: (refs: string | string[]) => Promise<void>;
   onRefresh?: () => void;
   onNotify?: (msg: string) => void;
   lang?: Lang;
@@ -57,6 +58,7 @@ export default function DemandesScreen({
   onUpdateStatus = async () => {},
   onConvertCandidat = async () => {},
   onArchiveDemande = async () => {},
+  onDeleteDemande = async () => {},
   onRefresh = () => {},
   onNotify = () => {},
   lang = 'en',
@@ -88,6 +90,9 @@ export default function DemandesScreen({
 
   const filteredList = orderedDemandes.filter((d) => {
     if (!d) return false;
+    const isArchivedFilter = statusFilter === 'Archived' || statusFilter === 'Archivée';
+    if (!isArchivedFilter && (d.is_archived || d.status === 'Archived' || d.status === 'Archivée')) return false;
+    if (isArchivedFilter && !(d.is_archived || d.status === 'Archived' || d.status === 'Archivée')) return false;
     const q = searchQuery.toLowerCase().trim();
     const refStr = String(d.ref || '').toLowerCase();
     const nameStr = String(d.full_name || '').toLowerCase();
@@ -632,13 +637,38 @@ export default function DemandesScreen({
               </button>
 
               <button
+                type="button"
                 onClick={() => {
-                  if (selectedDemande) onArchiveDemande(selectedDemande.ref);
+                  const targets = checkedRefs.length > 0 ? checkedRefs : (selectedDemande ? [selectedDemande.ref] : []);
+                  if (targets.length === 0) return;
+                  onArchiveDemande(targets);
+                  setCheckedRefs([]);
                 }}
-                title="Archive"
-                className="p-1.5 rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-600 transition"
+                title={isEn ? "Archive application" : "Archiver la demande"}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
               >
-                <Trash2 className="w-4 h-4" />
+                <Archive className="w-3.5 h-3.5 text-slate-500" />
+                <span>{isEn ? 'Archive' : 'Archiver'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const targets = checkedRefs.length > 0 ? checkedRefs : (selectedDemande ? [selectedDemande.ref] : []);
+                  if (targets.length === 0) return;
+                  const confirmMsg = isEn
+                    ? `Are you sure you want to permanently delete ${targets.length === 1 ? targets[0] : `${targets.length} applications`} from the database? This action cannot be undone.`
+                    : `Êtes-vous sûr de vouloir supprimer définitivement ${targets.length === 1 ? targets[0] : `${targets.length} demandes`} de la base de données ? Cette action est irréversible.`;
+                  if (window.confirm(confirmMsg)) {
+                    onDeleteDemande(targets);
+                    setCheckedRefs([]);
+                  }
+                }}
+                title={isEn ? "Permanently delete from database" : "Supprimer définitivement de la base"}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-red-600 hover:bg-red-50 hover:border-red-300 transition cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                <span>{isEn ? 'Delete' : 'Supprimer'}</span>
               </button>
             </div>
           </div>
@@ -1094,11 +1124,27 @@ export default function DemandesScreen({
                   <span>Schedule Meeting</span>
                 </button>
                 <button
+                  type="button"
                   onClick={() => onArchiveDemande(selectedDemande.ref)}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#f1f6fb] hover:bg-slate-200/70 py-2.5 px-3 text-xs font-bold text-[#092342] transition"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#f1f6fb] hover:bg-slate-200/70 py-2.5 px-3 text-xs font-bold text-[#092342] transition cursor-pointer"
                 >
                   <Archive className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Archive</span>
+                  <span>{isEn ? 'Archive' : 'Archiver'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const confirmMsg = isEn
+                      ? `Are you sure you want to permanently delete application ${selectedDemande.ref} (${selectedDemande.full_name || 'applicant'}) from the database? This action cannot be undone.`
+                      : `Êtes-vous sûr de vouloir supprimer définitivement la demande ${selectedDemande.ref} (${selectedDemande.full_name || 'candidat'}) de la base de données ? Cette action est irréversible.`;
+                    if (window.confirm(confirmMsg)) {
+                      onDeleteDemande(selectedDemande.ref);
+                    }
+                  }}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-red-50 hover:bg-red-100 py-2.5 px-3 text-xs font-bold text-red-600 border border-red-200 transition cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                  <span>{isEn ? 'Delete Permanently' : 'Supprimer'}</span>
                 </button>
               </div>
             </div>

@@ -226,11 +226,16 @@ export default function LiecWorkspacePage() {
   const checkTourStatus = useCallback(async (email: string) => {
     if (!email) return;
     try {
+      if (typeof window !== 'undefined' && localStorage.getItem('liec_tour_completed') === 'true') {
+        return;
+      }
       const res = await fetch(`/api/users/tour?email=${encodeURIComponent(email)}`);
       if (res.ok) {
         const data = await res.json();
         if (data.tour_completed === false) {
           setShowGuidedTour(true);
+        } else if (typeof window !== 'undefined') {
+          localStorage.setItem('liec_tour_completed', 'true');
         }
       }
     } catch (e) {
@@ -722,10 +727,28 @@ export default function LiecWorkspacePage() {
     }
   };
 
-  const handleArchiveDemande = async (ref: string) => {
-    await fetch(`/api/demandes?ref=${encodeURIComponent(ref)}`, { method: 'DELETE' });
-    await fetchWorkspace();
-    showToast(isEn ? `Application ${ref} archived.` : `Demande ${ref} archivée.`);
+  const handleArchiveDemande = async (refs: string | string[]) => {
+    const list = Array.isArray(refs) ? refs : [refs];
+    if (list.length === 0) return;
+    try {
+      await fetch(`/api/demandes?refs=${encodeURIComponent(list.join(','))}&mode=archive`, { method: 'DELETE' });
+      await fetchWorkspace();
+      showToast(isEn ? `${list.length} application(s) archived.` : `${list.length} demande(s) archivée(s).`);
+    } catch (e: any) {
+      showToast(isEn ? 'Failed to archive application.' : 'Échec de l\'archivage.');
+    }
+  };
+
+  const handleDeleteDemandePermanent = async (refs: string | string[]) => {
+    const list = Array.isArray(refs) ? refs : [refs];
+    if (list.length === 0) return;
+    try {
+      await fetch(`/api/demandes?refs=${encodeURIComponent(list.join(','))}&mode=permanent`, { method: 'DELETE' });
+      await fetchWorkspace();
+      showToast(isEn ? `${list.length} application(s) permanently deleted.` : `${list.length} demande(s) supprimée(s) définitivement.`);
+    } catch (e: any) {
+      showToast(isEn ? 'Failed to delete application.' : 'Échec de la suppression.');
+    }
   };
 
   const handleToggleTask = async (id: number) => {
@@ -1511,6 +1534,7 @@ export default function LiecWorkspacePage() {
                   onUpdateStatus={handleUpdateDemandeStatus}
                   onConvertCandidat={handleConvertDemandeToCandidat}
                   onArchiveDemande={handleArchiveDemande}
+                  onDeleteDemande={handleDeleteDemandePermanent}
                   onRefresh={fetchWorkspace}
                   onNotify={showToast}
                   lang={lang}

@@ -155,6 +155,7 @@ async function initSchemaAndSeed(client: DBClient) {
       message TEXT,
       submitted_at VARCHAR(60) DEFAULT 'Just now',
       is_dashboard_recent BOOLEAN DEFAULT TRUE,
+      is_archived BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -478,6 +479,7 @@ async function initSchemaAndSeed(client: DBClient) {
     ALTER TABLE demandes ADD COLUMN IF NOT EXISTS graduation_year VARCHAR(10);
     ALTER TABLE demandes ADD COLUMN IF NOT EXISTS current_activity VARCHAR(25);
     ALTER TABLE demandes ADD COLUMN IF NOT EXISTS final_year_university VARCHAR(10);
+    ALTER TABLE demandes ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE;
 
     ALTER TABLE candidats ADD COLUMN IF NOT EXISTS parent_full_name VARCHAR(150);
     ALTER TABLE candidats ADD COLUMN IF NOT EXISTS parent_phone VARCHAR(30);

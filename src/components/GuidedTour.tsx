@@ -25,6 +25,8 @@ export interface GuidedTourStep {
   icon: React.ComponentType<{ className?: string }>;
   tabTarget?: string;
   badge?: string;
+  badgeEn?: string;
+  badgeFr?: string;
   roles?: string[];
 }
 
@@ -91,7 +93,9 @@ const ALL_TOUR_STEPS: GuidedTourStep[] = [
       'Suivez les jalons Campus France, les pièces justificatives, les coordonnées des parents/tuteurs et l’état des admissions auprès des universités et écoles lyonnaises.',
     icon: GraduationCap,
     tabTarget: 'candidats',
-    badge: 'Étudiants',
+    badge: 'Students',
+    badgeEn: 'Students',
+    badgeFr: 'Étudiants',
     roles: ['admin', 'secretary', 'ITIL', 'lh_internal'],
   },
   {
@@ -219,7 +223,7 @@ export function GuidedTour({
               {isEn ? `Step ${currentIndex + 1} of ${steps.length}` : `Étape ${currentIndex + 1} sur ${steps.length}`}
             </span>
             <span className="text-slate-300">|</span>
-            <span className="text-[#0c685a]">{currentStep.badge}</span>
+            <span className="text-[#0c685a]">{isEn ? (currentStep.badgeEn || currentStep.badge) : (currentStep.badgeFr || currentStep.badge)}</span>
           </div>
 
           <button

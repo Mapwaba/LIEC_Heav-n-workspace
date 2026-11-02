@@ -693,16 +693,41 @@ export async function DELETE(req: NextRequest) {
     const db = await getDb();
     const { searchParams } = new URL(req.url);
     const ref = searchParams.get('ref');
-    if (!ref) {
-      return NextResponse.json({ error: 'Référence manquante' }, { status: 400 });
+    const refsParam = searchParams.get('refs');
+    const mode = (searchParams.get('mode') || (searchParams.get('permanent') === 'true' ? 'permanent' : 'archive')).toLowerCase();
+
+    const rawRefs = refsParam ? refsParam.split(',') : (ref ? [ref] : []);
+    const refs = rawRefs.map((r) => r.trim()).filter(Boolean);
+
+    if (refs.length === 0) {
+      return NextResponse.json({ error: 'Missing reference(s)' }, { status: 400 });
     }
-    await db.query(`UPDATE demandes SET status = 'Clôturée' WHERE ref = $1`, [ref]);
-    await db.query(
-      `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
-       VALUES ('Barthelemy MAPWABA NTORO', 'Archivage demande', $1, 'Succès')`,
-      [ref]
-    );
-    return NextResponse.json({ ok: true });
+
+    if (mode === 'permanent' || mode === 'delete') {
+      for (const targetRef of refs) {
+        await db.query(`DELETE FROM demande_notes WHERE demande_ref = $1`, [targetRef]);
+        await db.query(`DELETE FROM demandes WHERE ref = $1`, [targetRef]);
+        await db.query(
+          `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
+           VALUES ('Barthelemy MAPWABA NTORO', 'Permanent Deletion', $1, 'Success')`,
+          [targetRef]
+        );
+      }
+      return NextResponse.json({ ok: true, deleted: true, count: refs.length });
+    } else {
+      for (const targetRef of refs) {
+        await db.query(
+          `UPDATE demandes SET is_archived = TRUE, status = 'Archived' WHERE ref = $1`,
+          [targetRef]
+        );
+        await db.query(
+          `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
+           VALUES ('Barthelemy MAPWABA NTORO', 'Archive Application', $1, 'Success')`,
+          [targetRef]
+        );
+      }
+      return NextResponse.json({ ok: true, archived: true, count: refs.length });
+    }
   } catch (error: any) {
     return NextResponse.json({ error: error?.message }, { status: 500 });
   }

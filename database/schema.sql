@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS demandes (
   message TEXT,
   submitted_at VARCHAR(100) NOT NULL DEFAULT 'Soumis le 25 Octobre 2025 à 16:42',
   is_dashboard_recent BOOLEAN NOT NULL DEFAULT FALSE,
+  is_archived BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
