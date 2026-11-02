@@ -212,7 +212,7 @@ export default function CandidatsScreen({
   const [formFullName, setFormFullName] = useState('');
   const [formEmail, setFormEmail] = useState('');
   const [formPhone, setFormPhone] = useState('');
-  const [formSexe, setFormSexe] = useState('Masculin');
+  const [formSexe, setFormSexe] = useState('Male');
   const [formCountry, setFormCountry] = useState('');
   const [formNationality, setFormNationality] = useState('');
   const [formAdmissionStatus, setFormAdmissionStatus] = useState('');
@@ -227,7 +227,7 @@ export default function CandidatsScreen({
   // New Candidat Form
   const [newCandName, setNewCandName] = useState('');
   const [newCandCountry, setNewCandCountry] = useState('RDC (Kinshasa)');
-  const [newCandSexe, setNewCandSexe] = useState('Masculin');
+  const [newCandSexe, setNewCandSexe] = useState('Male');
   const [newCandProgram, setNewCandProgram] = useState(
     'MyDigitalSchool Lyon — Web dev, digital creation, webmarketing & UX/UI design'
   );
@@ -268,7 +268,7 @@ export default function CandidatsScreen({
       setFormFullName(selectedCandidat.full_name || '');
       setFormEmail(selectedCandidat.email || '');
       setFormPhone(selectedCandidat.phone || '');
-      setFormSexe(selectedCandidat.sexe || 'Masculin');
+      setFormSexe((selectedCandidat.sexe === 'Female' || selectedCandidat.sexe === 'Féminin') ? 'Female' : 'Male');
       setFormCountry(selectedCandidat.country || 'RDC (Kinshasa)');
       setFormNationality(selectedCandidat.nationality || 'Congolaise (RDC)');
       setFormAdmissionStatus(
@@ -930,15 +930,15 @@ export default function CandidatsScreen({
 
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                        {isEn ? 'Gender / Sexe' : 'Sexe'}
+                        {isEn ? 'Gender' : 'Sexe'}
                       </label>
                       <select
                         value={formSexe}
                         onChange={(e) => setFormSexe(e.target.value)}
                         className="w-full py-2 px-3 rounded-lg border border-slate-300 bg-white text-slate-900 font-semibold"
                       >
-                        <option value="Masculin">{isEn ? 'Male (Masculin)' : 'Masculin'}</option>
-                        <option value="Féminin">{isEn ? 'Female (Féminin)' : 'Féminin'}</option>
+                        <option value="Male">{isEn ? 'Male' : 'Masculin'}</option>
+                        <option value="Female">{isEn ? 'Female' : 'Féminin'}</option>
                       </select>
                     </div>
 
@@ -1737,14 +1737,14 @@ export default function CandidatsScreen({
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">{isEn ? 'Gender / Sexe' : 'Sexe'}</label>
+                  <label className="block font-bold text-slate-700 mb-1">{isEn ? 'Gender' : 'Sexe'}</label>
                   <select
                     value={newCandSexe}
                     onChange={(e) => setNewCandSexe(e.target.value)}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 font-semibold"
                   >
-                    <option value="Masculin">{isEn ? 'Male (Masculin)' : 'Masculin'}</option>
-                    <option value="Féminin">{isEn ? 'Female (Féminin)' : 'Féminin'}</option>
+                    <option value="Male">{isEn ? 'Male' : 'Masculin'}</option>
+                    <option value="Female">{isEn ? 'Female' : 'Féminin'}</option>
                   </select>
                 </div>
                 <div>

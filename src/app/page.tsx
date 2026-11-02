@@ -151,7 +151,7 @@ export default function LiecWorkspacePage() {
 
   // New Demande Modal Form State
   const [newDemName, setNewDemName] = useState('');
-  const [newDemSexe, setNewDemSexe] = useState('Masculin');
+  const [newDemSexe, setNewDemSexe] = useState('Male');
   const [newDemEmail, setNewDemEmail] = useState('');
   const [newDemPhone, setNewDemPhone] = useState('+243 ');
   const [newDemCountry, setNewDemCountry] = useState('RDC');
@@ -656,7 +656,7 @@ export default function LiecWorkspacePage() {
 
       if (createdRef) {
         setNewDemName('');
-        setNewDemSexe('Masculin');
+        setNewDemSexe('Male');
         setNewDemEmail('');
         setNewDemPhone(newDemCountry === 'RDC' ? '+243 ' : '+242 ');
         setNewDemParentName('');
@@ -1780,15 +1780,15 @@ export default function LiecWorkspacePage() {
                   </div>
                   <div>
                     <label className="block font-bold text-slate-700 mb-1">
-                      {isEn ? 'Gender / Sexe *' : 'Sexe *'}
+                      {isEn ? 'Gender *' : 'Sexe *'}
                     </label>
                     <select
                       value={newDemSexe}
                       onChange={(e) => setNewDemSexe(e.target.value)}
                       className="w-full rounded-xl border border-slate-200 px-3 py-2.5 bg-white font-semibold"
                     >
-                      <option value="Masculin">{isEn ? 'Male (Masculin)' : 'Masculin'}</option>
-                      <option value="Féminin">{isEn ? 'Female (Féminin)' : 'Féminin'}</option>
+                      <option value="Male">{isEn ? 'Male' : 'Masculin'}</option>
+                      <option value="Female">{isEn ? 'Female' : 'Féminin'}</option>
                     </select>
                   </div>
                   <div>

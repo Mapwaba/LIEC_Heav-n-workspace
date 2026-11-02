@@ -111,7 +111,8 @@ export async function POST(req: NextRequest) {
     const currentLevel = (body.current_level || 'Licence / Bac+3 (En cours)').trim();
     const budgetRange = (body.budget_range || '8 500 € – 10 000 € / an').trim();
     const expectedStart = (body.expected_start || 'Septembre 2025').trim();
-    const sexe = (body.sexe || body.gender || 'Masculin').trim();
+    const rawSexe = (body.sexe || body.gender || 'Male').trim();
+    const sexe = (rawSexe === 'Féminin' || rawSexe === 'Female') ? 'Female' : 'Male';
     const message = (
       body.message || 'Demande soumise depuis le portail web LIEC pour un recrutement à Lyon.'
     ).trim();
@@ -658,7 +659,7 @@ export async function PATCH(req: NextRequest) {
           JSON.stringify(defaultVoeux),
           JSON.stringify(defaultNotes),
           JSON.stringify(defaultPieces),
-          dem.sexe || 'Masculin',
+          dem.sexe || 'Male',
         ]
       );
 

@@ -95,7 +95,8 @@ export async function POST(req: NextRequest) {
     ).trim();
 
     const villeOrigine = (body.ville_origine || body.city || 'Kinshasa').trim();
-    const sexe = (body.sexe || body.gender || 'Masculin').trim();
+    const rawSexe = (body.sexe || body.gender || 'Male').trim();
+    const sexe = (rawSexe === 'Féminin' || rawSexe === 'Female') ? 'Female' : 'Male';
     const program = (
       body.program ||
       body.filiere_cible ||
@@ -393,7 +394,8 @@ export async function PUT(req: NextRequest) {
     const parentFullName = body.parent_full_name !== undefined ? body.parent_full_name.trim() : cand.parent_full_name;
     const parentEmail = body.parent_email !== undefined ? body.parent_email.trim() : cand.parent_email;
     const parentRelation = body.parent_relation !== undefined ? body.parent_relation.trim() : cand.parent_relation;
-    const sexe = body.sexe !== undefined ? body.sexe.trim() : (cand.sexe || 'Masculin');
+    const rawSexe = body.sexe !== undefined ? body.sexe.trim() : (cand.sexe || 'Male');
+    const sexe = (rawSexe === 'Féminin' || rawSexe === 'Female') ? 'Female' : 'Male';
     const admissionStatus = body.admission_status !== undefined ? body.admission_status.trim() : cand.admission_status;
     const procedureStatus = body.procedure_status !== undefined ? body.procedure_status.trim() : cand.procedure_status;
     const description = body.description !== undefined ? body.description : cand.description;

@@ -929,8 +929,8 @@ export default function DemandesScreen({
                   </span>
                 </div>
                 <div className="grid grid-cols-12 gap-2">
-                  <span className="col-span-4 text-slate-400 font-medium">Gender / Sexe</span>
-                  <span className="col-span-8 font-semibold text-[#092342]">{selectedDemande.sexe || 'Masculin'}</span>
+                  <span className="col-span-4 text-slate-400 font-medium">{isEn ? 'Gender' : 'Sexe'}</span>
+                  <span className="col-span-8 font-semibold text-[#092342]">{selectedDemande.sexe === 'Female' || selectedDemande.sexe === 'Féminin' ? (isEn ? 'Female' : 'Féminin') : (isEn ? 'Male' : 'Masculin')}</span>
                 </div>
                 <div className="grid grid-cols-12 gap-2">
                   <span className="col-span-4 text-slate-400 font-medium">Target Cities</span>
