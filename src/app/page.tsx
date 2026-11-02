@@ -151,6 +151,7 @@ export default function LiecWorkspacePage() {
 
   // New Demande Modal Form State
   const [newDemName, setNewDemName] = useState('');
+  const [newDemSexe, setNewDemSexe] = useState('Masculin');
   const [newDemEmail, setNewDemEmail] = useState('');
   const [newDemPhone, setNewDemPhone] = useState('+243 ');
   const [newDemCountry, setNewDemCountry] = useState('RDC');
@@ -638,6 +639,7 @@ export default function LiecWorkspacePage() {
     try {
       const createdRef = await handleCreateDemande({
         full_name: newDemName.trim(),
+        sexe: newDemSexe,
         email: newDemEmail.trim() || `${newDemName.trim().toLowerCase().replace(/\s+/g, '.')}@gmail.com`,
         phone: newDemPhone.trim(),
         country_name: newDemCountry,
@@ -654,6 +656,7 @@ export default function LiecWorkspacePage() {
 
       if (createdRef) {
         setNewDemName('');
+        setNewDemSexe('Masculin');
         setNewDemEmail('');
         setNewDemPhone(newDemCountry === 'RDC' ? '+243 ' : '+242 ');
         setNewDemParentName('');
@@ -1777,6 +1780,19 @@ export default function LiecWorkspacePage() {
                   </div>
                   <div>
                     <label className="block font-bold text-slate-700 mb-1">
+                      {isEn ? 'Gender / Sexe *' : 'Sexe *'}
+                    </label>
+                    <select
+                      value={newDemSexe}
+                      onChange={(e) => setNewDemSexe(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 bg-white font-semibold"
+                    >
+                      <option value="Masculin">{isEn ? 'Male (Masculin)' : 'Masculin'}</option>
+                      <option value="Féminin">{isEn ? 'Female (Féminin)' : 'Féminin'}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
                       {isEn ? 'Recruitment Country *' : 'Pays de recrutement *'}
                     </label>
                     <select
@@ -2020,9 +2036,64 @@ export default function LiecWorkspacePage() {
                       <option value="Ipac Bachelor Factory Lyon — Commerce & Logistique">
                         5. Ipac Bachelor Factory Lyon (Commerce, management & logistics)
                       </option>
-                      <option value="MBway Lyon — Management & Commerce International">
+                                            <option value="MBway Lyon — Management & Commerce International">
                         6. MBway Lyon (Management, entrepreneurship & HR)
                       </option>
+                      <optgroup label={isEn ? "7. ESMES Business School — Bachelors" : "7. ESMES Business School — Bachelors"}>
+                        <option value="ESMES Business School — Bachelor HR">
+                          {isEn ? "ESMES — Bachelor HR (Human Resources)" : "ESMES — Bachelor HR (Ressources Humaines)"}
+                        </option>
+                        <option value="ESMES Business School — Bachelor Business International">
+                          {isEn ? "ESMES — Bachelor International Business" : "ESMES — Bachelor Business International"}
+                        </option>
+                        <option value="ESMES Business School — Bachelor Marketing Digital and Communication">
+                          {isEn ? "ESMES — Bachelor Digital Marketing & Communication" : "ESMES — Bachelor Marketing Digital & Communication"}
+                        </option>
+                        <option value="ESMES Business School — Bachelor Comptabilité et Finance">
+                          {isEn ? "ESMES — Bachelor Accounting & Finance" : "ESMES — Bachelor Comptabilité & Finance"}
+                        </option>
+                        <option value="ESMES Business School — Bachelor Négociation et Relation Client">
+                          {isEn ? "ESMES — Bachelor Negotiation & Customer Relations" : "ESMES — Bachelor Négociation & Relation Client"}
+                        </option>
+                        <option value="ESMES Business School — Bachelor Informatique">
+                          {isEn ? "ESMES — Bachelor Computer Science & IT" : "ESMES — Bachelor Informatique"}
+                        </option>
+                        <option value="ESMES Business School — Bachelor Management">
+                          {isEn ? "ESMES — Bachelor Management" : "ESMES — Bachelor Management"}
+                        </option>
+                        <option value="ESMES Business School — Bachelor Commerce et Gestion des Entreprises">
+                          {isEn ? "ESMES — Bachelor Commerce & Business Administration" : "ESMES — Bachelor Commerce & Gestion des Entreprises"}
+                        </option>
+                        <option value="ESMES Business School — Bachelor Start-up Management">
+                          {isEn ? "ESMES — Bachelor Start-up Management" : "ESMES — Bachelor Start-up Management"}
+                        </option>
+                        <option value="ESMES Business School — Bachelor Entrepreneuriat Social">
+                          {isEn ? "ESMES — Bachelor Social Entrepreneurship" : "ESMES — Bachelor Entrepreneuriat Social"}
+                        </option>
+                      </optgroup>
+                      <optgroup label={isEn ? "7. ESMES Business School — Masters" : "7. ESMES Business School — Masters"}>
+                        <option value="ESMES Business School — Master Management, Commerce et Entrepreneuriat">
+                          {isEn ? "ESMES — Master Management, Commerce & Entrepreneurship" : "ESMES — Master Management, Commerce & Entrepreneuriat"}
+                        </option>
+                        <option value="ESMES Business School — Master Management des Ressources Humaines">
+                          {isEn ? "ESMES — Master Human Resources Management" : "ESMES — Master Management des Ressources Humaines"}
+                        </option>
+                        <option value="ESMES Business School — Master Responsabilité Sociale des Entreprises">
+                          {isEn ? "ESMES — Master Corporate Social Responsibility (CSR)" : "ESMES — Master Responsabilité Sociale des Entreprises (RSE)"}
+                        </option>
+                        <option value="ESMES Business School — Master Finance Conseil">
+                          {isEn ? "ESMES — Master Financial Advisory (Finance Conseil)" : "ESMES — Master Finance Conseil"}
+                        </option>
+                        <option value="ESMES Business School — Master Développement Fullstack">
+                          {isEn ? "ESMES — Master Fullstack Development" : "ESMES — Master Développement Fullstack"}
+                        </option>
+                        <option value="ESMES Business School — Master Management de la Santé">
+                          {isEn ? "ESMES — Master Healthcare Management" : "ESMES — Master Management de la Santé"}
+                        </option>
+                        <option value="ESMES Business School — Master Comptabilité">
+                          {isEn ? "ESMES — Master Accounting & Audit (Comptabilité)" : "ESMES — Master Comptabilité & Audit"}
+                        </option>
+                      </optgroup>
                     </select>
                   </div>
                   <div>

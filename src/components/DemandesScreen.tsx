@@ -502,6 +502,8 @@ export default function DemandesScreen({
                 <option value="IHECF">4. IHECF Lyon</option>
                 <option value="Ipac">5. Ipac Bachelor Factory Lyon</option>
                 <option value="MBway">6. MBway Lyon</option>
+                  <option value="ESMES">7. ESMES Business School</option>
+                <option value="ESMES">7. ESMES Business School</option>
               </select>
             </div>
 
@@ -925,6 +927,10 @@ export default function DemandesScreen({
                   <span className="col-span-8 font-extrabold text-[#092342]">
                     {selectedDemande.program || '-'}
                   </span>
+                </div>
+                <div className="grid grid-cols-12 gap-2">
+                  <span className="col-span-4 text-slate-400 font-medium">Gender / Sexe</span>
+                  <span className="col-span-8 font-semibold text-[#092342]">{selectedDemande.sexe || 'Masculin'}</span>
                 </div>
                 <div className="grid grid-cols-12 gap-2">
                   <span className="col-span-4 text-slate-400 font-medium">Target Cities</span>

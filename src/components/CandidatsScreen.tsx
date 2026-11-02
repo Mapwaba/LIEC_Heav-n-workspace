@@ -212,6 +212,7 @@ export default function CandidatsScreen({
   const [formFullName, setFormFullName] = useState('');
   const [formEmail, setFormEmail] = useState('');
   const [formPhone, setFormPhone] = useState('');
+  const [formSexe, setFormSexe] = useState('Masculin');
   const [formCountry, setFormCountry] = useState('');
   const [formNationality, setFormNationality] = useState('');
   const [formAdmissionStatus, setFormAdmissionStatus] = useState('');
@@ -226,6 +227,7 @@ export default function CandidatsScreen({
   // New Candidat Form
   const [newCandName, setNewCandName] = useState('');
   const [newCandCountry, setNewCandCountry] = useState('RDC (Kinshasa)');
+  const [newCandSexe, setNewCandSexe] = useState('Masculin');
   const [newCandProgram, setNewCandProgram] = useState(
     'MyDigitalSchool Lyon — Web dev, digital creation, webmarketing & UX/UI design'
   );
@@ -266,6 +268,7 @@ export default function CandidatsScreen({
       setFormFullName(selectedCandidat.full_name || '');
       setFormEmail(selectedCandidat.email || '');
       setFormPhone(selectedCandidat.phone || '');
+      setFormSexe(selectedCandidat.sexe || 'Masculin');
       setFormCountry(selectedCandidat.country || 'RDC (Kinshasa)');
       setFormNationality(selectedCandidat.nationality || 'Congolaise (RDC)');
       setFormAdmissionStatus(
@@ -340,6 +343,7 @@ export default function CandidatsScreen({
           full_name: formFullName.trim(),
           email: formEmail.trim(),
           phone: formPhone.trim(),
+          sexe: formSexe,
           country: formCountry.trim(),
           nationality: formNationality.trim(),
           admission_status: formAdmissionStatus.trim(),
@@ -471,6 +475,7 @@ export default function CandidatsScreen({
     await onCreateCandidat({
       full_name: newCandName.trim(),
       program: newCandProgram,
+      sexe: newCandSexe,
       country: newCandCountry,
       cities: 'Lyon (Exclusive)',
       adviser: currentUser?.name || 'Barthelemy MAPWABA NTORO',
@@ -921,6 +926,20 @@ export default function CandidatsScreen({
                           className="w-full py-2 px-3 rounded-lg border border-slate-300 bg-white text-slate-900"
                         />
                       </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        {isEn ? 'Gender / Sexe' : 'Sexe'}
+                      </label>
+                      <select
+                        value={formSexe}
+                        onChange={(e) => setFormSexe(e.target.value)}
+                        className="w-full py-2 px-3 rounded-lg border border-slate-300 bg-white text-slate-900 font-semibold"
+                      >
+                        <option value="Masculin">{isEn ? 'Male (Masculin)' : 'Masculin'}</option>
+                        <option value="Féminin">{isEn ? 'Female (Féminin)' : 'Féminin'}</option>
+                      </select>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -1683,6 +1702,27 @@ export default function CandidatsScreen({
                   <option value="MBway Lyon — Management, HR, finance and international business">
                     MBway Lyon — International Business &amp; MBA
                   </option>
+                  <optgroup label="ESMES Business School — Bachelors">
+                    <option value="ESMES Business School — Bachelor HR">ESMES — Bachelor HR (Human Resources)</option>
+                    <option value="ESMES Business School — Bachelor Business International">ESMES — Bachelor International Business</option>
+                    <option value="ESMES Business School — Bachelor Marketing Digital and Communication">ESMES — Bachelor Digital Marketing & Communication</option>
+                    <option value="ESMES Business School — Bachelor Comptabilité et Finance">ESMES — Bachelor Accounting & Finance</option>
+                    <option value="ESMES Business School — Bachelor Négociation et Relation Client">ESMES — Bachelor Negotiation & Customer Relations</option>
+                    <option value="ESMES Business School — Bachelor Informatique">ESMES — Bachelor Computer Science & IT</option>
+                    <option value="ESMES Business School — Bachelor Management">ESMES — Bachelor Management</option>
+                    <option value="ESMES Business School — Bachelor Commerce et Gestion des Entreprises">ESMES — Bachelor Commerce & Business Administration</option>
+                    <option value="ESMES Business School — Bachelor Start-up Management">ESMES — Bachelor Start-up Management</option>
+                    <option value="ESMES Business School — Bachelor Entrepreneuriat Social">ESMES — Bachelor Social Entrepreneurship</option>
+                  </optgroup>
+                  <optgroup label="ESMES Business School — Masters">
+                    <option value="ESMES Business School — Master Management, Commerce et Entrepreneuriat">ESMES — Master Management, Commerce & Entrepreneurship</option>
+                    <option value="ESMES Business School — Master Management des Ressources Humaines">ESMES — Master Human Resources Management</option>
+                    <option value="ESMES Business School — Master Responsabilité Sociale des Entreprises">ESMES — Master Corporate Social Responsibility (CSR)</option>
+                    <option value="ESMES Business School — Master Finance Conseil">ESMES — Master Financial Advisory</option>
+                    <option value="ESMES Business School — Master Développement Fullstack">ESMES — Master Fullstack Development</option>
+                    <option value="ESMES Business School — Master Management de la Santé">ESMES — Master Healthcare Management</option>
+                    <option value="ESMES Business School — Master Comptabilité">ESMES — Master Accounting & Audit</option>
+                  </optgroup>
                 </select>
               </div>
 
@@ -1695,6 +1735,17 @@ export default function CandidatsScreen({
                     onChange={(e) => setNewCandCountry(e.target.value)}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
                   />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">{isEn ? 'Gender / Sexe' : 'Sexe'}</label>
+                  <select
+                    value={newCandSexe}
+                    onChange={(e) => setNewCandSexe(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 font-semibold"
+                  >
+                    <option value="Masculin">{isEn ? 'Male (Masculin)' : 'Masculin'}</option>
+                    <option value="Féminin">{isEn ? 'Female (Féminin)' : 'Féminin'}</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Graduation Year</label>
@@ -1782,6 +1833,7 @@ export default function CandidatsScreen({
                     else if (school.includes('Tunon')) setVoeuCode('TUNO');
                     else if (school.includes('IHECF')) setVoeuCode('IHEC');
                     else if (school.includes('MBway')) setVoeuCode('MBW');
+                    else if (school.includes('ESMES')) setVoeuCode('ESMES');
                   }}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2"
                 >
@@ -1790,6 +1842,7 @@ export default function CandidatsScreen({
                   <option value="École Internationale Tunon Lyon">École Internationale Tunon Lyon</option>
                   <option value="IHECF Lyon">IHECF Lyon</option>
                   <option value="MBway Lyon">MBway Lyon</option>
+                  <option value="ESMES Business School">ESMES Business School</option>
                 </select>
               </div>
               <div>

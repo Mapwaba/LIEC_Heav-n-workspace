@@ -95,6 +95,7 @@ export async function POST(req: NextRequest) {
     ).trim();
 
     const villeOrigine = (body.ville_origine || body.city || 'Kinshasa').trim();
+    const sexe = (body.sexe || body.gender || 'Masculin').trim();
     const program = (
       body.program ||
       body.filiere_cible ||
@@ -163,6 +164,8 @@ export async function POST(req: NextRequest) {
       ? 'IPAC'
       : schoolName.includes('MBway')
       ? 'MBW'
+      : schoolName.includes('ESMES')
+      ? 'ESMES'
       : 'MDS';
 
     const jalons = [
@@ -254,7 +257,7 @@ export async function POST(req: NextRequest) {
         graduation_year, current_activity, final_year_university,
         country, nationality, current_diploma, tcf_score, garant_info, interview_date,
         admission_status, procedure_status, description, comments,
-        jalons_json, voeux_json, notes_json, pieces_json, history_json
+        jalons_json, voeux_json, notes_json, pieces_json, history_json, sexe
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7,
         $8, $9, $10, $11, $12,
@@ -262,7 +265,7 @@ export async function POST(req: NextRequest) {
         $19, $20, $21,
         $22, $23, $24, $25, $26, $27,
         $28, $29, $30, $31,
-        $32, $33, $34, $35, $36
+        $32, $33, $34, $35, $36, $37
       )`,
       [
         ref,
@@ -301,6 +304,7 @@ export async function POST(req: NextRequest) {
         JSON.stringify(notes),
         JSON.stringify(pieces),
         JSON.stringify(initialHistory),
+        sexe,
       ]
     );
 
@@ -389,6 +393,7 @@ export async function PUT(req: NextRequest) {
     const parentFullName = body.parent_full_name !== undefined ? body.parent_full_name.trim() : cand.parent_full_name;
     const parentEmail = body.parent_email !== undefined ? body.parent_email.trim() : cand.parent_email;
     const parentRelation = body.parent_relation !== undefined ? body.parent_relation.trim() : cand.parent_relation;
+    const sexe = body.sexe !== undefined ? body.sexe.trim() : (cand.sexe || 'Masculin');
     const admissionStatus = body.admission_status !== undefined ? body.admission_status.trim() : cand.admission_status;
     const procedureStatus = body.procedure_status !== undefined ? body.procedure_status.trim() : cand.procedure_status;
     const description = body.description !== undefined ? body.description : cand.description;
@@ -399,6 +404,7 @@ export async function PUT(req: NextRequest) {
     const changeDetails: string[] = [];
 
     if (body.full_name && body.full_name !== cand.full_name) changeDetails.push('Updated name');
+    if (body.sexe && body.sexe !== cand.sexe) changeDetails.push(`Gender/Sexe: '${body.sexe}'`);
     if (body.admission_status && body.admission_status !== cand.admission_status) {
       changeDetails.push(`Admission status: '${body.admission_status}'`);
     }
@@ -445,8 +451,9 @@ export async function PUT(req: NextRequest) {
         stage_badge = $11,
         description = $12,
         notes_json = $13,
-        history_json = $14
-       WHERE ref = $15`,
+        history_json = $14,
+        sexe = $15
+       WHERE ref = $16`,
       [
         fullName,
         email,
@@ -462,6 +469,7 @@ export async function PUT(req: NextRequest) {
         description,
         JSON.stringify(notes),
         JSON.stringify(history),
+        sexe,
         ref,
       ]
     );
