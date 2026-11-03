@@ -272,6 +272,45 @@ export function canSendAccommodationRequest(user: AuthenticatedUserContext): boo
 }
 
 /**
+ * Checks if user is authorized to assign advisors to prospects/leads.
+ * Authorized: Admin and Secretary (intake & administrative staff).
+ */
+export function canAssignAdvisor(user: AuthenticatedUserContext): boolean {
+  if (!user || !user.active) return false;
+  const profile = user.business_profile;
+  const userRole = (user as any).role;
+  const roles = user.technical_roles || [];
+
+  return (
+    profile === 'Admin' ||
+    userRole === 'admin' ||
+    roles.includes('admin') ||
+    roles.includes('lh_security_admin') ||
+    profile === 'Secretary' ||
+    roles.includes('lh_internal') ||
+    roles.includes('ITIL')
+  );
+}
+
+/**
+ * Checks if user is authorized to perform exceptional manual status overrides.
+ * Restricted strictly to Platform Administrators and Security Administrators.
+ */
+export function canPerformManualStatusOverride(user: AuthenticatedUserContext): boolean {
+  if (!user || !user.active) return false;
+  const profile = user.business_profile;
+  const userRole = (user as any).role;
+  const roles = user.technical_roles || [];
+
+  return (
+    profile === 'Admin' ||
+    userRole === 'admin' ||
+    roles.includes('admin') ||
+    roles.includes('lh_security_admin')
+  );
+}
+
+/**
  * Server-side Request Authenticator & Context Extractor
  */
 export async function authenticateServerRequest(

@@ -32,6 +32,8 @@ import {
 } from 'lucide-react';
 
 import { Lang } from './ServicesAndOtherScreens';
+import { AssignAdvisorModal, ManualStatusOverrideModal } from './DemandesModals';
+import { AlertTriangle, Tag } from 'lucide-react';
 import {
   ScheduleCallModal,
   EditProspectModal,
@@ -44,6 +46,7 @@ interface ProspectsScreenProps {
   prospects: any[];
   staffList?: { name: string; email?: string; title?: string }[];
   currentUser?: string;
+  userRole?: string;
   onAddProspect: (data: any) => Promise<void>;
   onMoveProspect: (id: number, stage: string) => Promise<void>;
   onRefresh: () => void;
@@ -82,6 +85,7 @@ export default function ProspectsScreen({
   prospects,
   staffList = [],
   currentUser = 'Barthelemy MAPWABA NTORO',
+  userRole = 'admin',
   onAddProspect,
   onMoveProspect,
   onRefresh,
@@ -114,11 +118,92 @@ export default function ProspectsScreen({
     useState<ProspectItem | null>(null);
   const [selectedProspectForComments, setSelectedProspectForComments] =
     useState<ProspectItem | null>(null);
+  const [checkedIds, setCheckedIds] = useState<number[]>([]);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [showOverrideModal, setShowOverrideModal] = useState(false);
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [isOverriding, setIsOverriding] = useState(false);
+
+  const canOverride = (userRole || '').toLowerCase() === 'admin';
 
   // Active advisors resolved from staff directory
-  const activeAdvisors = staffList.length > 0
+  const formattedStaffList = (staffList.length > 0
     ? staffList
-    : [{ name: 'Barthelemy MAPWABA NTORO', title: 'Managing Director' }];
+    : [{ name: 'Barthelemy MAPWABA NTORO', email: 'bmapwabantoro@liecconsulting.com', title: 'Managing Director' }]
+  ).map((s) => ({
+    name: s.name,
+    email: s.email || `${s.name.toLowerCase().replace(/\s+/g, '.')}@liecconsulting.com`,
+    title: s.title || 'Admissions Advisor',
+  }));
+
+  const activeAdvisors = formattedStaffList;
+
+  const toggleSelectProspect = (id: number) => {
+    setCheckedIds((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
+  };
+
+  const allFilteredChecked =
+    filteredProspects.length > 0 && filteredProspects.every((p) => checkedIds.includes(p.id));
+
+  const toggleSelectAll = () => {
+    if (allFilteredChecked) {
+      setCheckedIds([]);
+    } else {
+      setCheckedIds(filteredProspects.map((p) => p.id));
+    }
+  };
+
+  const handleBulkAssign = async (advisorName: string, adviserEmail: string, notes?: string) => {
+    if (checkedIds.length === 0) return;
+    setIsAssigning(true);
+    try {
+      const res = await fetch('/api/prospects', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'assign_advisor',
+          ids: checkedIds,
+          adviserName,
+          adviserEmail,
+          notes,
+          actor: currentUser,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Assignment failed');
+      onNotify(isEn ? `Assigned ${data.assignedCount} prospect(s) to ${advisorName}.` : `${data.assignedCount} prospect(s) attribué(s) à ${advisorName}.`);
+      setCheckedIds([]);
+      onRefresh();
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
+  const handleBulkOverride = async (newStatus: string, reason: string, notes?: string) => {
+    if (checkedIds.length === 0) return;
+    setIsOverriding(true);
+    try {
+      const res = await fetch('/api/prospects', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'manual_status_override',
+          ids: checkedIds,
+          stage: newStatus,
+          reason,
+          notes,
+          actor: currentUser,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Override failed');
+      onNotify(isEn ? `Status override applied to ${data.count} prospect(s).` : `Dérogation de statut appliquée à ${data.count} prospect(s).`);
+      setCheckedIds([]);
+      onRefresh();
+    } finally {
+      setIsOverriding(false);
+    }
+  };
 
   const filteredProspects = prospects.filter((p) => {
     const q = searchQuery.toLowerCase().trim();
@@ -667,9 +752,72 @@ export default function ProspectsScreen({
       ) : (
         /* Table View Mode */
         <div className="rounded-2xl border border-[#e6eef6] bg-white shadow-card overflow-hidden">
+          {/* Bulk Action Toolbar */}
+          <div className="px-4 py-3 bg-[#f3f8fd] border-b border-[#e6eef6] flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2.5">
+              <input
+                type="checkbox"
+                checked={allFilteredChecked}
+                onChange={toggleSelectAll}
+                className="h-4 w-4 rounded border-slate-300 text-[#092342] focus:ring-[#092342] cursor-pointer"
+              />
+              <span className="font-extrabold text-[#092342]">
+                {checkedIds.length} selected
+              </span>
+              <span className="text-slate-500">of {filteredProspects.length} prospects</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={checkedIds.length === 0 || isAssigning}
+                onClick={() => setShowAssignModal(true)}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition ${
+                  checkedIds.length > 0
+                    ? 'border-slate-200 bg-white text-[#092342] hover:bg-slate-50 shadow-2xs cursor-pointer'
+                    : 'border-slate-200/60 bg-slate-50 text-slate-400 opacity-50 cursor-not-allowed'
+                }`}
+              >
+                {isAssigning ? (
+                  <RotateCw className="w-3.5 h-3.5 animate-spin text-[#0c685a]" />
+                ) : (
+                  <UserPlus className="w-3.5 h-3.5 text-slate-500" />
+                )}
+                <span>+ Assign Advisor</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={checkedIds.length === 0 || isOverriding}
+                onClick={() => {
+                  if (!canOverride) {
+                    onNotify(isEn ? 'Manual status override requires Platform Administrator privileges.' : 'La dérogation de statut requiert les privilèges Administrateur.');
+                    return;
+                  }
+                  setShowOverrideModal(true);
+                }}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition ${
+                  checkedIds.length > 0
+                    ? 'border-slate-200 bg-white text-[#092342] hover:bg-slate-50 shadow-2xs cursor-pointer'
+                    : 'border-slate-200/60 bg-slate-50 text-slate-400 opacity-50 cursor-not-allowed'
+                }`}
+              >
+                {isOverriding ? (
+                  <RotateCw className="w-3.5 h-3.5 animate-spin text-amber-600" />
+                ) : (
+                  <Tag className="w-3.5 h-3.5 text-slate-500" />
+                )}
+                <span>Change Status</span>
+              </button>
+            </div>
+          </div>
+
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-[#f8fafc] border-b border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                <th className="py-3.5 pl-4 pr-2 w-10">
+                  <span className="sr-only">Select</span>
+                </th>
                 <th className="py-3.5 px-4">PROSPECT / FAMILY</th>
                 <th className="py-3.5 px-4">COUNTRY & CITY</th>
                 <th className="py-3.5 px-4">TARGET PROGRAM</th>
@@ -687,7 +835,15 @@ export default function ProspectsScreen({
                 </tr>
               ) : (
                 filteredProspects.map((p) => (
-                  <tr key={p.id} className="hover:bg-slate-50">
+                  <tr key={p.id} className={`transition ${checkedIds.includes(p.id) ? 'bg-[#f1f7fd]' : 'hover:bg-slate-50'}`}>
+                    <td className="py-3.5 pl-4 pr-2">
+                      <input
+                        type="checkbox"
+                        checked={checkedIds.includes(p.id)}
+                        onChange={() => toggleSelectProspect(p.id)}
+                        className="h-4 w-4 rounded border-slate-300 text-[#092342] focus:ring-[#092342] cursor-pointer"
+                      />
+                    </td>
                     <td className="py-3.5 px-4">
                       <button
                         onClick={() => setSelectedProspectForProfile(p)}
@@ -866,6 +1022,26 @@ export default function ProspectsScreen({
           </div>
         </div>
       )}
+
+      {/* Modals: Bulk Advisor Assignment & Status Override */}
+      <AssignAdvisorModal
+        isOpen={showAssignModal}
+        onClose={() => setShowAssignModal(false)}
+        selectedRefs={checkedIds.map((id) => `PROSPECT-${id}`)}
+        selectedDemandes={filteredProspects.filter((p) => checkedIds.includes(p.id)).map((p) => ({ ref: `PROSPECT-${p.id}`, full_name: p.full_name }))}
+        staffList={formattedStaffList}
+        onConfirm={handleBulkAssign}
+        isEn={isEn}
+      />
+
+      <ManualStatusOverrideModal
+        isOpen={showOverrideModal}
+        onClose={() => setShowOverrideModal(false)}
+        selectedRefs={checkedIds.map((id) => `PROSPECT-${id}`)}
+        selectedDemandes={filteredProspects.filter((p) => checkedIds.includes(p.id)).map((p) => ({ ref: `PROSPECT-${p.id}`, full_name: p.full_name, status: p.stage }))}
+        onConfirm={handleBulkOverride}
+        isEn={isEn}
+      />
 
       {/* Interactive Modals */}
       {selectedProspectForCall && (

@@ -751,6 +751,84 @@ export default function LiecWorkspacePage() {
     }
   };
 
+  const handleAssignAdvisorBulk = async (refs: string[], adviserName: string, adviserEmail: string, notes?: string) => {
+    const res = await fetch('/api/demandes', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
+      },
+      body: JSON.stringify({
+        action: 'assign_advisor',
+        refs,
+        adviserName,
+        adviserEmail,
+        notes,
+        actor: currentUser?.name || 'Barthelemy MAPWABA NTORO',
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to assign advisor');
+    await fetchWorkspace();
+    showToast(
+      isEn
+        ? `Successfully assigned ${data.assignedCount} prospect(s) to ${adviserName}.`
+        : `${data.assignedCount} dossier(s) attribué(s) à ${adviserName}.`
+    );
+    return data;
+  };
+
+  const handleManualStatusOverrideBulk = async (refs: string[], newStatus: string, reason: string, notes?: string) => {
+    const res = await fetch('/api/demandes', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
+      },
+      body: JSON.stringify({
+        action: 'manual_status_override',
+        refs,
+        newStatus,
+        reason,
+        notes,
+        actor: currentUser?.name || 'Barthelemy MAPWABA NTORO',
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to apply manual status override');
+    await fetchWorkspace();
+    showToast(
+      isEn
+        ? `Manual status override applied to ${data.count} prospect(s) -> ${newStatus}.`
+        : `Dérogation manuelle appliquée à ${data.count} dossier(s) -> ${newStatus}.`
+    );
+    return data;
+  };
+
+  const handleReleaseManualOverride = async (ref: string) => {
+    const res = await fetch('/api/demandes', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
+      },
+      body: JSON.stringify({
+        action: 'release_manual_override',
+        refs: [ref],
+        actor: currentUser?.name || 'Barthelemy MAPWABA NTORO',
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to resume automated workflow');
+    await fetchWorkspace();
+    showToast(
+      isEn
+        ? `Automated workflow resumed for ${ref}.`
+        : `Workflow automatisé repris pour ${ref}.`
+    );
+    return data;
+  };
+
   const handleToggleTask = async (id: number) => {
     await fetch('/api/tasks', {
       method: 'POST',
@@ -935,6 +1013,7 @@ export default function LiecWorkspacePage() {
         name: u.name || u.email,
         email: u.email,
         role: u.role || 'staff',
+        title: u.title || `${u.business_profile || 'Secretary'} Staff`,
       }));
   }, [users]);
 
@@ -1550,6 +1629,12 @@ export default function LiecWorkspacePage() {
                         await handleConvertDemandeToCandidat(dem.ref);
                       }
                     }}
+                    staffList={activeStaffList}
+                    currentUser={currentUser}
+                    userRole={rolePreview}
+                    onAssignAdvisorBulk={handleAssignAdvisorBulk}
+                    onManualStatusOverrideBulk={handleManualStatusOverrideBulk}
+                    onResumeAutomatedWorkflow={handleReleaseManualOverride}
                     onRefresh={fetchWorkspace}
                     onNotify={showToast}
                     lang={lang}

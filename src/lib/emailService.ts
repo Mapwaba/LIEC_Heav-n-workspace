@@ -260,3 +260,163 @@ export async function sendAccommodationPartnerEmail(
     transport: type,
   };
 }
+
+
+export interface AdvisorAssignmentEmailPayload {
+  advisorName: string;
+  advisorEmail: string;
+  assignedBy: string;
+  assignedAt: string;
+  prospects: {
+    ref: string;
+    fullName: string;
+    country?: string;
+    program?: string;
+  }[];
+  workspaceUrl?: string;
+}
+
+/**
+ * Renders HTML email template for newly assigned prospects using LIEC branding.
+ */
+export function renderAdvisorAssignmentHtml(data: AdvisorAssignmentEmailPayload): string {
+  const workspaceUrl = data.workspaceUrl || process.env.NEXT_PUBLIC_APP_URL || 'https://workspace.liecconsulting.com';
+  const count = data.prospects.length;
+
+  const rowsHtml = data.prospects
+    .map(
+      (p) => `
+      <tr>
+        <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #092342;">${p.ref}</td>
+        <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #1e293b;">${p.fullName}</td>
+        <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #0c685a; font-size: 13px;">${p.program || 'Lyon Partner Program'}</td>
+        <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 13px;">${p.country || 'RDC'}</td>
+      </tr>`
+    )
+    .join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New Prospect Assignment – LIEC Heav’n</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
+    .container { max-width: 650px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+    .header { background: linear-gradient(135deg, #092342 0%, #0c685a 100%); padding: 32px; color: #ffffff; }
+    .badge { display: inline-block; background: rgba(255,255,255,0.15); color: #5eead4; font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+    .header h1 { margin: 0 0 6px 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+    .header p { margin: 0; font-size: 13.5px; color: #cbd5e1; }
+    .content { padding: 32px; font-size: 14px; line-height: 1.6; }
+    .meta-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin: 20px 0; font-size: 13px; }
+    .meta-box strong { color: #092342; }
+    .table-container { margin: 24px 0; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; text-align: left; }
+    th { background: #f1f5f9; padding: 10px 12px; font-size: 11.5px; font-weight: 800; text-transform: uppercase; color: #475569; letter-spacing: 0.04em; }
+    .btn { display: inline-block; background: #092342; color: #ffffff !important; text-decoration: none; padding: 12px 24px; border-radius: 10px; font-weight: 700; font-size: 13.5px; margin: 16px 0 8px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .footer { background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 24px 32px; font-size: 12px; color: #64748b; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="badge">LIEC Heav’n • CRM Advisory Notification</div>
+      <h1>New Prospect Assignment</h1>
+      <p>Official assignment notification from the LIEC Heav’n CRM Pipeline</p>
+    </div>
+    <div class="content">
+      <p>Dear <strong>${data.advisorName}</strong>,</p>
+      <p>You have been assigned <strong>${count}</strong> new candidate prospect${count > 1 ? 's' : ''} to manage in your advisory queue.</p>
+
+      <div class="meta-box">
+        <div><strong>Assigned by:</strong> ${data.assignedBy}</div>
+        <div style="margin-top: 4px;"><strong>Assignment Date &amp; Time:</strong> ${data.assignedAt}</div>
+      </div>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Reference</th>
+              <th>Candidate</th>
+              <th>Target Program</th>
+              <th>Country</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
+
+      <p>Please review each candidate's record, initiate contact, and advance them through the qualification and admissions milestones.</p>
+
+      <div style="text-align: center; margin: 28px 0;">
+        <a href="${workspaceUrl}" class="btn" target="_blank">Open LIEC Workspace &amp; Review Prospects &rarr;</a>
+      </div>
+    </div>
+    <div class="footer">
+      <p style="margin: 0 0 6px 0;"><strong>LIEC Heav'n Consulting • Student Intake &amp; Advisory Platform</strong></p>
+      <p style="margin: 0;">Security &amp; Confidentiality Notice: This message contains confidential internal assignment information intended solely for authorized LIEC advisory personnel. Do not forward or expose externally.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Sends professional assignment email to the assigned advisor.
+ */
+export async function sendAdvisorAssignmentEmail(
+  payload: AdvisorAssignmentEmailPayload
+): Promise<EmailSendResult> {
+  const recipient = payload.advisorEmail?.trim();
+  if (!recipient || !recipient.includes('@')) {
+    throw new Error('Invalid advisor professional email address');
+  }
+
+  const subject = `New Prospect Assignment – LIEC Heav’n (${payload.prospects.length} lead${payload.prospects.length > 1 ? 's' : ''})`;
+  const htmlContent = renderAdvisorAssignmentHtml(payload);
+
+  const prospectListText = payload.prospects
+    .map((p) => `- ${p.ref}: ${p.fullName} (${p.program || 'Partner School Lyon'}, ${p.country || 'RDC'})`)
+    .join('\n');
+
+  const textContent = [
+    'New Prospect Assignment – LIEC Heav’n',
+    '',
+    `Dear ${payload.advisorName},`,
+    '',
+    `You have been assigned ${payload.prospects.length} new prospect(s) in the LIEC Heav'n CRM:`,
+    '',
+    prospectListText,
+    '',
+    `Assigned by: ${payload.assignedBy}`,
+    `Date & Time: ${payload.assignedAt}`,
+    '',
+    "Access your assigned prospects in the LIEC Heav'n Workspace:",
+    payload.workspaceUrl || 'https://workspace.liecconsulting.com',
+    '',
+    "LIEC Heav'n Consulting • Confidential Advisory Internal Communication",
+  ].join('\n');
+
+  const { transporter, type } = createTransporter();
+  const fromAddress = process.env.SMTP_FROM || 'LIEC Secretariat <secretariat@liecconsulting.com>';
+
+  const info = await transporter.sendMail({
+    from: fromAddress,
+    to: recipient,
+    subject,
+    html: htmlContent,
+    text: textContent,
+  });
+
+  return {
+    success: true,
+    messageId: info.messageId || `assign_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+    recipient,
+    sentAt: new Date().toISOString(),
+    transport: type,
+  };
+}

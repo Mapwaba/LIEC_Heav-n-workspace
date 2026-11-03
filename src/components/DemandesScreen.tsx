@@ -31,6 +31,8 @@ import {
 } from 'lucide-react';
 
 import { Lang } from './ServicesAndOtherScreens';
+import { AssignAdvisorModal, ManualStatusOverrideModal } from './DemandesModals';
+import { AlertTriangle, AlertCircle } from 'lucide-react';
 
 interface DemandesScreenProps {
   demandes?: any[];
@@ -44,6 +46,12 @@ interface DemandesScreenProps {
   onArchiveDemande?: (refs: string | string[]) => Promise<void>;
   onDeleteDemande?: (refs: string | string[]) => Promise<void>;
   onOpenStudentDossier?: (dem: any) => void;
+  staffList?: { name: string; email: string; title?: string; role?: string }[];
+  currentUser?: any;
+  userRole?: string;
+  onAssignAdvisorBulk?: (refs: string[], adviserName: string, adviserEmail: string, notes?: string) => Promise<any>;
+  onManualStatusOverrideBulk?: (refs: string[], newStatus: string, reason: string, notes?: string) => Promise<any>;
+  onResumeAutomatedWorkflow?: (ref: string) => Promise<any>;
   onRefresh?: () => void;
   onNotify?: (msg: string) => void;
   lang?: Lang;
@@ -61,6 +69,12 @@ export default function DemandesScreen({
   onArchiveDemande = async () => {},
   onDeleteDemande = async () => {},
   onOpenStudentDossier,
+  staffList = [],
+  currentUser = null,
+  userRole = 'admin',
+  onAssignAdvisorBulk,
+  onManualStatusOverrideBulk,
+  onResumeAutomatedWorkflow,
   onRefresh = () => {},
   onNotify = () => {},
   lang = 'en',
@@ -80,6 +94,11 @@ export default function DemandesScreen({
   const [converting, setConverting] = useState(false);
   const [page, setPage] = useState(1);
   const [isDrawerOpen, setIsDrawerOpen] = useState(true);
+  const [showAssignAdvisorModal, setShowAssignAdvisorModal] = useState(false);
+  const [showManualStatusOverrideModal, setShowManualStatusOverrideModal] = useState(false);
+  const [isAssigningAdvisor, setIsAssigningAdvisor] = useState(false);
+  const [isOverridingStatus, setIsOverridingStatus] = useState(false);
+  const [isResumingWorkflow, setIsResumingWorkflow] = useState(false);
 
   // Safe normalization of dataset
   const safeDemandes = Array.isArray(demandes) ? demandes.filter(Boolean) : [];
@@ -172,6 +191,134 @@ export default function DemandesScreen({
 
     return matchSearch && matchCountry && matchService && matchStatus && matchIntake && matchPeriod;
   });
+
+  const canOverride = useMemo(() => {
+    const role = (userRole || currentUser?.role || '').toLowerCase();
+    const profile = (currentUser?.business_profile || '').toLowerCase();
+    const techRoles = currentUser?.technical_roles || [];
+    return (
+      role === 'admin' ||
+      profile === 'admin' ||
+      techRoles.includes('admin') ||
+      techRoles.includes('lh_security_admin')
+    );
+  }, [userRole, currentUser]);
+
+  const pageSize = 7;
+  const currentPageList = useMemo(() => {
+    return filteredList.slice((page - 1) * pageSize, page * pageSize);
+  }, [filteredList, page, pageSize]);
+
+  const allCurrentPageChecked = useMemo(() => {
+    return currentPageList.length > 0 && currentPageList.every((d) => d && checkedRefs.includes(d.ref));
+  }, [currentPageList, checkedRefs]);
+
+  const someCurrentPageChecked = useMemo(() => {
+    return currentPageList.some((d) => d && checkedRefs.includes(d.ref));
+  }, [currentPageList, checkedRefs]);
+
+  const toggleSelectAllCurrentPage = () => {
+    if (allCurrentPageChecked) {
+      setCheckedRefs((prev) => prev.filter((r) => !currentPageList.some((d) => d && d.ref === r)));
+    } else {
+      const pageRefs = currentPageList.map((d) => d.ref).filter(Boolean);
+      setCheckedRefs((prev) => Array.from(new Set([...prev, ...pageRefs])));
+    }
+  };
+
+  const handleConfirmAssignAdvisor = async (advisorName: string, adviserEmail: string, notes?: string) => {
+    if (checkedRefs.length === 0) return;
+    setIsAssigningAdvisor(true);
+    try {
+      if (onAssignAdvisorBulk) {
+        await onAssignAdvisorBulk(checkedRefs, advisorName, adviserEmail, notes);
+      } else {
+        const res = await fetch('/api/demandes', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
+          },
+          body: JSON.stringify({
+            action: 'assign_advisor',
+            refs: checkedRefs,
+            adviserName,
+            adviserEmail,
+            notes,
+            actor: currentUser?.name || 'Barthelemy MAPWABA NTORO',
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Assignment failed');
+        onNotify(isEn ? `Assigned ${data.assignedCount} lead(s) to ${advisorName}.` : `${data.assignedCount} lead(s) attribué(s) à ${advisorName}.`);
+        onRefresh();
+      }
+      setCheckedRefs([]);
+    } finally {
+      setIsAssigningAdvisor(false);
+    }
+  };
+
+  const handleConfirmManualStatusOverride = async (newStatus: string, reason: string, notes?: string) => {
+    if (checkedRefs.length === 0) return;
+    setIsOverridingStatus(true);
+    try {
+      if (onManualStatusOverrideBulk) {
+        await onManualStatusOverrideBulk(checkedRefs, newStatus, reason, notes);
+      } else {
+        const res = await fetch('/api/demandes', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
+          },
+          body: JSON.stringify({
+            action: 'manual_status_override',
+            refs: checkedRefs,
+            newStatus,
+            reason,
+            notes,
+            actor: currentUser?.name || 'Barthelemy MAPWABA NTORO',
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Status override failed');
+        onNotify(isEn ? `Status override applied to ${data.count} lead(s) -> ${newStatus}.` : `Dérogation de statut appliquée à ${data.count} lead(s) -> ${newStatus}.`);
+        onRefresh();
+      }
+      setCheckedRefs([]);
+    } finally {
+      setIsOverridingStatus(false);
+    }
+  };
+
+  const handleReleaseOverride = async (ref: string) => {
+    setIsResumingWorkflow(true);
+    try {
+      if (onResumeAutomatedWorkflow) {
+        await onResumeAutomatedWorkflow(ref);
+      } else {
+        const res = await fetch('/api/demandes', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
+          },
+          body: JSON.stringify({
+            action: 'release_manual_override',
+            refs: [ref],
+            actor: currentUser?.name || 'Barthelemy MAPWABA NTORO',
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to resume automated workflow');
+        onNotify(isEn ? `Automated workflow resumed for ${ref}.` : `Workflow automatisé repris pour ${ref}.`);
+        onRefresh();
+      }
+    } finally {
+      setIsResumingWorkflow(false);
+    }
+  };
 
   const activeDemande =
     orderedDemandes.find((d) => d && d.ref === selectedRef) ||
@@ -599,10 +746,13 @@ export default function DemandesScreen({
             <div className="flex items-center gap-2.5">
               <input
                 type="checkbox"
-                checked={checkedRefs.length > 0}
-                onChange={() =>
-                  setCheckedRefs(checkedRefs.length > 0 ? [] : (selectedDemande?.ref ? [selectedDemande.ref] : []))
-                }
+                checked={allCurrentPageChecked}
+                ref={(input) => {
+                  if (input) {
+                    input.indeterminate = !allCurrentPageChecked && someCurrentPageChecked;
+                  }
+                }}
+                onChange={toggleSelectAllCurrentPage}
                 className="h-4 w-4 rounded border-slate-300 text-[#092342] focus:ring-[#092342] cursor-pointer"
               />
               <span className="font-extrabold text-[#092342]">
@@ -613,31 +763,60 @@ export default function DemandesScreen({
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => {
-                  if (selectedDemande) {
-                    onUpdateStatus(selectedDemande.ref, selectedDemande.status || 'New', 'Barthelemy MAPWABA NTORO');
-                    onNotify(`Advisor Barthelemy MAPWABA NTORO assigned to ${selectedDemande.ref}.`);
-                  }
-                }}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-[#092342] hover:bg-slate-50"
+                type="button"
+                disabled={checkedRefs.length === 0 || isAssigningAdvisor}
+                onClick={() => setShowAssignAdvisorModal(true)}
+                title={
+                  checkedRefs.length === 0
+                    ? (isEn ? 'Select at least one prospect to assign advisor' : 'Sélectionnez au moins un prospect')
+                    : (isEn ? 'Assign advisor to selected prospects' : 'Attribuer un conseiller aux prospects sélectionnés')
+                }
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition ${
+                  checkedRefs.length > 0
+                    ? 'border-slate-200 bg-white text-[#092342] hover:bg-slate-50 shadow-2xs cursor-pointer'
+                    : 'border-slate-200/60 bg-slate-50 text-slate-400 opacity-50 cursor-not-allowed'
+                }`}
               >
-                <UserPlus className="w-3.5 h-3.5 text-slate-500" />
-                <span>Assign Advisor</span>
+                {isAssigningAdvisor ? (
+                  <RotateCw className="w-3.5 h-3.5 animate-spin text-[#0c685a]" />
+                ) : (
+                  <UserPlus className="w-3.5 h-3.5 text-slate-500" />
+                )}
+                <span>+ Assign Advisor</span>
               </button>
 
               <button
+                type="button"
+                disabled={checkedRefs.length === 0 || isOverridingStatus}
                 onClick={() => {
-                  if (selectedDemande) {
-                    const nextStatus =
-                      selectedDemande.status === 'New' || selectedDemande.status === 'Nouvelle'
-                        ? 'Qualified'
-                        : 'In Progress';
-                    onUpdateStatus(selectedDemande.ref, nextStatus);
+                  if (!canOverride) {
+                    onNotify(
+                      isEn
+                        ? 'Manual status override requires Platform Administrator privileges.'
+                        : 'La dérogation de statut requiert les privilèges Administrateur.'
+                    );
+                    return;
                   }
+                  setShowManualStatusOverrideModal(true);
                 }}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-[#092342] hover:bg-slate-50"
+                title={
+                  checkedRefs.length === 0
+                    ? (isEn ? 'Select at least one prospect to change status' : 'Sélectionnez au moins un prospect')
+                    : !canOverride
+                    ? (isEn ? 'Requires Platform Administrator privileges' : 'Réservé aux Administrateurs')
+                    : (isEn ? 'Perform manual status override' : 'Effectuer une dérogation de statut')
+                }
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition ${
+                  checkedRefs.length > 0
+                    ? 'border-slate-200 bg-white text-[#092342] hover:bg-slate-50 shadow-2xs cursor-pointer'
+                    : 'border-slate-200/60 bg-slate-50 text-slate-400 opacity-50 cursor-not-allowed'
+                }`}
               >
-                <Tag className="w-3.5 h-3.5 text-slate-500" />
+                {isOverridingStatus ? (
+                  <RotateCw className="w-3.5 h-3.5 animate-spin text-amber-600" />
+                ) : (
+                  <Tag className="w-3.5 h-3.5 text-slate-500" />
+                )}
                 <span>Change Status</span>
               </button>
 
@@ -696,7 +875,7 @@ export default function DemandesScreen({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
-                {filteredList.slice(0, 7).map((dem, i) => {
+                {currentPageList.map((dem, i) => {
                   if (!dem) return null;
                   const isSelected = selectedDemande?.ref === dem.ref;
                   const isChecked = checkedRefs.includes(dem.ref);
@@ -782,7 +961,17 @@ export default function DemandesScreen({
                           {dem.service_pole || '-'}
                         </div>
                       </td>
-                      <td className="py-4 px-3">{getStatusBadge(dem.status)}</td>
+                      <td className="py-4 px-3">
+                        <div className="flex flex-col items-start gap-1">
+                          {getStatusBadge(dem.status)}
+                          {dem.is_manual_override && (
+                            <span className="inline-flex items-center gap-1 rounded bg-amber-100 text-amber-800 text-[9.5px] font-extrabold px-1.5 py-0.5 border border-amber-200">
+                              <AlertTriangle className="w-2.5 h-2.5 text-amber-600" />
+                              <span>{isEn ? 'Override' : 'Dérogation'}</span>
+                            </span>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -893,6 +1082,38 @@ export default function DemandesScreen({
               </div>
             </div>
 
+            {/* Manual Status Override Banner (if active) */}
+            {selectedDemande.is_manual_override && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/90 p-3.5 space-y-2 text-xs text-amber-900">
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold flex items-center gap-1.5 text-amber-800">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    {isEn ? 'Manual Status Override Active' : 'Dérogation Manuelle Active'}
+                  </span>
+                  {canOverride && (
+                    <button
+                      type="button"
+                      disabled={isResumingWorkflow}
+                      onClick={() => handleReleaseOverride(selectedDemande.ref)}
+                      className="text-[11px] font-bold text-amber-800 hover:text-amber-950 underline cursor-pointer disabled:opacity-50"
+                    >
+                      {isResumingWorkflow
+                        ? (isEn ? 'Resuming...' : 'Reprise...')
+                        : (isEn ? 'Resume Automated Workflow' : 'Reprendre le workflow')}
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  <strong>{isEn ? 'Override Reason:' : 'Motif :'}</strong> {selectedDemande.override_reason || '-'}
+                </p>
+                {selectedDemande.override_by && (
+                  <p className="text-[10px] text-amber-700">
+                    {isEn ? 'Applied by' : 'Par'} {selectedDemande.override_by} {selectedDemande.override_at ? `(${new Date(selectedDemande.override_at).toLocaleDateString()})` : ''}
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Candidate Identity Card */}
             <div className="rounded-2xl bg-[#f3f7fc] p-4 flex items-center gap-4">
               <div className="h-14 w-14 rounded-2xl bg-[#092342] text-white flex items-center justify-center text-lg font-extrabold shrink-0">
@@ -964,6 +1185,35 @@ export default function DemandesScreen({
                 >
                   <Copy className="w-3.5 h-3.5" />
                 </button>
+              </div>
+            </div>
+
+            {/* Assigned Advisor Section */}
+            <div className="space-y-2">
+              <h3 className="text-[10.5px] font-extrabold uppercase tracking-wider text-slate-500">
+                {isEn ? 'ASSIGNED ADVISOR' : 'CONSEILLER ATTRIBUÉ'}
+              </h3>
+              <div className="rounded-xl bg-[#f4f8fc] p-3 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="h-8 w-8 rounded-lg bg-[#092342] text-white flex items-center justify-center font-bold text-xs shrink-0">
+                    {selectedDemande.adviser
+                      ? selectedDemande.adviser.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+                      : 'BM'}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-extrabold text-[#092342] truncate">
+                      {selectedDemande.adviser || 'Barthelemy MAPWABA NTORO'}
+                    </div>
+                    <div className="text-[10.5px] text-slate-500 truncate">
+                      {selectedDemande.adviser_email || 'bmapwabantoro@liecconsulting.com'}
+                    </div>
+                  </div>
+                </div>
+                {selectedDemande.adviser_assigned_at && (
+                  <span className="text-[10px] text-slate-400 font-medium shrink-0">
+                    {new Date(selectedDemande.adviser_assigned_at).toLocaleDateString()}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -1187,6 +1437,27 @@ export default function DemandesScreen({
           </div>
         )}
       </div>
+
+      {/* Modal: Assign Advisor */}
+      <AssignAdvisorModal
+        isOpen={showAssignAdvisorModal}
+        onClose={() => setShowAssignAdvisorModal(false)}
+        selectedRefs={checkedRefs}
+        selectedDemandes={safeDemandes}
+        staffList={staffList}
+        onConfirm={handleConfirmAssignAdvisor}
+        isEn={isEn}
+      />
+
+      {/* Modal: Manual Status Override */}
+      <ManualStatusOverrideModal
+        isOpen={showManualStatusOverrideModal}
+        onClose={() => setShowManualStatusOverrideModal(false)}
+        selectedRefs={checkedRefs}
+        selectedDemandes={safeDemandes}
+        onConfirm={handleConfirmManualStatusOverride}
+        isEn={isEn}
+      />
 
       {/* Modal: Advanced Filters */}
       {showAdvancedFilters && (

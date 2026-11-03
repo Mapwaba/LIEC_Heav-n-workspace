@@ -480,6 +480,29 @@ async function initSchemaAndSeed(client: DBClient) {
     ALTER TABLE demandes ADD COLUMN IF NOT EXISTS current_activity VARCHAR(25);
     ALTER TABLE demandes ADD COLUMN IF NOT EXISTS final_year_university VARCHAR(10);
     ALTER TABLE demandes ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE;
+    ALTER TABLE demandes ADD COLUMN IF NOT EXISTS adviser_email VARCHAR(160);
+    ALTER TABLE demandes ADD COLUMN IF NOT EXISTS adviser_assigned_at TIMESTAMP WITH TIME ZONE;
+    ALTER TABLE demandes ADD COLUMN IF NOT EXISTS adviser_assigned_by VARCHAR(150);
+    ALTER TABLE demandes ADD COLUMN IF NOT EXISTS assignment_history_json TEXT DEFAULT '[]';
+    ALTER TABLE demandes ADD COLUMN IF NOT EXISTS is_manual_override BOOLEAN DEFAULT FALSE;
+    ALTER TABLE demandes ADD COLUMN IF NOT EXISTS override_reason TEXT;
+    ALTER TABLE demandes ADD COLUMN IF NOT EXISTS override_notes TEXT;
+    ALTER TABLE demandes ADD COLUMN IF NOT EXISTS override_by VARCHAR(150);
+    ALTER TABLE demandes ADD COLUMN IF NOT EXISTS override_at TIMESTAMP WITH TIME ZONE;
+    ALTER TABLE demandes ADD COLUMN IF NOT EXISTS previous_status VARCHAR(60);
+    ALTER TABLE demandes ADD COLUMN IF NOT EXISTS status_history_json TEXT DEFAULT '[]';
+
+    ALTER TABLE prospects ADD COLUMN IF NOT EXISTS adviser_email VARCHAR(160);
+    ALTER TABLE prospects ADD COLUMN IF NOT EXISTS adviser_assigned_at TIMESTAMP WITH TIME ZONE;
+    ALTER TABLE prospects ADD COLUMN IF NOT EXISTS adviser_assigned_by VARCHAR(150);
+    ALTER TABLE prospects ADD COLUMN IF NOT EXISTS assignment_history_json TEXT DEFAULT '[]';
+    ALTER TABLE prospects ADD COLUMN IF NOT EXISTS is_manual_override BOOLEAN DEFAULT FALSE;
+    ALTER TABLE prospects ADD COLUMN IF NOT EXISTS override_reason TEXT;
+    ALTER TABLE prospects ADD COLUMN IF NOT EXISTS override_notes TEXT;
+    ALTER TABLE prospects ADD COLUMN IF NOT EXISTS override_by VARCHAR(150);
+    ALTER TABLE prospects ADD COLUMN IF NOT EXISTS override_at TIMESTAMP WITH TIME ZONE;
+    ALTER TABLE prospects ADD COLUMN IF NOT EXISTS previous_stage VARCHAR(60);
+    ALTER TABLE prospects ADD COLUMN IF NOT EXISTS status_history_json TEXT DEFAULT '[]';
 
     ALTER TABLE candidats ADD COLUMN IF NOT EXISTS parent_full_name VARCHAR(150);
     ALTER TABLE candidats ADD COLUMN IF NOT EXISTS parent_phone VARCHAR(30);

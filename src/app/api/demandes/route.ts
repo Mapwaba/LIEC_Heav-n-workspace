@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { authenticateServerRequest, canAssignAdvisor, canPerformManualStatusOverride } from '@/lib/rbac';
+import { sendAdvisorAssignmentEmail } from '@/lib/emailService';
 
 function corsHeaders() {
   return {
@@ -442,6 +444,343 @@ export async function PATCH(req: NextRequest) {
     const db = await getDb();
     const body = await req.json();
     const { ref, action } = body;
+
+    const rawRefs = Array.isArray(body.refs) ? body.refs : (ref ? [ref] : []);
+    const requestRefs = rawRefs.map((r: any) => String(r).trim()).filter(Boolean);
+
+    if (action === 'assign_advisor') {
+      const authUser = await authenticateServerRequest(req, db);
+      if (!canAssignAdvisor(authUser)) {
+        return NextResponse.json(
+          { error: 'Unauthorized: Advisor assignment requires Administrative or Intake Staff permission.' },
+          { status: 403 }
+        );
+      }
+
+      if (requestRefs.length === 0) {
+        return NextResponse.json({ error: 'No prospect references provided for assignment.' }, { status: 400 });
+      }
+
+      const adviserName = (body.adviserName || body.adviser_name || '').trim();
+      const adviserEmail = (body.adviserEmail || body.adviser_email || '').trim().toLowerCase();
+      const notes = (body.notes || '').trim();
+      const actor = body.actor || authUser.name || 'Platform Staff';
+
+      if (!adviserName || !adviserEmail) {
+        return NextResponse.json({ error: 'Advisor full name and professional email are required.' }, { status: 400 });
+      }
+
+      // Verify advisor exists and is active in users directory
+      const userCheck = await db.query(
+        `SELECT id, name, email, active, title FROM users WHERE active = TRUE AND (LOWER(email) = LOWER($1) OR LOWER(name) = LOWER($2)) LIMIT 1`,
+        [adviserEmail, adviserName]
+      );
+      if (!userCheck.rows || userCheck.rows.length === 0) {
+        return NextResponse.json(
+          { error: `Selected advisor '${adviserName}' (${adviserEmail}) is not an active staff member in the directory.` },
+          { status: 400 }
+        );
+      }
+
+      const activeAdvisor = userCheck.rows[0];
+      const verifiedName = activeAdvisor.name;
+      const verifiedEmail = activeAdvisor.email;
+      const assignedAtIso = new Date().toISOString();
+
+      const assignedProspects: { ref: string; fullName: string; country?: string; program?: string }[] = [];
+      const failedRefs: string[] = [];
+
+      for (const targetRef of requestRefs) {
+        try {
+          const demRes = await db.query(`SELECT * FROM demandes WHERE ref = $1`, [targetRef]);
+          const dem = demRes.rows[0];
+          if (!dem) {
+            failedRefs.push(targetRef);
+            continue;
+          }
+
+          let history: any[] = [];
+          try {
+            history = dem.assignment_history_json ? JSON.parse(dem.assignment_history_json) : [];
+            if (!Array.isArray(history)) history = [];
+          } catch {
+            history = [];
+          }
+
+          history.unshift({
+            previous_adviser: dem.adviser || 'Unassigned',
+            previous_adviser_email: dem.adviser_email || null,
+            new_adviser: verifiedName,
+            new_adviser_email: verifiedEmail,
+            assigned_by: actor,
+            assigned_at: assignedAtIso,
+            source: 'manual CRM assignment',
+            notes: notes || undefined,
+          });
+
+          await db.query(
+            `UPDATE demandes SET
+              adviser = $1,
+              adviser_email = $2,
+              adviser_assigned_at = CURRENT_TIMESTAMP,
+              adviser_assigned_by = $3,
+              assignment_history_json = $4
+             WHERE ref = $5`,
+            [verifiedName, verifiedEmail, actor, JSON.stringify(history), targetRef]
+          );
+
+          // Add note to internal log
+          const noteText = notes
+            ? `Advisor assigned: ${verifiedName} (${verifiedEmail}). Note: ${notes}`
+            : `Advisor assigned: ${verifiedName} (${verifiedEmail}) via manual CRM assignment.`;
+
+          await db.query(
+            `INSERT INTO demande_notes (demande_ref, author, timestamp_label, content)
+             VALUES ($1, $2, $3, $4)`,
+            [targetRef, actor, "Aujourd'hui, à l'instant", noteText]
+          );
+
+          // Audit log
+          await db.query(
+            `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+             VALUES ($1, 'Assign Advisor (Manual CRM)', $2, 'Succès', $3)`,
+            [actor, targetRef, `Assigned to ${verifiedName} (${verifiedEmail}) by ${actor}`]
+          );
+
+          // Also synchronize with prospects table if matching record exists
+          const initials = verifiedName.split(/\s+/).map((w: string) => w[0]?.toUpperCase() || '').join('').slice(0, 2) || 'BM';
+          await db.query(
+            `UPDATE prospects SET
+              adviser_name = $1,
+              adviser_email = $2,
+              adviser_initials = $3,
+              adviser_assigned_at = CURRENT_TIMESTAMP,
+              adviser_assigned_by = $4
+             WHERE full_name ILIKE $5`,
+            [verifiedName, verifiedEmail, initials, actor, dem.full_name]
+          );
+
+          assignedProspects.push({
+            ref: targetRef,
+            fullName: dem.full_name || 'Prospect',
+            country: dem.country_name || dem.country_code || 'RDC',
+            program: dem.program || 'Lyon Partner Program',
+          });
+        } catch (err: any) {
+          console.error(`Error assigning advisor to ${targetRef}:`, err);
+          failedRefs.push(targetRef);
+        }
+      }
+
+      // If at least one prospect was assigned, send email notification
+      let emailSent = false;
+      let emailError: string | null = null;
+      if (assignedProspects.length > 0) {
+        try {
+          const emailRes = await sendAdvisorAssignmentEmail({
+            advisorName: verifiedName,
+            advisorEmail: verifiedEmail,
+            assignedBy: actor,
+            assignedAt: new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Kinshasa' }),
+            prospects: assignedProspects,
+          });
+          emailSent = emailRes.success;
+        } catch (e: any) {
+          console.warn('Advisor assignment email notification error:', e.message);
+          emailError = e.message;
+        }
+      }
+
+      if (assignedProspects.length === 0 && failedRefs.length > 0) {
+        return NextResponse.json(
+          { error: `Failed to assign advisor. None of the specified records could be updated: ${failedRefs.join(', ')}` },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        ok: true,
+        assignedCount: assignedProspects.length,
+        failedRefs,
+        emailSent,
+        emailError,
+        adviserName: verifiedName,
+        adviserEmail: verifiedEmail,
+      });
+    }
+
+    if (action === 'manual_status_override') {
+      const authUser = await authenticateServerRequest(req, db);
+      if (!canPerformManualStatusOverride(authUser)) {
+        return NextResponse.json(
+          { error: 'Unauthorized: Manual status override requires Platform Administrator privileges.' },
+          { status: 403 }
+        );
+      }
+
+      if (requestRefs.length === 0) {
+        return NextResponse.json({ error: 'No prospect references provided for status override.' }, { status: 400 });
+      }
+
+      const targetStatus = (body.newStatus || body.status || '').trim();
+      const reason = (body.reason || '').trim();
+      const notes = (body.notes || '').trim();
+      const actor = body.actor || authUser.name || 'Platform Administrator';
+
+      if (!targetStatus) {
+        return NextResponse.json({ error: 'Target status is required.' }, { status: 400 });
+      }
+
+      if (!reason || reason.length < 5) {
+        return NextResponse.json(
+          { error: 'Mandatory justification required for manual status override (minimum 5 characters).' },
+          { status: 400 }
+        );
+      }
+
+      const overriddenRefs: string[] = [];
+      const failedRefs: string[] = [];
+      const overrideAtIso = new Date().toISOString();
+
+      for (const targetRef of requestRefs) {
+        try {
+          const demRes = await db.query(`SELECT * FROM demandes WHERE ref = $1`, [targetRef]);
+          const dem = demRes.rows[0];
+          if (!dem) {
+            failedRefs.push(targetRef);
+            continue;
+          }
+
+          let history: any[] = [];
+          try {
+            history = dem.status_history_json ? JSON.parse(dem.status_history_json) : [];
+            if (!Array.isArray(history)) history = [];
+          } catch {
+            history = [];
+          }
+
+          history.unshift({
+            previous_status: dem.status,
+            new_status: targetStatus,
+            is_manual_override: true,
+            override_reason: reason,
+            override_notes: notes || undefined,
+            override_by: actor,
+            override_at: overrideAtIso,
+            source: 'manual status override',
+          });
+
+          await db.query(
+            `UPDATE demandes SET
+              status = $1,
+              previous_status = COALESCE(previous_status, $2),
+              is_manual_override = TRUE,
+              override_reason = $3,
+              override_notes = $4,
+              override_by = $5,
+              override_at = CURRENT_TIMESTAMP,
+              status_history_json = $6
+             WHERE ref = $7`,
+            [targetStatus, dem.status, reason, notes || null, actor, JSON.stringify(history), targetRef]
+          );
+
+          // Add note to internal log
+          const logNote = `[MANUAL STATUS OVERRIDE] Status changed from "${dem.status}" to "${targetStatus}". Reason: ${reason}.${notes ? ` Notes: ${notes}` : ''}`;
+          await db.query(
+            `INSERT INTO demande_notes (demande_ref, author, timestamp_label, content)
+             VALUES ($1, $2, $3, $4)`,
+            [targetRef, actor, "Aujourd'hui, à l'instant", logNote]
+          );
+
+          // Audit log (immutable)
+          await db.query(
+            `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+             VALUES ($1, 'Manual Status Override', $2, 'Succès', $3)`,
+            [actor, targetRef, `Override to ${targetStatus}. Reason: ${reason}`]
+          );
+
+          overriddenRefs.push(targetRef);
+        } catch (err: any) {
+          console.error(`Error overriding status for ${targetRef}:`, err);
+          failedRefs.push(targetRef);
+        }
+      }
+
+      if (overriddenRefs.length === 0 && failedRefs.length > 0) {
+        return NextResponse.json(
+          { error: `Failed to apply manual override to records: ${failedRefs.join(', ')}` },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        ok: true,
+        count: overriddenRefs.length,
+        overriddenRefs,
+        failedRefs,
+        status: targetStatus,
+      });
+    }
+
+    if (action === 'release_manual_override') {
+      const authUser = await authenticateServerRequest(req, db);
+      if (!canPerformManualStatusOverride(authUser)) {
+        return NextResponse.json(
+          { error: 'Unauthorized: Releasing manual status override requires Platform Administrator privileges.' },
+          { status: 403 }
+        );
+      }
+
+      if (requestRefs.length === 0) {
+        return NextResponse.json({ error: 'No prospect references provided.' }, { status: 400 });
+      }
+
+      const actor = body.actor || authUser.name || 'Platform Administrator';
+
+      for (const targetRef of requestRefs) {
+        const demRes = await db.query(`SELECT * FROM demandes WHERE ref = $1`, [targetRef]);
+        const dem = demRes.rows[0];
+        if (!dem) continue;
+
+        let history: any[] = [];
+        try {
+          history = dem.status_history_json ? JSON.parse(dem.status_history_json) : [];
+          if (!Array.isArray(history)) history = [];
+        } catch {
+          history = [];
+        }
+
+        history.unshift({
+          action: 'release_manual_override',
+          released_by: actor,
+          released_at: new Date().toISOString(),
+          status: dem.status,
+          message: 'Manual override released; normal automated workflow resumed.'
+        });
+
+        await db.query(
+          `UPDATE demandes SET
+            is_manual_override = FALSE,
+            status_history_json = $1
+           WHERE ref = $2`,
+          [JSON.stringify(history), targetRef]
+        );
+
+        await db.query(
+          `INSERT INTO demande_notes (demande_ref, author, timestamp_label, content)
+           VALUES ($1, $2, $3, $4)`,
+          [targetRef, actor, "Aujourd'hui, à l'instant", `[WORKFLOW RESUMED] Manual override released by ${actor}. Automated CRM workflow resumed.`]
+        );
+
+        await db.query(
+          `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+           VALUES ($1, 'Release Manual Override', $2, 'Succès', 'Manual override released; automated workflow resumed')`,
+          [actor, targetRef]
+        );
+      }
+
+      return NextResponse.json({ ok: true, released: true });
+    }
 
     if (!ref) {
       return NextResponse.json({ error: 'Référence requise' }, { status: 400 });
