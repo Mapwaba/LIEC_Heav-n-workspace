@@ -409,6 +409,14 @@ async function initSchemaAndSeed(client: DBClient) {
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS user_notification_reads (
+      id SERIAL PRIMARY KEY,
+      user_email VARCHAR(160) NOT NULL,
+      notification_id VARCHAR(100) NOT NULL,
+      read_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_email, notification_id)
+    );
+
     ALTER TABLE roles ADD COLUMN IF NOT EXISTS timeout_minutes INTEGER DEFAULT 15;
 
     ALTER TABLE users ADD COLUMN IF NOT EXISTS business_profile VARCHAR(50) DEFAULT 'Secretary';
@@ -428,7 +436,9 @@ async function initSchemaAndSeed(client: DBClient) {
       ('lh_security_admin', 'Security Administrator', 'Admin', 'Security administration. Limit access to security configuration and sensitive controls.', 'Limit access to security configuration and sensitive controls.', TRUE),
       ('ITIL', 'ITIL Workflow Operator', 'Secretary', 'Secretary workflows (as configured). Applicant intake and administrative tracking.', 'Do not assume this role means full administrator access. Verify permissions and inherited access.', TRUE),
       ('lh_internal', 'Internal Application Access', 'Secretary', 'Internal application access. Restrict to applicant intake, assigned records, comments and history.', 'Restrict to applicant intake, assigned records, comments and history.', TRUE),
-      ('lh_finance', 'Finance & AVI Officer', 'Finance Officer', 'AVI and parent-financing operations, YIMMILINE desk calculations and loan requests.', 'Restrict to AVI-related functions and records; do not grant unrelated finance or system configuration access.', TRUE)
+      ('lh_finance', 'Finance & AVI Officer', 'Finance Officer', 'AVI and parent-financing operations, YIMMILINE desk calculations and loan requests.', 'Restrict to AVI-related functions and records; do not grant unrelated finance or system configuration access.', TRUE),
+      ('secretary', 'Secretary (Intake & Admissions)', 'Secretary', 'Intake officer and applicant management operations.', 'Limit to applicant registration and admissions tracking.', TRUE),
+      ('avi', 'Finance Officer (Blocked Account / AVI)', 'Finance Officer', 'Guichet AVI and loan verification operator.', 'Restrict to AVI desk operations.', TRUE)
     ON CONFLICT (role_id) DO NOTHING;
 
     -- Seed Default Role Session Timeouts (Enforces 10 to 30 min Range)

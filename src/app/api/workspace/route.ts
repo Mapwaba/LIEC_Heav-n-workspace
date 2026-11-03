@@ -46,7 +46,13 @@ export async function GET(req: NextRequest) {
       db.query('SELECT * FROM prepa_cohorts ORDER BY id ASC'),
       db.query('SELECT * FROM invoices ORDER BY id DESC'),
       db.query('SELECT * FROM audit_logs ORDER BY id DESC LIMIT 50'),
-      db.query('SELECT id, name, email, business_profile, role, title, initials, active, suspended_at, suspended_by, created_at FROM users ORDER BY id ASC'),
+      db.query(`SELECT u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials,
+              u.active, u.suspended_at, u.suspended_by, u.created_at,
+              COALESCE(ARRAY_AGG(ur.role_id) FILTER (WHERE ur.role_id IS NOT NULL), ARRAY[]::VARCHAR[]) as technical_roles
+       FROM users u
+       LEFT JOIN user_roles ur ON u.id = ur.user_id
+       GROUP BY u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials, u.active, u.suspended_at, u.suspended_by, u.created_at
+       ORDER BY u.id ASC`),
       db.query('SELECT * FROM roles ORDER BY id ASC'),
       db.query('SELECT * FROM parent_student_links ORDER BY parent_name ASC, student_name ASC'),
       db.query('SELECT * FROM accommodation_requests ORDER BY id DESC'),

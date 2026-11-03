@@ -419,7 +419,7 @@ export async function POST(req: NextRequest) {
           full_name, stage, badge_text, badge_tone, flag, country_city, program_tag,
           program_tag_tone, highlight_box, meta_left, meta_right, meta_right_tone,
           adviser_initials, adviser_name, adviser_color, estimated_value, is_urgent, is_prepa
-        ) VALUES ($1,'nouveau','Nouveau Web','cyan',$2,$3,$4,'mint',NULL,'2 800 € TTC','À qualifier','teal','BM','B. Mapwaba','navy',2800,FALSE,TRUE)`,
+        ) VALUES ($1,'nouveau','New Web','cyan',$2,$3,$4,'mint',NULL,'2 800 € TTC','À qualifier','teal','BM','B. Mapwaba','navy',2800,FALSE,TRUE)`,
         [fullName, countryMeta.flag, city, program]
       );
     }

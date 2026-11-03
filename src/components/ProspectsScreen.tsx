@@ -82,6 +82,28 @@ const STAGES = [
   },
 ];
 
+
+const formatProspectBadge = (badge: string) => {
+  if (!badge) return badge;
+  const trimmed = badge.trim();
+  const lower = trimmed.toLowerCase();
+  if (lower === 'nouveau web' || lower === 'nouveau' || lower === 'new web') return 'New Web';
+  if (lower === "aujourd'hui" || lower === 'aujourd’hui' || lower === 'auj.' || lower === 'auj' || lower === 'today') return 'Today';
+  return badge;
+};
+
+const formatProspectLocation = (loc: string) => {
+  if (!loc) return loc;
+  return loc.replace(/\bRDC\b/g, 'DRC').replace(/\bCongo \(RDC\)\b/g, 'Congo (DRC)');
+};
+
+const formatProspectTime = (meta: string) => {
+  if (!meta) return meta;
+  if (meta === "À l'instant" || meta === "A l'instant") return 'Just now';
+  if (meta === "Aujourd'hui" || meta === "Aujourd’hui") return 'Today';
+  return meta;
+};
+
 export default function ProspectsScreen({
   prospects,
   staffList = [],
@@ -120,6 +142,33 @@ export default function ProspectsScreen({
   const [selectedProspectForComments, setSelectedProspectForComments] =
     useState<ProspectItem | null>(null);
   const [checkedIds, setCheckedIds] = useState<number[]>([]);
+  const [isRefreshingPipeline, setIsRefreshingPipeline] = useState(false);
+
+  const handleRefreshPipeline = async () => {
+    if (isRefreshingPipeline) return;
+    setIsRefreshingPipeline(true);
+    try {
+      if (onRefresh) {
+        await onRefresh();
+      }
+      if (onNotify) {
+        onNotify(
+          isEn
+            ? 'Prospects CRM pipeline refreshed from database.'
+            : 'Pipeline CRM actualisé depuis la base de données.'
+        );
+      }
+    } catch {
+      if (onNotify) {
+        onNotify(
+          isEn ? 'Failed to refresh CRM pipeline.' : "Erreur lors de l'actualisation du pipeline CRM."
+        );
+      }
+    } finally {
+      setTimeout(() => setIsRefreshingPipeline(false), 500);
+    }
+  };
+
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showOverrideModal, setShowOverrideModal] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
@@ -268,7 +317,7 @@ export default function ProspectsScreen({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Top Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
@@ -551,11 +600,13 @@ export default function ProspectsScreen({
             LIEC-France PREPA
           </button>
           <button
-            onClick={onRefresh}
-            className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition cursor-pointer"
-            title="Refresh Pipeline"
+            type="button"
+            disabled={isRefreshingPipeline}
+            onClick={handleRefreshPipeline}
+            className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition cursor-pointer disabled:opacity-50"
+            title={isEn ? "Refresh Pipeline" : "Actualiser le pipeline"}
           >
-            <RotateCw className="w-4 h-4" />
+            <RotateCw className={`w-4 h-4 ${isRefreshingPipeline ? 'animate-spin text-[#0c685a]' : ''}`} />
           </button>
         </div>
       </div>
@@ -636,13 +687,13 @@ export default function ProspectsScreen({
                             <span
                               className={`shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-extrabold leading-tight ${badgeClass}`}
                             >
-                              {card.badge_text}
+                              {formatProspectBadge(card.badge_text)}
                             </span>
                           </div>
 
                           <div className="flex items-center gap-1.5 text-xs text-slate-500">
                             <span>{card.flag}</span>
-                            <span>{card.country_city}</span>
+                            <span>{formatProspectLocation(card.country_city)}</span>
                           </div>
 
                           <div>
@@ -668,7 +719,7 @@ export default function ProspectsScreen({
                           <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px]">
                             <span className="text-slate-600 font-medium inline-flex items-center gap-1">
                               <Clock className="w-3 h-3 text-slate-400" />
-                              <span>{card.meta_left}</span>
+                              <span>{formatProspectTime(card.meta_left)}</span>
                             </span>
 
                             {/* Actionable Call Button (translated and functional) */}
@@ -899,7 +950,7 @@ export default function ProspectsScreen({
                       </button>
                     </td>
                     <td className="py-3.5 px-4">
-                      {p.flag} {p.country_city}
+                      {p.flag} {formatProspectLocation(p.country_city)}
                     </td>
                     <td className="py-3.5 px-4 font-semibold text-[#0c685a]">{p.program_tag}</td>
                     <td className="py-3.5 px-4">

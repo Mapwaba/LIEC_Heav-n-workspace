@@ -29,6 +29,7 @@ import {
   RotateCw,
   Clock,
   Check,
+  CheckCheck,
   AlertTriangle,
 } from 'lucide-react';
 
@@ -281,9 +282,9 @@ export default function LiecWorkspacePage() {
       if (data.accommodationRequests) setAccommodationRequests(data.accommodationRequests);
       if (data.prepaPayments) setPrepaPayments(data.prepaPayments);
       if (data.prepaReceipts) setPrepaReceipts(data.prepaReceipts);
-      if (currentUserEmail) {
-        fetchReadNotifications(currentUserEmail);
-        checkTourStatus(currentUserEmail);
+      if (activeEmail) {
+        fetchReadNotifications(activeEmail);
+        checkTourStatus(activeEmail);
       }
       if (data.sessionTimeouts && Array.isArray(data.sessionTimeouts)) {
         setSessionTimeouts(data.sessionTimeouts);
@@ -1144,11 +1145,13 @@ export default function LiecWorkspacePage() {
     if (!readNotificationIds.includes(n.id)) {
       setReadNotificationIds((prev) => [...prev, n.id]);
       try {
+        const activeEmail = currentUser?.email || 'bmapwabantoro@liecconsulting.com';
         await fetch('/api/notifications', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            user_email: currentUser?.email,
+            email: activeEmail,
+            user_email: activeEmail,
             notification_id: n.id,
           }),
         });
@@ -1162,11 +1165,14 @@ export default function LiecWorkspacePage() {
     const allIds = notificationsList.map((n) => n.id);
     setReadNotificationIds(allIds);
     try {
+      const activeEmail = currentUser?.email || 'bmapwabantoro@liecconsulting.com';
       await fetch('/api/notifications', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_email: currentUser?.email,
+          email: activeEmail,
+          user_email: activeEmail,
+          notification_ids: allIds,
         }),
       });
       showToast(isEn ? 'All notifications marked as read' : 'Toutes les notifications sont marquées comme lues');
@@ -1468,31 +1474,7 @@ export default function LiecWorkspacePage() {
 
           {/* Right Header Controls */}
           <div className="flex items-center gap-2.5">
-            {/* Language Switcher: EN (Primary) | FR (Secondary) */}
-            <div className="inline-flex items-center rounded-xl border border-[#ccece2] bg-[#f0faf7] p-1 shadow-xs">
-              <button
-                type="button"
-                onClick={() => toggleLanguage('en')}
-                className={`rounded-lg px-2.5 py-1 text-xs font-extrabold transition ${
-                  lang === 'en'
-                    ? 'bg-[#0c685a] text-white shadow-xs'
-                    : 'text-slate-600 hover:text-[#092342]'
-                }`}
-              >
-                EN
-              </button>
-              <button
-                type="button"
-                onClick={() => toggleLanguage('fr')}
-                className={`rounded-lg px-2.5 py-1 text-xs font-extrabold transition ${
-                  lang === 'fr'
-                    ? 'bg-[#0c685a] text-white shadow-xs'
-                    : 'text-slate-600 hover:text-[#092342]'
-                }`}
-              >
-                FR
-              </button>
-            </div>
+
 
             {/* Role Management Dropdown / Tab - EXCLUSIVELY for Administrator */}
             {userRole === 'admin' && (
@@ -1589,7 +1571,7 @@ export default function LiecWorkspacePage() {
         </header>
 
         {/* Page Body */}
-        <main className="flex-1 p-4 sm:p-6 max-w-[1540px] w-full mx-auto">
+        <main className="flex-1 px-4 sm:px-6 pt-3 pb-8 max-w-[1540px] w-full mx-auto">
           {loading ? (
             <div className="rounded-2xl border border-[#e6eef6] bg-white p-12 text-center space-y-3">
               <div className="h-8 w-8 rounded-full border-2 border-[#0c685a] border-t-transparent animate-spin mx-auto" />
@@ -1799,24 +1781,43 @@ export default function LiecWorkspacePage() {
                   roles={roles}
                   sessionTimeouts={sessionTimeouts}
                   onRefreshWorkspace={fetchWorkspace}
+                  onToggleLanguage={toggleLanguage}
                 />
               )}
 
               {activeTab === 'notifications' && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h1 className="text-[28px] font-extrabold text-[#092342]">
-                      {isEn
-                        ? `Notification Center (${notificationsList.length})`
-                        : `Centre de Notifications (${notificationsList.length})`}
-                    </h1>
-                    <button
-                      onClick={() => fetchWorkspace()}
-                      className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer shadow-xs transition"
-                    >
-                      <RotateCw className="w-3.5 h-3.5 text-slate-500" />
-                      <span>{isEn ? 'Refresh' : 'Actualiser'}</span>
-                    </button>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <h1 className="text-[28px] font-extrabold text-[#092342]">
+                        {isEn
+                          ? `Notification Center (${notificationsList.length})`
+                          : `Centre de Notifications (${notificationsList.length})`}
+                      </h1>
+                      <p className="text-xs text-slate-500">
+                        {unreadNotificationsCount > 0
+                          ? (isEn ? `${unreadNotificationsCount} unread notification(s)` : `${unreadNotificationsCount} notification(s) non lue(s)`)
+                          : (isEn ? 'All notifications read' : 'Toutes les notifications sont lues')}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {unreadNotificationsCount > 0 && (
+                        <button
+                          onClick={handleMarkAllNotificationsRead}
+                          className="rounded-xl border border-[#ccece2] bg-[#f0faf7] px-3.5 py-2 text-xs font-bold text-[#0c685a] hover:bg-[#e1f5ee] flex items-center gap-1.5 cursor-pointer shadow-xs transition"
+                        >
+                          <CheckCheck className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Mark all as read' : 'Tout marquer comme lu'}</span>
+                        </button>
+                      )}
+                      <button
+                        onClick={() => fetchWorkspace()}
+                        className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer shadow-xs transition"
+                      >
+                        <RotateCw className="w-3.5 h-3.5 text-slate-500" />
+                        <span>{isEn ? 'Refresh' : 'Actualiser'}</span>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="rounded-2xl border border-[#e6eef6] bg-white divide-y divide-slate-100 shadow-card">
@@ -1833,21 +1834,38 @@ export default function LiecWorkspacePage() {
                         </p>
                       </div>
                     ) : (
-                      notificationsList.map((n: any, idx: number) => (
-                        <div
-                          key={idx}
-                          onClick={() => setActiveTab(n.tab as NavTab)}
-                          className="p-4 hover:bg-slate-50 cursor-pointer flex items-center justify-between gap-4 transition"
-                        >
-                          <div className="space-y-0.5">
-                            <div className="text-xs font-extrabold text-[#092342]">{n.title}</div>
-                            <div className="text-xs text-slate-500">{n.desc}</div>
+                      notificationsList.map((n: any, idx: number) => {
+                        const isRead = readNotificationIds.includes(n.id);
+                        return (
+                          <div
+                            key={idx}
+                            onClick={() => handleOpenNotification(n)}
+                            className={`p-4 hover:bg-slate-50 cursor-pointer flex items-center justify-between gap-4 transition ${
+                              isRead ? 'opacity-70 bg-white' : 'bg-[#f8fbfa]'
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <span className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${isRead ? 'bg-slate-300' : 'bg-[#0c685a]'}`} />
+                              <div className="space-y-0.5">
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-xs ${isRead ? 'font-semibold text-slate-700' : 'font-extrabold text-[#092342]'}`}>
+                                    {n.title}
+                                  </span>
+                                  {!isRead && (
+                                    <span className="rounded-full bg-[#0c685a]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#0c685a]">
+                                      {isEn ? 'New' : 'Nouveau'}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-slate-500">{n.desc}</div>
+                              </div>
+                            </div>
+                            <span className="text-[11px] font-bold text-[#0c685a] shrink-0">
+                              {n.time} →
+                            </span>
                           </div>
-                          <span className="text-[11px] font-bold text-[#0c685a] shrink-0">
-                            {n.time} →
-                          </span>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>

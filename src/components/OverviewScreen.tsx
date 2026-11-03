@@ -846,9 +846,9 @@ export default function OverviewScreen({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Top Welcome / Hero Banner */}
-      <div className="rounded-2xl border border-[#def2ec] bg-gradient-to-r from-[#eefaf6] via-[#f3faf9] to-[#eef6fc] p-6 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+      <div className="rounded-2xl border border-[#def2ec] bg-gradient-to-r from-[#eefaf6] via-[#f3faf9] to-[#eef6fc] p-4 sm:p-5 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div className="space-y-2 max-w-2xl">
           <div className="flex items-center gap-2.5 text-xs">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-[#d8f6ea] px-2.5 py-0.5 font-semibold text-[#0c685a]">

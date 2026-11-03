@@ -686,7 +686,7 @@ export function ProspectProfileModal({
                 <span className="text-base">{prospect.flag}</span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                {prospect.country_city} • {prospect.program_tag}
+                {(prospect.country_city || '').replace(/\bRDC\b/g, 'DRC')} • {prospect.program_tag}
               </p>
             </div>
           </div>

@@ -182,15 +182,37 @@ export async function PATCH(req: NextRequest) {
         [businessProfile, legacyRole, userId]
       );
 
-      // Re-sync user_roles
+      // Re-sync user_roles safely with foreign-key guarantee
       await db.query('DELETE FROM user_roles WHERE user_id = $1', [userId]);
       for (const rId of technicalRoles) {
+        if (!rId) continue;
+        await db.query(
+          `INSERT INTO roles (role_id, role_name, business_profile, description, safeguards, active)
+           VALUES ($1, $1, $2, 'Technical role', 'Enforce least privilege', TRUE)
+           ON CONFLICT (role_id) DO NOTHING`,
+          [rId, businessProfile]
+        );
         await db.query(
           `INSERT INTO user_roles (user_id, role_id, assigned_by)
-           VALUES ($1, $2, $3)`,
-          [userId, rId, adminUser.name]
+           VALUES ($1, $2, $3)
+           ON CONFLICT (user_id, role_id) DO NOTHING`,
+          [userId, rId, adminUser.name || 'Platform Administrator']
         );
       }
+
+      // Re-fetch updated user record with technical_roles
+      const updatedUserRes = await db.query(
+        `SELECT u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials,
+                u.active, u.suspended_at, u.suspended_by, u.created_at,
+                COALESCE(ARRAY_AGG(ur.role_id) FILTER (WHERE ur.role_id IS NOT NULL), ARRAY[]::VARCHAR[]) as technical_roles
+         FROM users u
+         LEFT JOIN user_roles ur ON u.id = ur.user_id
+         WHERE u.id = $1
+         GROUP BY u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials, u.active, u.suspended_at, u.suspended_by, u.created_at`,
+        [userId]
+      );
+
+      const updatedUser = updatedUserRes.rows[0];
 
       await db.query(
         `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
@@ -198,12 +220,13 @@ export async function PATCH(req: NextRequest) {
         [
           adminUser.name,
           `USER-${userId}`,
-          `Updated '${targetUser.name}' profile to '${businessProfile}', technical roles: [${technicalRoles.join(', ')}]`,
+          `Updated '${targetUser.name}' profile to '${businessProfile}', technical roles: [${technicalRoles.join(', ')}]. Assigned by ${adminUser.name}.`,
         ]
       );
 
       return NextResponse.json({
         success: true,
+        user: updatedUser,
         userId,
         businessProfile,
         technicalRoles,

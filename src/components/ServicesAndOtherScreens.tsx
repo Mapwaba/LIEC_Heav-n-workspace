@@ -3525,6 +3525,7 @@ export function ParametresGovernanceScreen({
   roles: initialRoles = [],
   sessionTimeouts: initialSessionTimeouts = [],
   onRefreshWorkspace,
+  onToggleLanguage,
 }: {
   auditLogs?: any[];
   dbEngine?: string;
@@ -3535,6 +3536,7 @@ export function ParametresGovernanceScreen({
   roles?: any[];
   sessionTimeouts?: any[];
   onRefreshWorkspace?: () => void;
+  onToggleLanguage?: (targetLang: Lang) => void;
 }) {
   const isEn = lang === 'en';
   const isAdmin =
@@ -3919,6 +3921,23 @@ export function ParametresGovernanceScreen({
         }),
       });
       if (res.ok) {
+        setUserList((prev) =>
+          prev.map((u) =>
+            u.id === editingUser.id
+              ? {
+                  ...u,
+                  business_profile: editProfile,
+                  technical_roles: editRoles,
+                  role:
+                    editProfile === 'Admin'
+                      ? 'admin'
+                      : editProfile === 'Finance Officer'
+                      ? 'avi'
+                      : 'secretary',
+                }
+              : u
+          )
+        );
         setEditingUser(null);
         await fetchUsersAndRoles();
         onRefreshWorkspace?.();
@@ -4154,9 +4173,10 @@ export function ParametresGovernanceScreen({
                               <div className="inline-flex items-center gap-1.5">
                                 <button
                                   onClick={() => handleOpenEditRoles(u)}
-                                  className="rounded-lg border border-slate-200 hover:border-[#0c685a] bg-white px-2.5 py-1 text-[11px] font-extrabold text-[#092342] hover:text-[#0c685a] transition"
+                                  className="rounded-lg border border-slate-200 hover:border-[#0c685a] bg-white px-2.5 py-1 text-[11px] font-extrabold text-[#092342] hover:text-[#0c685a] transition cursor-pointer"
+                                  title={isEn ? 'Assign or modify roles for this user' : 'Attribuer ou modifier les rôles'}
                                 >
-                                  {isEn ? 'Edit roles' : 'Modifier rôles'}
+                                  {isEn ? 'Assign / Edit Roles' : 'Gérer les rôles'}
                                 </button>
                                 {u.email !== currentUser?.email &&
                                   u.email !== 'bmapwabantoro@liecconsulting.com' &&
@@ -4361,13 +4381,56 @@ export function ParametresGovernanceScreen({
       {/* TAB 4: AUDIT TRAIL */}
       {subTab === 'audit' && (
         <div className="rounded-2xl border border-[#e6eef6] bg-white p-6 shadow-xs space-y-4">
-          <div>
-            <h2 className="text-base font-extrabold text-[#092342]">
-              {isEn ? 'Security Audit Trail & Server-Side Enforcement Logs' : 'Journal d’Audit de Sécurité & Contrôles Serveur'}
-            </h2>
-            <p className="text-xs text-slate-500 mt-1">
-              Traces des modifications de rôles, suspensions de comptes et rejets d'accès 403 Forbidden.
-            </p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+            <div>
+              <h2 className="text-base font-extrabold text-[#092342]">
+                {isEn ? 'Security Audit Trail & Server-Side Enforcement Logs' : 'Journal d’Audit de Sécurité & Contrôles Serveur'}
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                {isEn
+                  ? 'Audit trail of role modifications, account suspensions, and 403 Forbidden security enforcement logs.'
+                  : "Traces des modifications de rôles, suspensions de comptes et rejets d'accès 403 Forbidden."}
+              </p>
+            </div>
+
+            {/* Language Switcher Relocated to Settings & Security -> Audit Trail (Restricted to Admin & Secretary) */}
+            {(rolePreview === 'admin' ||
+              rolePreview === 'secretary' ||
+              currentUser?.business_profile === 'Admin' ||
+              currentUser?.business_profile === 'Secretary' ||
+              currentUser?.role === 'admin' ||
+              currentUser?.role === 'secretary') && (
+              <div className="flex items-center gap-2 rounded-xl border border-[#ccece2] bg-[#f0faf7] p-1.5 shadow-xs shrink-0">
+                <span className="text-[11px] font-bold text-slate-600 px-1.5 flex items-center gap-1">
+                  <Globe className="w-3.5 h-3.5 text-[#0c685a]" />
+                  <span>{isEn ? 'Language:' : 'Langue :'}</span>
+                </span>
+                <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => onToggleLanguage?.('en')}
+                    className={`rounded-md px-2.5 py-1 text-xs font-extrabold transition cursor-pointer ${
+                      lang === 'en'
+                        ? 'bg-[#0c685a] text-white shadow-xs'
+                        : 'text-slate-600 hover:text-[#092342]'
+                    }`}
+                  >
+                    EN
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onToggleLanguage?.('fr')}
+                    className={`rounded-md px-2.5 py-1 text-xs font-extrabold transition cursor-pointer ${
+                      lang === 'fr'
+                        ? 'bg-[#0c685a] text-white shadow-xs'
+                        : 'text-slate-600 hover:text-[#092342]'
+                    }`}
+                  >
+                    FR
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">
