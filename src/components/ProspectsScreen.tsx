@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Kanban,
   List,
   UserPlus,
+  UserCheck,
   Contact,
   Bell,
   FileCheck2,
@@ -45,7 +46,7 @@ import {
 interface ProspectsScreenProps {
   prospects: any[];
   staffList?: { name: string; email?: string; title?: string }[];
-  currentUser?: string;
+  currentUser?: any;
   userRole?: string;
   onAddProspect: (data: any) => Promise<void>;
   onMoveProspect: (id: number, stage: string) => Promise<void>;
@@ -138,6 +139,38 @@ export default function ProspectsScreen({
 
   const activeAdvisors = formattedStaffList;
 
+  const currentUserName =
+    (typeof currentUser === 'string' ? currentUser : currentUser?.name) || 'Barthelemy MAPWABA NTORO';
+  const currentUserEmail =
+    (typeof currentUser === 'string' ? '' : currentUser?.email) || 'bmapwabantoro@liecconsulting.com';
+
+  // Safe normalization of prospects list
+  const safeProspects = Array.isArray(prospects) ? prospects.filter(Boolean) : [];
+
+  // Filtered prospects computed with useMemo BEFORE being referenced
+  const filteredProspects = useMemo(() => {
+    return safeProspects.filter((p) => {
+      if (!p) return false;
+      const q = (searchQuery || '').toLowerCase().trim();
+      const matchSearch =
+        !q ||
+        (p.full_name && p.full_name.toLowerCase().includes(q)) ||
+        (p.country_city && p.country_city.toLowerCase().includes(q)) ||
+        (p.program_tag && p.program_tag.toLowerCase().includes(q));
+
+      const matchAdviser =
+        adviserFilter === 'all' ||
+        (p.adviser_name && p.adviser_name.toLowerCase().includes(adviserFilter.toLowerCase()));
+
+      const matchQuick =
+        quickFilter === 'all' ||
+        (quickFilter === 'urgent' && p.is_urgent) ||
+        (quickFilter === 'prepa' && p.is_prepa);
+
+      return matchSearch && matchAdviser && matchQuick;
+    });
+  }, [safeProspects, searchQuery, adviserFilter, quickFilter]);
+
   const toggleSelectProspect = (id: number) => {
     setCheckedIds((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
   };
@@ -166,7 +199,7 @@ export default function ProspectsScreen({
           adviserName,
           adviserEmail,
           notes,
-          actor: currentUser,
+          actor: currentUserName,
         }),
       });
       const data = await res.json();
@@ -177,6 +210,11 @@ export default function ProspectsScreen({
     } finally {
       setIsAssigning(false);
     }
+  };
+
+  const handleAssignToMyself = async () => {
+    if (checkedIds.length === 0) return;
+    await handleBulkAssign(currentUserName, currentUserEmail, isEn ? 'Auto-assigned to myself from CRM toolbar' : 'Auto-attribué depuis la barre d’actions CRM');
   };
 
   const handleBulkOverride = async (newStatus: string, reason: string, notes?: string) => {
@@ -192,7 +230,7 @@ export default function ProspectsScreen({
           stage: newStatus,
           reason,
           notes,
-          actor: currentUser,
+          actor: currentUserName,
         }),
       });
       const data = await res.json();
@@ -204,26 +242,6 @@ export default function ProspectsScreen({
       setIsOverriding(false);
     }
   };
-
-  const filteredProspects = prospects.filter((p) => {
-    const q = searchQuery.toLowerCase().trim();
-    const matchSearch =
-      !q ||
-      p.full_name.toLowerCase().includes(q) ||
-      p.country_city.toLowerCase().includes(q) ||
-      p.program_tag.toLowerCase().includes(q);
-
-    const matchAdviser =
-      adviserFilter === 'all' ||
-      p.adviser_name.toLowerCase().includes(adviserFilter.toLowerCase());
-
-    const matchQuick =
-      quickFilter === 'all' ||
-      (quickFilter === 'urgent' && p.is_urgent) ||
-      (quickFilter === 'prepa' && p.is_prepa);
-
-    return matchSearch && matchAdviser && matchQuick;
-  });
 
   const handleCreateProspect = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -772,6 +790,11 @@ export default function ProspectsScreen({
                 type="button"
                 disabled={checkedIds.length === 0 || isAssigning}
                 onClick={() => setShowAssignModal(true)}
+                title={
+                  checkedIds.length === 0
+                    ? (isEn ? 'Select at least one prospect to assign advisor' : 'Sélectionnez au moins un prospect')
+                    : (isEn ? 'Assign advisor to selected prospects' : 'Attribuer un conseiller aux prospects sélectionnés')
+                }
                 className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition ${
                   checkedIds.length > 0
                     ? 'border-slate-200 bg-white text-[#092342] hover:bg-slate-50 shadow-2xs cursor-pointer'
@@ -784,6 +807,29 @@ export default function ProspectsScreen({
                   <UserPlus className="w-3.5 h-3.5 text-slate-500" />
                 )}
                 <span>+ Assign Advisor</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={checkedIds.length === 0 || isAssigning}
+                onClick={handleAssignToMyself}
+                title={
+                  checkedIds.length === 0
+                    ? (isEn ? 'Select at least one prospect to auto-assign' : 'Sélectionnez au moins un prospect')
+                    : (isEn ? 'Directly assign selected prospects to yourself' : 'M’attribuer directement les prospects sélectionnés')
+                }
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition ${
+                  checkedIds.length > 0
+                    ? 'border-indigo-200 bg-indigo-50/80 text-indigo-900 hover:bg-indigo-100 shadow-2xs cursor-pointer'
+                    : 'border-slate-200/60 bg-slate-50 text-slate-400 opacity-50 cursor-not-allowed'
+                }`}
+              >
+                {isAssigning ? (
+                  <RotateCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                ) : (
+                  <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
+                )}
+                <span>{isEn ? '⚡ Assign to Me' : '⚡ M’attribuer'}</span>
               </button>
 
               <button
@@ -1049,7 +1095,7 @@ export default function ProspectsScreen({
         <ScheduleCallModal
           prospect={selectedProspectForCall}
           staffList={activeAdvisors}
-          currentUser={currentUser}
+          currentUser={currentUserName}
           isEn={isEn}
           onClose={() => setSelectedProspectForCall(null)}
           onSaved={() => {
@@ -1075,7 +1121,7 @@ export default function ProspectsScreen({
       {selectedProspectForComments && (
         <ProspectCommentsModal
           prospect={selectedProspectForComments}
-          currentUser={currentUser}
+          currentUser={currentUserName}
           isEn={isEn}
           onClose={() => setSelectedProspectForComments(null)}
         />

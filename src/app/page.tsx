@@ -1643,15 +1643,22 @@ export default function LiecWorkspacePage() {
               )}
 
               {activeTab === 'prospects' && (
-                <ProspectsScreen
-                  prospects={prospects}
-                  staffList={activeStaffList}
-                  onAddProspect={handleAddProspect}
-                  onMoveProspect={handleMoveProspect}
-                  onRefresh={fetchWorkspace}
-                  onNotify={showToast}
-                  lang={lang}
-                />
+                <ErrorBoundary
+                  fallbackTitle={isEn ? 'Error loading Prospects CRM' : "Erreur d'affichage du CRM Prospects"}
+                  onReset={fetchWorkspace}
+                >
+                  <ProspectsScreen
+                    prospects={prospects}
+                    staffList={activeStaffList}
+                    currentUser={currentUser}
+                    userRole={rolePreview}
+                    onAddProspect={handleAddProspect}
+                    onMoveProspect={handleMoveProspect}
+                    onRefresh={fetchWorkspace}
+                    onNotify={showToast}
+                    lang={lang}
+                  />
+                </ErrorBoundary>
               )}
 
               {activeTab === 'candidats' && (
