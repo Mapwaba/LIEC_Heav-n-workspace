@@ -275,11 +275,12 @@ export function canSendAccommodationRequest(user: AuthenticatedUserContext): boo
  * Checks if user is authorized to assign advisors to prospects/leads.
  * Authorized: Admin and Secretary (intake & administrative staff).
  */
-export function canAssignAdvisor(user: AuthenticatedUserContext): boolean {
-  if (!user || !user.active) return false;
-  const profile = user.business_profile;
-  const userRole = (user as any).role;
-  const roles = user.technical_roles || [];
+export function canAssignAdvisor(user: any): boolean {
+  const actualUser = user?.user || user;
+  if (!actualUser || actualUser.active === false) return false;
+  const profile = actualUser.business_profile;
+  const userRole = actualUser.role;
+  const roles = actualUser.technical_roles || [];
 
   return (
     profile === 'Admin' ||
@@ -287,6 +288,7 @@ export function canAssignAdvisor(user: AuthenticatedUserContext): boolean {
     roles.includes('admin') ||
     roles.includes('lh_security_admin') ||
     profile === 'Secretary' ||
+    userRole === 'secretary' ||
     roles.includes('lh_internal') ||
     roles.includes('ITIL')
   );
@@ -296,11 +298,12 @@ export function canAssignAdvisor(user: AuthenticatedUserContext): boolean {
  * Checks if user is authorized to perform exceptional manual status overrides.
  * Restricted strictly to Platform Administrators and Security Administrators.
  */
-export function canPerformManualStatusOverride(user: AuthenticatedUserContext): boolean {
-  if (!user || !user.active) return false;
-  const profile = user.business_profile;
-  const userRole = (user as any).role;
-  const roles = user.technical_roles || [];
+export function canPerformManualStatusOverride(user: any): boolean {
+  const actualUser = user?.user || user;
+  if (!actualUser || actualUser.active === false) return false;
+  const profile = actualUser.business_profile;
+  const userRole = actualUser.role;
+  const roles = actualUser.technical_roles || [];
 
   return (
     profile === 'Admin' ||

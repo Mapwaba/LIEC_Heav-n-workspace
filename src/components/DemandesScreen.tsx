@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
 import {
   SlidersHorizontal,
   Download,
+  Eye,
   Plus,
   Inbox,
   Hourglass,
@@ -15,6 +16,7 @@ import {
   Calendar,
   RotateCw,
   UserPlus,
+  UserCheck,
   Tag,
   Trash2,
   ExternalLink,
@@ -31,7 +33,7 @@ import {
 } from 'lucide-react';
 
 import { Lang } from './ServicesAndOtherScreens';
-import { AssignAdvisorModal, ManualStatusOverrideModal } from './DemandesModals';
+import { AssignAdvisorModal, ManualStatusOverrideModal, FullStudentRecordModal } from './DemandesModals';
 import { AlertTriangle, AlertCircle } from 'lucide-react';
 
 interface DemandesScreenProps {
@@ -96,6 +98,7 @@ export default function DemandesScreen({
   const [isDrawerOpen, setIsDrawerOpen] = useState(true);
   const [showAssignAdvisorModal, setShowAssignAdvisorModal] = useState(false);
   const [showManualStatusOverrideModal, setShowManualStatusOverrideModal] = useState(false);
+  const [showFullStudentRecordModal, setShowFullStudentRecordModal] = useState(false);
   const [isAssigningAdvisor, setIsAssigningAdvisor] = useState(false);
   const [isOverridingStatus, setIsOverridingStatus] = useState(false);
   const [isResumingWorkflow, setIsResumingWorkflow] = useState(false);
@@ -224,6 +227,13 @@ export default function DemandesScreen({
       const pageRefs = currentPageList.map((d) => d.ref).filter(Boolean);
       setCheckedRefs((prev) => Array.from(new Set([...prev, ...pageRefs])));
     }
+  };
+
+  const handleAssignToMyself = async () => {
+    if (checkedRefs.length === 0) return;
+    const myName = (typeof currentUser === 'string' ? currentUser : currentUser?.name) || 'Barthelemy MAPWABA NTORO';
+    const myEmail = (typeof currentUser === 'string' ? '' : currentUser?.email) || 'bmapwabantoro@liecconsulting.com';
+    await handleConfirmAssignAdvisor(myName, myEmail, isEn ? 'Auto-assigned to myself from CRM toolbar' : 'Auto-attribué depuis la barre d\’actions CRM');
   };
 
   const handleConfirmAssignAdvisor = async (advisorName: string, adviserEmail: string, notes?: string) => {
@@ -740,7 +750,7 @@ export default function DemandesScreen({
       {/* Master-Detail Split Layout */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
         {/* Left Master Table (7 cols on XL) */}
-        <div className="xl:col-span-7 rounded-2xl border border-[#e6eef6] bg-white shadow-card overflow-hidden">
+        <div className={`${isDrawerOpen && selectedDemande ? "xl:col-span-7" : "xl:col-span-12"} rounded-2xl border border-[#e6eef6] bg-white shadow-card overflow-hidden transition-all duration-200`}>
           {/* Selection Action Bar */}
           <div className="px-4 py-3 bg-[#f3f8fd] border-b border-[#e6eef6] flex flex-wrap items-center justify-between gap-2 text-xs">
             <div className="flex items-center gap-2.5">
@@ -759,6 +769,17 @@ export default function DemandesScreen({
                 {checkedRefs.length} selected
               </span>
               <span className="text-slate-500">of {totalCount} leads</span>
+              {!isDrawerOpen && activeDemande && (
+                <button
+                  type="button"
+                  onClick={() => setIsDrawerOpen(true)}
+                  title={isEn ? "Open detail inspector window" : "Ouvrir la fenêtre d’inspection"}
+                  className="ml-2 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer shadow-2xs"
+                >
+                  <Eye className="w-3.5 h-3.5 text-slate-500" />
+                  <span>{isEn ? "Open Inspector" : "Ouvrir l’inspecteur"}</span>
+                </button>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
@@ -783,6 +804,29 @@ export default function DemandesScreen({
                   <UserPlus className="w-3.5 h-3.5 text-slate-500" />
                 )}
                 <span>+ Assign Advisor</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={checkedRefs.length === 0 || isAssigningAdvisor}
+                onClick={handleAssignToMyself}
+                title={
+                  checkedRefs.length === 0
+                    ? (isEn ? 'Select at least one prospect to auto-assign' : 'Sélectionnez au moins un prospect')
+                    : (isEn ? 'Directly assign selected prospects to yourself' : 'M’attribuer directement les dossiers sélectionnés')
+                }
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition ${
+                  checkedRefs.length > 0
+                    ? 'border-indigo-200 bg-indigo-50/80 text-indigo-900 hover:bg-indigo-100 shadow-2xs cursor-pointer'
+                    : 'border-slate-200/60 bg-slate-50 text-slate-400 opacity-50 cursor-not-allowed'
+                }`}
+              >
+                {isAssigningAdvisor ? (
+                  <RotateCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                ) : (
+                  <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
+                )}
+                <span>{isEn ? '⚡ Assign to Me' : '⚡ M’attribuer'}</span>
               </button>
 
               <button
@@ -1056,14 +1100,10 @@ export default function DemandesScreen({
                   type="button"
                   onClick={() => {
                     if (selectedDemande) {
-                      if (onOpenStudentDossier) {
-                        onOpenStudentDossier(selectedDemande);
-                      } else if (onConvertCandidat) {
-                        onConvertCandidat(selectedDemande.ref);
-                      }
+                      setShowFullStudentRecordModal(true);
                     }
                   }}
-                  title={isEn ? 'Fully open student record' : 'Ouvrir le dossier étudiant complet'}
+                  title={isEn ? 'Fully open student record / full form' : 'Ouvrir le dossier étudiant complet / formulaire'}
                   className="p-1.5 rounded-lg hover:bg-slate-100 hover:text-[#092342] text-slate-500 transition cursor-pointer"
                 >
                   <ExternalLink className="w-4 h-4" />
@@ -1421,21 +1461,7 @@ export default function DemandesScreen({
               </div>
             </div>
           </div>
-        ) : (
-          <div className="xl:col-span-5 rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-slate-400 text-xs flex flex-col items-center justify-center min-h-[380px]">
-            <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 mb-3 shadow-xs">
-              <Inbox className="w-6 h-6 text-slate-400" />
-            </div>
-            <span className="font-extrabold text-slate-700 block text-sm mb-1">
-              {isEn ? 'Window Closed' : 'Fenêtre fermée'}
-            </span>
-            <span className="text-slate-400 max-w-xs block leading-relaxed">
-              {isEn
-                ? 'Click on any application from the list to view its details.'
-                : 'Cliquez sur une demande dans la liste pour afficher ses détails.'}
-            </span>
-          </div>
-        )}
+        ) : null}
       </div>
 
       {/* Modal: Assign Advisor */}
@@ -1445,6 +1471,7 @@ export default function DemandesScreen({
         selectedRefs={checkedRefs}
         selectedDemandes={safeDemandes}
         staffList={staffList}
+        currentUser={currentUser}
         onConfirm={handleConfirmAssignAdvisor}
         isEn={isEn}
       />
@@ -1456,6 +1483,21 @@ export default function DemandesScreen({
         selectedRefs={checkedRefs}
         selectedDemandes={safeDemandes}
         onConfirm={handleConfirmManualStatusOverride}
+        isEn={isEn}
+      />
+
+      {/* Modal: Full Student Record */}
+      <FullStudentRecordModal
+        isOpen={showFullStudentRecordModal}
+        onClose={() => setShowFullStudentRecordModal(false)}
+        demande={selectedDemande || activeDemande}
+        onOpenCandidatDossier={(dem) => {
+          if (onOpenStudentDossier) {
+            onOpenStudentDossier(dem);
+          } else if (onConvertCandidat) {
+            onConvertCandidat(dem.ref);
+          }
+        }}
         isEn={isEn}
       />
 

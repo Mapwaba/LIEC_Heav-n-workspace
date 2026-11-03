@@ -1030,6 +1030,7 @@ export default function ProspectsScreen({
         selectedRefs={checkedIds.map((id) => `PROSPECT-${id}`)}
         selectedDemandes={filteredProspects.filter((p) => checkedIds.includes(p.id)).map((p) => ({ ref: `PROSPECT-${p.id}`, full_name: p.full_name }))}
         staffList={formattedStaffList}
+        currentUser={currentUser}
         onConfirm={handleBulkAssign}
         isEn={isEn}
       />
