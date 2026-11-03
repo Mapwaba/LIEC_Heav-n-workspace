@@ -43,6 +43,7 @@ interface DemandesScreenProps {
   onConvertCandidat?: (ref: string) => Promise<void>;
   onArchiveDemande?: (refs: string | string[]) => Promise<void>;
   onDeleteDemande?: (refs: string | string[]) => Promise<void>;
+  onOpenStudentDossier?: (dem: any) => void;
   onRefresh?: () => void;
   onNotify?: (msg: string) => void;
   lang?: Lang;
@@ -59,6 +60,7 @@ export default function DemandesScreen({
   onConvertCandidat = async () => {},
   onArchiveDemande = async () => {},
   onDeleteDemande = async () => {},
+  onOpenStudentDossier,
   onRefresh = () => {},
   onNotify = () => {},
   lang = 'en',
@@ -77,6 +79,7 @@ export default function DemandesScreen({
   const [submittingNote, setSubmittingNote] = useState(false);
   const [converting, setConverting] = useState(false);
   const [page, setPage] = useState(1);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(true);
 
   // Safe normalization of dataset
   const safeDemandes = Array.isArray(demandes) ? demandes.filter(Boolean) : [];
@@ -170,11 +173,13 @@ export default function DemandesScreen({
     return matchSearch && matchCountry && matchService && matchStatus && matchIntake && matchPeriod;
   });
 
-  const selectedDemande =
+  const activeDemande =
     orderedDemandes.find((d) => d && d.ref === selectedRef) ||
     filteredList[0] ||
     orderedDemandes[0] ||
     null;
+
+  const selectedDemande = isDrawerOpen ? activeDemande : null;
 
   const selectedNotes = safeNotes.filter(
     (n) => n && selectedDemande && n.demande_ref === selectedDemande.ref
@@ -713,7 +718,10 @@ export default function DemandesScreen({
                   return (
                     <tr
                       key={dem.ref || `demande-${i}`}
-                      onClick={() => onSelectRef(dem.ref)}
+                      onClick={() => {
+                        setIsDrawerOpen(true);
+                        onSelectRef(dem.ref);
+                      }}
                       className={`cursor-pointer transition ${
                         isSelected ? 'bg-[#f1f7fd]' : 'hover:bg-slate-50/80'
                       }`}
@@ -856,15 +864,29 @@ export default function DemandesScreen({
               </div>
               <div className="flex items-center gap-1 text-slate-400">
                 <button
-                  onClick={() => onNotify(`Full dossier ${selectedDemande.ref} opened.`)}
-                  className="p-1.5 rounded-lg hover:bg-slate-100 hover:text-slate-600"
+                  type="button"
+                  onClick={() => {
+                    if (selectedDemande) {
+                      if (onOpenStudentDossier) {
+                        onOpenStudentDossier(selectedDemande);
+                      } else if (onConvertCandidat) {
+                        onConvertCandidat(selectedDemande.ref);
+                      }
+                    }
+                  }}
+                  title={isEn ? 'Fully open student record' : 'Ouvrir le dossier étudiant complet'}
+                  className="p-1.5 rounded-lg hover:bg-slate-100 hover:text-[#092342] text-slate-500 transition cursor-pointer"
                 >
                   <ExternalLink className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={() => onSelectRef('')}
-                  title={isEn ? 'Close panel' : 'Fermer le panneau'}
-                  className="p-1.5 rounded-lg hover:bg-slate-100 hover:text-slate-600 cursor-pointer"
+                  type="button"
+                  onClick={() => {
+                    setIsDrawerOpen(false);
+                    onSelectRef('');
+                  }}
+                  title={isEn ? 'Close window' : 'Fermer la fenêtre'}
+                  className="p-1.5 rounded-lg hover:bg-slate-100 hover:text-red-600 text-slate-500 transition cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1150,8 +1172,18 @@ export default function DemandesScreen({
             </div>
           </div>
         ) : (
-          <div className="xl:col-span-5 rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-slate-400 text-xs">
-            {isEn ? 'Select an application from the table to inspect details' : 'Sélectionnez une demande dans la liste pour afficher ses détails'}
+          <div className="xl:col-span-5 rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-slate-400 text-xs flex flex-col items-center justify-center min-h-[380px]">
+            <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 mb-3 shadow-xs">
+              <Inbox className="w-6 h-6 text-slate-400" />
+            </div>
+            <span className="font-extrabold text-slate-700 block text-sm mb-1">
+              {isEn ? 'Window Closed' : 'Fenêtre fermée'}
+            </span>
+            <span className="text-slate-400 max-w-xs block leading-relaxed">
+              {isEn
+                ? 'Click on any application from the list to view its details.'
+                : 'Cliquez sur une demande dans la liste pour afficher ses détails.'}
+            </span>
           </div>
         )}
       </div>

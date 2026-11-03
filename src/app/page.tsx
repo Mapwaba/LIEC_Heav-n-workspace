@@ -1525,19 +1525,34 @@ export default function LiecWorkspacePage() {
               {activeTab === 'demandes' && (
                 <ErrorBoundary fallbackTitle={isEn ? 'Error loading Received Applications' : "Erreur d'affichage des Demandes reçues"} onReset={fetchWorkspace}>
                   <DemandesScreen
-                  demandes={demandes}
-                  demandeNotes={demandeNotes}
-                  selectedRef={selectedDemandeRef}
-                  onSelectRef={setSelectedDemandeRef}
-                  onOpenNewDemande={() => setShowNewDemandeModal(true)}
-                  onAddNote={handleAddDemandeNote}
-                  onUpdateStatus={handleUpdateDemandeStatus}
-                  onConvertCandidat={handleConvertDemandeToCandidat}
-                  onArchiveDemande={handleArchiveDemande}
-                  onDeleteDemande={handleDeleteDemandePermanent}
-                  onRefresh={fetchWorkspace}
-                  onNotify={showToast}
-                  lang={lang}
+                    demandes={demandes}
+                    demandeNotes={demandeNotes}
+                    selectedRef={selectedDemandeRef}
+                    onSelectRef={setSelectedDemandeRef}
+                    onOpenNewDemande={() => setShowNewDemandeModal(true)}
+                    onAddNote={handleAddDemandeNote}
+                    onUpdateStatus={handleUpdateDemandeStatus}
+                    onConvertCandidat={handleConvertDemandeToCandidat}
+                    onArchiveDemande={handleArchiveDemande}
+                    onDeleteDemande={handleDeleteDemandePermanent}
+                    onOpenStudentDossier={async (dem: any) => {
+                      if (!dem) return;
+                      const match = (candidats || []).find((c: any) =>
+                        (c.ref && dem.candidat_ref && c.ref === dem.candidat_ref) ||
+                        (c.email && dem.email && c.email.trim().toLowerCase() === dem.email.trim().toLowerCase()) ||
+                        (c.full_name && dem.full_name && c.full_name.trim().toLowerCase() === dem.full_name.trim().toLowerCase())
+                      );
+                      if (match) {
+                        setSelectedCandidatRef(match.ref);
+                        setActiveTab('candidats');
+                        showToast(isEn ? `Opening student record for ${match.full_name}...` : `Ouverture du dossier étudiant pour ${match.full_name}...`);
+                      } else {
+                        await handleConvertDemandeToCandidat(dem.ref);
+                      }
+                    }}
+                    onRefresh={fetchWorkspace}
+                    onNotify={showToast}
+                    lang={lang}
                   />
                 </ErrorBoundary>
               )}
