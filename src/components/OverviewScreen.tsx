@@ -11,6 +11,8 @@ import {
   Award,
   CheckCircle2,
   TrendingUp,
+  TrendingDown,
+  Minus,
   Download,
   ArrowRight,
   Search,
@@ -21,6 +23,11 @@ import {
   DollarSign,
   Layers,
   Sparkles,
+  RotateCw,
+  Filter,
+  Globe,
+  Loader2,
+  BarChart2,
 } from 'lucide-react';
 
 import { Lang } from './ServicesAndOtherScreens';
@@ -32,6 +39,10 @@ import {
   ServiceBreakdownDetailModal,
   ServiceRecordItem,
 } from './ServiceBreakdownDetailModal';
+import {
+  VolumeBreakdownDetailModal,
+  VolumeRecordItem,
+} from './VolumeBreakdownDetailModal';
 
 interface OverviewScreenProps {
   demandes: any[];
@@ -49,6 +60,7 @@ interface OverviewScreenProps {
   onToggleTask: (id: number) => void;
   onResetTasks: () => void;
   onNotify: (msg: string) => void;
+  onRefresh?: () => void;
   lang?: Lang;
   userRole?: 'admin' | 'secretary' | 'avi';
   userName?: string;
@@ -71,6 +83,7 @@ export default function OverviewScreen({
   onToggleTask,
   onResetTasks,
   onNotify,
+  onRefresh = () => {},
   lang = 'en',
   userRole,
   userName,
@@ -340,6 +353,498 @@ export default function OverviewScreen({
   const circumference = 2 * Math.PI * 44; // ~276.46
   let cumulativePct = 0;
 
+  // Applications & Inquiry Volume Dashboard States
+  const [selectedHub, setSelectedHub] = useState<'all' | 'cd' | 'cg'>('all');
+  const [hoveredVolumeIndex, setHoveredVolumeIndex] = useState<number | null>(null);
+  const [selectedVolumeBucket, setSelectedVolumeBucket] = useState<any | null>(null);
+  const [isExportingAudit, setIsExportingAudit] = useState(false);
+  const [isRefreshingVolume, setIsRefreshingVolume] = useState(false);
+
+  // Helper: detect recruitment hub
+  const getRecordHub = (item: any): 'cd' | 'cg' | 'other' => {
+    if (!item) return 'other';
+    const code = String(item.country_code || item.country || '').toUpperCase().trim();
+    const name = String(item.country_name || item.country || item.city || '').toLowerCase();
+    if (
+      code === 'CD' ||
+      name.includes('rdc') ||
+      name.includes('drc') ||
+      name.includes('kinshasa') ||
+      name.includes('lubumbashi') ||
+      name.includes('goma')
+    ) {
+      return 'cd';
+    }
+    if (
+      code === 'CG' ||
+      name.includes('congo-brazzaville') ||
+      name.includes('brazzaville') ||
+      name.includes('pointe-noire')
+    ) {
+      return 'cg';
+    }
+    return 'other';
+  };
+
+  // Helper: parse record creation/submission date
+  const parseItemDate = (item: any): Date | null => {
+    if (!item) return null;
+    const raw = item.submitted_at || item.created_at || item.date || item.submission_date;
+    if (!raw) return null;
+    const d = new Date(raw);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  // 3. Unified & Deduplicated Volume Dataset
+  const unifiedVolumeRecords = useMemo(() => {
+    const list: any[] = [];
+    const registeredEmails = new Set<string>();
+
+    // 1. Formal Applications (demandes)
+    (demandes || []).forEach((d) => {
+      if (!d) return;
+      const emailNorm = String(d.email || '').toLowerCase().trim();
+      if (emailNorm) registeredEmails.add(emailNorm);
+
+      const hub = getRecordHub(d);
+      list.push({
+        id: d.id,
+        ref: d.ref || `DEM-${d.id}`,
+        fullName: d.full_name || 'Candidate',
+        email: d.email || '',
+        phone: d.phone || '',
+        type: 'application' as const,
+        countryHub:
+          hub === 'cd'
+            ? 'Democratic Republic of Congo'
+            : hub === 'cg'
+            ? 'Republic of Congo'
+            : d.country_name || 'Other',
+        flag: hub === 'cd' ? '🇨🇩' : hub === 'cg' ? '🇨🇬' : d.flag || '🌍',
+        program: d.program || 'MBway Lyon — Management & Commerce',
+        status: d.status || 'New',
+        date: d.submitted_at || (d.created_at ? new Date(d.created_at).toLocaleDateString() : 'Recent'),
+        adviser: d.adviser || 'Barthelemy MAPWABA NTORO',
+        sourceModule: 'demandes' as const,
+        _raw: d,
+        _hub: hub,
+        _date: parseItemDate(d),
+      });
+    });
+
+    // 2. Qualified Candidates (candidats) - deduplicate against demandes
+    (candidats || []).forEach((c) => {
+      if (!c) return;
+      const emailNorm = String(c.email || '').toLowerCase().trim();
+      if (emailNorm && registeredEmails.has(emailNorm)) return;
+      if (emailNorm) registeredEmails.add(emailNorm);
+
+      const hub = getRecordHub(c);
+      list.push({
+        id: c.id,
+        ref: c.ref || `CAN-${c.id}`,
+        fullName: c.full_name || 'Qualified Candidate',
+        email: c.email || '',
+        phone: c.phone || '',
+        type: 'candidat' as const,
+        countryHub:
+          hub === 'cd'
+            ? 'Democratic Republic of Congo'
+            : hub === 'cg'
+            ? 'Republic of Congo'
+            : c.country_name || 'Other',
+        flag: hub === 'cd' ? '🇨🇩' : hub === 'cg' ? '🇨🇬' : c.flag || '🌍',
+        program: c.program || c.formation || 'Admission Lyon',
+        status: c.status || 'Qualified',
+        date: c.created_at ? new Date(c.created_at).toLocaleDateString() : c.date || 'Recent',
+        adviser: c.adviser || 'Barthelemy MAPWABA NTORO',
+        sourceModule: 'candidats' as const,
+        _raw: c,
+        _hub: hub,
+        _date: parseItemDate(c),
+      });
+    });
+
+    // 3. Inquiries / Leads (prospects) - deduplicate against formal applications
+    (prospects || []).forEach((p) => {
+      if (!p) return;
+      const emailNorm = String(p.email || '').toLowerCase().trim();
+      if (emailNorm && registeredEmails.has(emailNorm)) return;
+
+      const hub = getRecordHub(p);
+      list.push({
+        id: p.id,
+        ref: p.ref || `PROS-${p.id}`,
+        fullName: p.full_name || 'Prospective Student',
+        email: p.email || '',
+        phone: p.phone || '',
+        type: 'enquiry' as const,
+        countryHub:
+          hub === 'cd'
+            ? 'Democratic Republic of Congo'
+            : hub === 'cg'
+            ? 'Republic of Congo'
+            : p.country || 'Other',
+        flag: hub === 'cd' ? '🇨🇩' : hub === 'cg' ? '🇨🇬' : '🌍',
+        program: p.program || p.service_interest || 'General Inquiry',
+        status: p.status || p.stage || 'New Inquiry',
+        date: p.created_at ? new Date(p.created_at).toLocaleDateString() : p.date || 'Recent',
+        adviser: p.adviser || 'Unassigned',
+        sourceModule: 'prospects' as const,
+        _raw: p,
+        _hub: hub,
+        _date: parseItemDate(p),
+      });
+    });
+
+    return list;
+  }, [demandes, candidats, prospects]);
+
+  // 4. Volume records filtered by active intake and selected recruitment hub
+  const filteredVolumeRecords = useMemo(() => {
+    return unifiedVolumeRecords.filter((rec) => {
+      if (!matchesAcademicIntake(rec._raw, cohortLabel)) {
+        return false;
+      }
+      if (selectedHub !== 'all' && rec._hub !== selectedHub) {
+        return false;
+      }
+      return true;
+    });
+  }, [unifiedVolumeRecords, cohortLabel, selectedHub]);
+
+  // 5. Volume Buckets grouped by Weekly or Monthly
+  const volumeBuckets = useMemo(() => {
+    if (chartPeriod === 'month') {
+      let monthDefs: { key: string; label: string; short: string }[] = [];
+
+      if (cohortLabel === 'full_2026') {
+        monthDefs = [
+          { key: '2026-09', label: 'Sep 2026', short: 'Sep' },
+          { key: '2026-10', label: 'Oct 2026', short: 'Oct' },
+          { key: '2026-11', label: 'Nov 2026', short: 'Nov' },
+          { key: '2026-12', label: 'Dec 2026', short: 'Dec' },
+          { key: '2027-01', label: 'Jan 2027', short: 'Jan' },
+        ];
+      } else if (cohortLabel === 'sept_2026') {
+        monthDefs = [
+          { key: '2026-05', label: 'May 2026', short: 'May' },
+          { key: '2026-06', label: 'Jun 2026', short: 'Jun' },
+          { key: '2026-07', label: 'Jul 2026', short: 'Jul' },
+          { key: '2026-08', label: 'Aug 2026', short: 'Aug' },
+          { key: '2026-09', label: 'Sep 2026', short: 'Sep' },
+        ];
+      } else if (cohortLabel === 'jan_2027') {
+        monthDefs = [
+          { key: '2026-09', label: 'Sep 2026', short: 'Sep' },
+          { key: '2026-10', label: 'Oct 2026', short: 'Oct' },
+          { key: '2026-11', label: 'Nov 2026', short: 'Nov' },
+          { key: '2026-12', label: 'Dec 2026', short: 'Dec' },
+          { key: '2027-01', label: 'Jan 2027', short: 'Jan' },
+        ];
+      } else if (cohortLabel === 'full_2025') {
+        monthDefs = [
+          { key: '2025-09', label: 'Sep 2025', short: 'Sep' },
+          { key: '2025-10', label: 'Oct 2025', short: 'Oct' },
+          { key: '2025-11', label: 'Nov 2025', short: 'Nov' },
+          { key: '2025-12', label: 'Dec 2025', short: 'Dec' },
+          { key: '2026-01', label: 'Jan 2026', short: 'Jan' },
+        ];
+      } else if (cohortLabel === 'sept_2025') {
+        monthDefs = [
+          { key: '2025-05', label: 'May 2025', short: 'May' },
+          { key: '2025-06', label: 'Jun 2025', short: 'Jun' },
+          { key: '2025-07', label: 'Jul 2025', short: 'Jul' },
+          { key: '2025-08', label: 'Aug 2025', short: 'Aug' },
+          { key: '2025-09', label: 'Sep 2025', short: 'Sep' },
+        ];
+      } else if (cohortLabel === 'jan_2025') {
+        monthDefs = [
+          { key: '2024-09', label: 'Sep 2024', short: 'Sep' },
+          { key: '2024-10', label: 'Oct 2024', short: 'Oct' },
+          { key: '2024-11', label: 'Nov 2024', short: 'Nov' },
+          { key: '2024-12', label: 'Dec 2024', short: 'Dec' },
+          { key: '2025-01', label: 'Jan 2025', short: 'Jan' },
+        ];
+      } else {
+        monthDefs = [
+          { key: '2026-05', label: 'May 2026', short: 'May' },
+          { key: '2026-06', label: 'Jun 2026', short: 'Jun' },
+          { key: '2026-07', label: 'Jul 2026', short: 'Jul' },
+          { key: '2026-08', label: 'Aug 2026', short: 'Aug' },
+          { key: '2026-09', label: 'Sep 2026', short: 'Sep' },
+          { key: '2026-10', label: 'Oct 2026', short: 'Oct' },
+          { key: '2026-11', label: 'Nov 2026', short: 'Nov' },
+          { key: '2027-01', label: 'Jan 2027', short: 'Jan' },
+        ];
+      }
+
+      const map = new Map<string, any[]>();
+      monthDefs.forEach((m) => map.set(m.key, []));
+
+      filteredVolumeRecords.forEach((item: any) => {
+        let matchedKey: string | null = null;
+        if (item._date) {
+          const y = item._date.getFullYear();
+          const m = String(item._date.getMonth() + 1).padStart(2, '0');
+          const k = `${y}-${m}`;
+          if (map.has(k)) {
+            matchedKey = k;
+          }
+        }
+
+        if (!matchedKey) {
+          const text = `${item.program} ${item.date} ${item.status}`.toLowerCase();
+          if (text.includes('oct') && map.has(monthDefs.find((m) => m.short === 'Oct')?.key || '')) {
+            matchedKey = monthDefs.find((m) => m.short === 'Oct')!.key;
+          } else if (text.includes('nov') && map.has(monthDefs.find((m) => m.short === 'Nov')?.key || '')) {
+            matchedKey = monthDefs.find((m) => m.short === 'Nov')!.key;
+          } else if (text.includes('dec') && map.has(monthDefs.find((m) => m.short === 'Dec')?.key || '')) {
+            matchedKey = monthDefs.find((m) => m.short === 'Dec')!.key;
+          } else if (text.includes('jan') && map.has(monthDefs.find((m) => m.short === 'Jan')?.key || '')) {
+            matchedKey = monthDefs.find((m) => m.short === 'Jan')!.key;
+          } else {
+            matchedKey = monthDefs[0].key;
+          }
+        }
+
+        if (matchedKey && map.has(matchedKey)) {
+          map.get(matchedKey)!.push(item);
+        }
+      });
+
+      return monthDefs.map((def) => {
+        const records = map.get(def.key) || [];
+        return {
+          key: def.key,
+          label: def.label,
+          shortLabel: def.short,
+          records,
+          applicationsCount: records.filter((r) => r.type === 'application').length,
+          enquiriesCount: records.filter((r) => r.type === 'enquiry').length,
+          candidatsCount: records.filter((r) => r.type === 'candidat').length,
+          totalVolume: records.length,
+        };
+      });
+    } else {
+      const baseYear = cohortLabel.includes('2025') ? '2025' : '2026';
+      const weekDefs = [
+        { key: 'w1', label: `Week 1 (Sep 1–7, ${baseYear})`, short: 'W1 (Sep 1)' },
+        { key: 'w2', label: `Week 2 (Sep 8–14, ${baseYear})`, short: 'W2 (Sep 8)' },
+        { key: 'w3', label: `Week 3 (Sep 15–21, ${baseYear})`, short: 'W3 (Sep 15)' },
+        { key: 'w4', label: `Week 4 (Sep 22–28, ${baseYear})`, short: 'W4 (Sep 22)' },
+        { key: 'w5', label: `Week 5 (Sep 29–Oct 5, ${baseYear})`, short: 'W5 (Sep 29)' },
+        { key: 'w6', label: `Week 6 (Oct 6–12, ${baseYear})`, short: 'W6 (Oct 6)' },
+      ];
+
+      const map = new Map<string, any[]>();
+      weekDefs.forEach((w) => map.set(w.key, []));
+
+      filteredVolumeRecords.forEach((item: any, idx: number) => {
+        let matchedKey: string | null = null;
+        if (item._date) {
+          const d = item._date.getDate();
+          if (d <= 7) matchedKey = 'w1';
+          else if (d <= 14) matchedKey = 'w2';
+          else if (d <= 21) matchedKey = 'w3';
+          else if (d <= 28) matchedKey = 'w4';
+          else matchedKey = 'w5';
+        }
+        if (!matchedKey) {
+          const bucketIndex = idx % weekDefs.length;
+          matchedKey = weekDefs[bucketIndex].key;
+        }
+        map.get(matchedKey)!.push(item);
+      });
+
+      return weekDefs.map((def) => {
+        const records = map.get(def.key) || [];
+        return {
+          key: def.key,
+          label: def.label,
+          shortLabel: def.short,
+          records,
+          applicationsCount: records.filter((r) => r.type === 'application').length,
+          enquiriesCount: records.filter((r) => r.type === 'enquiry').length,
+          candidatsCount: records.filter((r) => r.type === 'candidat').length,
+          totalVolume: records.length,
+        };
+      });
+    }
+  }, [chartPeriod, cohortLabel, filteredVolumeRecords]);
+
+  // 6. SVG Trendline Coordinate Calculations
+  const maxVolumeVal = Math.max(...volumeBuckets.map((b) => b.totalVolume), 1);
+  const niceVolumeMax = Math.max(Math.ceil(maxVolumeVal / 5) * 5, 5);
+
+  const xStart = 45;
+  const xEnd = 475;
+  const yTop = 25;
+  const yBottom = 125;
+
+  const pointsWithCoords = useMemo(() => {
+    return volumeBuckets.map((b, i) => {
+      const cx =
+        volumeBuckets.length > 1
+          ? xStart + (i / (volumeBuckets.length - 1)) * (xEnd - xStart)
+          : 260;
+      const cy = yBottom - (b.totalVolume / niceVolumeMax) * (yBottom - yTop);
+      return { ...b, cx, cy, index: i };
+    });
+  }, [volumeBuckets, niceVolumeMax]);
+
+  const polylinePoints = pointsWithCoords
+    .map((p) => `${p.cx.toFixed(1)},${p.cy.toFixed(1)}`)
+    .join(' ');
+  const polygonPoints = `${xStart},${yBottom} ${polylinePoints} ${xEnd},${yBottom}`;
+
+  // 7. Dynamic Session Growth Calculation
+  const growthCalculation = useMemo(() => {
+    if (pointsWithCoords.length < 2) {
+      return {
+        status: 'active' as const,
+        text: `Tracking active — ${filteredVolumeRecords.length} records recorded`,
+        diffPct: 0,
+      };
+    }
+    const lastPoint = pointsWithCoords[pointsWithCoords.length - 1];
+    const prevPoint = pointsWithCoords[pointsWithCoords.length - 2];
+
+    if (prevPoint.totalVolume === 0 && lastPoint.totalVolume === 0) {
+      return {
+        status: 'stable' as const,
+        text: isEn
+          ? 'Volume stable (0.0% variance) across recruitment hubs'
+          : 'Volume stable (0,0% de variation) sur les pôles',
+        diffPct: 0,
+      };
+    }
+
+    if (prevPoint.totalVolume === 0) {
+      return {
+        status: 'growing' as const,
+        text: isEn
+          ? `Session growth tracking on target across all academic intakes (+${lastPoint.totalVolume} new entries)`
+          : `Croissance sur la cible dans toutes les rentrées (+${lastPoint.totalVolume} nouvelles entrées)`,
+        diffPct: 100,
+      };
+    }
+
+    const diff = lastPoint.totalVolume - prevPoint.totalVolume;
+    const pct = (diff / prevPoint.totalVolume) * 100;
+
+    if (pct > 0) {
+      return {
+        status: 'growing' as const,
+        text: isEn
+          ? `Session growth tracking on target across recruitment hubs (+${pct.toFixed(1)}%)`
+          : `Croissance de session sur la cible dans les pôles (+${pct.toFixed(1)}%)`,
+        diffPct: pct,
+      };
+    } else if (pct < 0) {
+      return {
+        status: 'declining' as const,
+        text: isEn
+          ? `Volume contracted ${pct.toFixed(1)}% vs previous period across hubs`
+          : `Volume en contraction de ${pct.toFixed(1)}% par rapport à la période précédente`,
+        diffPct: pct,
+      };
+    } else {
+      return {
+        status: 'stable' as const,
+        text: isEn
+          ? 'Volume stable (0.0% variance) across recruitment hubs'
+          : 'Volume stable (0,0% de variation) sur les pôles',
+        diffPct: 0,
+      };
+    }
+  }, [pointsWithCoords, filteredVolumeRecords.length, isEn]);
+
+  // 8. Download Intake Audit CSV Generator
+  const handleDownloadIntakeAudit = () => {
+    setIsExportingAudit(true);
+    try {
+      const intakeOption = ACADEMIC_INTAKE_OPTIONS.find((o) => o.id === cohortLabel);
+      const intakeLabel = (isEn ? intakeOption?.labelEn : intakeOption?.labelFr) || cohortLabel;
+      const hubName =
+        selectedHub === 'cd'
+          ? 'DRC_Kinshasa'
+          : selectedHub === 'cg'
+          ? 'Congo_Brazzaville'
+          : 'All_Hubs';
+
+      const headers = [
+        'Reference',
+        'Full Name',
+        'Email',
+        'Phone',
+        'Record Type',
+        'Recruitment Hub',
+        'Academic Intake',
+        'Program / Service',
+        'Status',
+        'Submission Date',
+        'Assigned Advisor',
+      ];
+
+      const rows = filteredVolumeRecords.map((r: any) => [
+        `"${r.ref || ''}"`,
+        `"${(r.fullName || '').replace(/"/g, '""')}"`,
+        `"${r.email || ''}"`,
+        `"${r.phone || ''}"`,
+        `"${
+          r.type === 'application'
+            ? 'Formal Application'
+            : r.type === 'enquiry'
+            ? 'Inquiry / Lead'
+            : 'Qualified Candidate'
+        }"`,
+        `"${r.countryHub || ''}"`,
+        `"${intakeLabel}"`,
+        `"${(r.program || '').replace(/"/g, '""')}"`,
+        `"${r.status || ''}"`,
+        `"${r.date || ''}"`,
+        `"${(r.adviser || '').replace(/"/g, '""')}"`,
+      ]);
+
+      const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
+      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute(
+        'download',
+        `LIEC_Intake_Audit_${cohortLabel}_${hubName}_${new Date().toISOString().slice(0, 10)}.csv`
+      );
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      onNotify(
+        isEn
+          ? `Downloaded intake audit (${filteredVolumeRecords.length} records exported).`
+          : `Audit d'admission téléchargé (${filteredVolumeRecords.length} dossiers exportés).`
+      );
+    } catch (err: any) {
+      onNotify('Failed to export intake audit: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setIsExportingAudit(false);
+    }
+  };
+
+  const handleManualRefresh = async () => {
+    setIsRefreshingVolume(true);
+    try {
+      if (onRefresh) await onRefresh();
+      onNotify(isEn ? 'Applications & inquiry volume refreshed.' : 'Volume des demandes et candidatures actualisé.');
+    } catch {
+      onNotify('Refreshed data view.');
+    } finally {
+      setTimeout(() => setIsRefreshingVolume(false), 500);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Welcome / Hero Banner */}
@@ -511,114 +1016,358 @@ export default function OverviewScreen({
       {/* Main Grid: Left Trend Chart + Right Interactive Donut Chart */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Inquiry Trends */}
-        <div className="lg:col-span-8 rounded-2xl border border-[#e6eef6] bg-white p-6 shadow-card flex flex-col justify-between">
+        <div className="lg:col-span-8 rounded-2xl border border-[#e6eef6] bg-white p-6 shadow-card flex flex-col justify-between relative">
           <div>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-extrabold text-[#092342] leading-snug">
-                  Applications & Inquiry Volume
-                </h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-extrabold text-[#092342] leading-snug">
+                    {isEn ? 'Applications & Inquiry Volume' : 'Volume des Demandes & Candidatures'}
+                  </h2>
+                  <span className="rounded-full bg-[#eefaf6] text-[#0c685a] border border-[#ccece2] px-2 py-0.5 text-[10.5px] font-bold">
+                    {filteredVolumeRecords.length} {isEn ? 'total' : 'au total'}
+                  </span>
+                </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Dynamic volume tracked across DRC & Congo-Brazzaville recruitment hubs
+                  {isEn
+                    ? 'Dynamic volume tracked across DRC & Congo-Brazzaville recruitment hubs'
+                    : 'Volume dynamique suivi sur les pôles de recrutement RDC et Congo-Brazzaville'}
                 </p>
               </div>
 
-              <div className="inline-flex rounded-xl border border-slate-200 bg-[#f1f6fb] p-1 text-xs font-bold text-slate-600">
+              {/* Hub & Period Action Controls */}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Recruitment Hub Selector */}
+                <div className="inline-flex rounded-xl border border-slate-200 bg-[#f1f6fb] p-1 text-xs font-bold text-slate-600">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedHub('all')}
+                    className={`px-2.5 py-1 rounded-lg transition cursor-pointer text-[11px] ${
+                      selectedHub === 'all'
+                        ? 'bg-white text-[#092342] shadow-xs'
+                        : 'hover:text-[#092342]'
+                    }`}
+                  >
+                    {isEn ? 'All Hubs' : 'Tous les pôles'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedHub('cd')}
+                    className={`px-2.5 py-1 rounded-lg transition cursor-pointer text-[11px] flex items-center gap-1 ${
+                      selectedHub === 'cd'
+                        ? 'bg-white text-[#092342] shadow-xs'
+                        : 'hover:text-[#092342]'
+                    }`}
+                  >
+                    <span>🇨🇩</span>
+                    <span>DRC</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedHub('cg')}
+                    className={`px-2.5 py-1 rounded-lg transition cursor-pointer text-[11px] flex items-center gap-1 ${
+                      selectedHub === 'cg'
+                        ? 'bg-white text-[#092342] shadow-xs'
+                        : 'hover:text-[#092342]'
+                    }`}
+                  >
+                    <span>🇨🇬</span>
+                    <span>Congo</span>
+                  </button>
+                </div>
+
+                {/* Weekly / Monthly Toggle */}
+                <div className="inline-flex rounded-xl border border-slate-200 bg-[#f1f6fb] p-1 text-xs font-bold text-slate-600">
+                  <button
+                    type="button"
+                    onClick={() => setChartPeriod('week')}
+                    className={`px-3 py-1 rounded-lg transition cursor-pointer ${
+                      chartPeriod === 'week'
+                        ? 'bg-white text-[#092342] shadow-xs'
+                        : 'hover:text-[#092342]'
+                    }`}
+                  >
+                    {isEn ? 'Weekly' : 'Hebdo'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChartPeriod('month')}
+                    className={`px-3 py-1 rounded-lg transition cursor-pointer ${
+                      chartPeriod === 'month'
+                        ? 'bg-white text-[#092342] shadow-xs'
+                        : 'hover:text-[#092342]'
+                    }`}
+                  >
+                    {isEn ? 'Monthly' : 'Mensuel'}
+                  </button>
+                </div>
+
+                {/* Manual Refresh Button */}
                 <button
-                  onClick={() => setChartPeriod('week')}
-                  className={`px-3 py-1 rounded-lg transition ${
-                    chartPeriod === 'week' ? 'bg-white text-[#092342] shadow-xs' : 'hover:text-[#092342]'
-                  }`}
+                  type="button"
+                  onClick={handleManualRefresh}
+                  disabled={isRefreshingVolume}
+                  title={isEn ? 'Refresh Volume Dataset' : 'Actualiser les données de volume'}
+                  className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-500 hover:text-[#092342] shadow-xs transition cursor-pointer disabled:opacity-50"
                 >
-                  Weekly
-                </button>
-                <button
-                  onClick={() => setChartPeriod('month')}
-                  className={`px-3 py-1 rounded-lg transition ${
-                    chartPeriod === 'month' ? 'bg-white text-[#092342] shadow-xs' : 'hover:text-[#092342]'
-                  }`}
-                >
-                  Monthly
+                  <RotateCw
+                    className={`w-3.5 h-3.5 ${isRefreshingVolume ? 'animate-spin text-[#0c685a]' : ''}`}
+                  />
                 </button>
               </div>
             </div>
 
-            {/* SVG Trend Line Visual */}
-            <div className="my-6">
-              <svg viewBox="0 0 500 160" className="w-full h-36 overflow-visible">
-                <defs>
-                  <linearGradient id="trendGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                    <stop offset="0%" stopColor="#0c685a" stopOpacity="0.25" />
-                    <stop offset="100%" stopColor="#0c685a" stopOpacity="0.0" />
-                  </linearGradient>
-                </defs>
+            {/* SVG Trend Line Visual & Dynamic Chart */}
+            <div className="my-6 relative">
+              {filteredVolumeRecords.length === 0 ? (
+                <div className="h-36 rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 flex flex-col items-center justify-center text-center p-4">
+                  <BarChart2 className="w-8 h-8 text-slate-300 mb-2" />
+                  <p className="text-xs font-bold text-slate-700">
+                    {isEn ? 'No records match this selection' : 'Aucun dossier ne correspond à cette sélection'}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {isEn
+                      ? 'Try switching recruitment hubs or selecting another academic intake.'
+                      : 'Essayez de changer de pôle de recrutement ou de choisir une autre rentrée.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="relative">
+                  <svg viewBox="0 0 500 160" className="w-full h-36 overflow-visible">
+                    <defs>
+                      <linearGradient id="trendGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stopColor="#0c685a" stopOpacity="0.25" />
+                        <stop offset="100%" stopColor="#0c685a" stopOpacity="0.0" />
+                      </linearGradient>
+                    </defs>
 
-                {/* Gridlines */}
-                <line x1="0" y1="40" x2="500" y2="40" stroke="#f1f5f9" strokeDasharray="3 3" />
-                <line x1="0" y1="80" x2="500" y2="80" stroke="#f1f5f9" strokeDasharray="3 3" />
-                <line x1="0" y1="120" x2="500" y2="120" stroke="#f1f5f9" strokeDasharray="3 3" />
-
-                {/* Area under curve */}
-                <polygon
-                  points="20,130 90,110 160,85 230,95 300,55 370,40 440,30 480,20 480,140 20,140"
-                  fill="url(#trendGrad)"
-                />
-
-                {/* Curve line */}
-                <polyline
-                  points="20,130 90,110 160,85 230,95 300,55 370,40 440,30 480,20"
-                  fill="none"
-                  stroke="#0c685a"
-                  strokeWidth="3.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-
-                {/* Markers */}
-                {[
-                  { cx: 20, cy: 130, month: 'May' },
-                  { cx: 90, cy: 110, month: 'Jun' },
-                  { cx: 160, cy: 85, month: 'Jul' },
-                  { cx: 230, cy: 95, month: 'Aug' },
-                  { cx: 300, cy: 55, month: 'Sep' },
-                  { cx: 370, cy: 40, month: 'Oct' },
-                  { cx: 440, cy: 30, month: 'Nov' },
-                  { cx: 480, cy: 20, month: 'Jan', active: true },
-                ].map((pt, idx) => (
-                  <g key={idx}>
-                    <circle
-                      cx={pt.cx}
-                      cy={pt.cy}
-                      r={pt.active ? 5 : 3.5}
-                      className={pt.active ? 'fill-[#0c685a] stroke-white stroke-2' : 'fill-[#092342]'}
+                    {/* Horizontal Scale Gridlines */}
+                    <line
+                      x1={xStart}
+                      y1={yTop}
+                      x2={xEnd}
+                      y2={yTop}
+                      stroke="#f1f5f9"
+                      strokeDasharray="3 3"
                     />
+                    <line
+                      x1={xStart}
+                      y1={(yTop + yBottom) / 2}
+                      x2={xEnd}
+                      y2={(yTop + yBottom) / 2}
+                      stroke="#f1f5f9"
+                      strokeDasharray="3 3"
+                    />
+                    <line
+                      x1={xStart}
+                      y1={yBottom}
+                      x2={xEnd}
+                      y2={yBottom}
+                      stroke="#e2e8f0"
+                    />
+
+                    {/* Y-axis Scale Labels */}
                     <text
-                      x={pt.cx}
-                      y="155"
-                      textAnchor="middle"
-                      className={`text-[10px] ${
-                        pt.active ? 'fill-[#0c685a] font-bold' : 'fill-slate-400 font-medium'
-                      }`}
+                      x={xStart - 10}
+                      y={yTop + 3}
+                      textAnchor="end"
+                      className="text-[9px] fill-slate-400 font-semibold select-none"
                     >
-                      {pt.month}
+                      {niceVolumeMax}
                     </text>
-                  </g>
-                ))}
-              </svg>
+                    <text
+                      x={xStart - 10}
+                      y={(yTop + yBottom) / 2 + 3}
+                      textAnchor="end"
+                      className="text-[9px] fill-slate-400 font-semibold select-none"
+                    >
+                      {Math.round(niceVolumeMax / 2)}
+                    </text>
+                    <text
+                      x={xStart - 10}
+                      y={yBottom + 3}
+                      textAnchor="end"
+                      className="text-[9px] fill-slate-400 font-semibold select-none"
+                    >
+                      0
+                    </text>
+
+                    {/* Area under curve */}
+                    <polygon points={polygonPoints} fill="url(#trendGrad)" />
+
+                    {/* Curve line */}
+                    <polyline
+                      points={polylinePoints}
+                      fill="none"
+                      stroke="#0c685a"
+                      strokeWidth="3.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+
+                    {/* Dynamic Interactive Data Point Markers */}
+                    {pointsWithCoords.map((pt) => {
+                      const isHovered = hoveredVolumeIndex === pt.index;
+                      const hasData = pt.totalVolume > 0;
+
+                      return (
+                        <g key={pt.key} className="transition-all duration-150">
+                          {/* Hover Halo */}
+                          {isHovered && (
+                            <circle
+                              cx={pt.cx}
+                              cy={pt.cy}
+                              r={8}
+                              className="fill-[#0c685a]/25 animate-pulse"
+                            />
+                          )}
+
+                          {/* Data Marker */}
+                          <circle
+                            cx={pt.cx}
+                            cy={pt.cy}
+                            r={isHovered ? 5.5 : hasData ? 4.5 : 3.5}
+                            className={
+                              hasData || isHovered
+                                ? 'fill-[#0c685a] stroke-white stroke-2 cursor-pointer'
+                                : 'fill-[#092342] cursor-pointer'
+                            }
+                          />
+
+                          {/* Volume Counter Tag above active point */}
+                          {(hasData || isHovered) && (
+                            <text
+                              x={pt.cx}
+                              y={pt.cy - 8}
+                              textAnchor="middle"
+                              className="text-[10px] font-extrabold fill-[#092342] select-none pointer-events-none"
+                            >
+                              {pt.totalVolume}
+                            </text>
+                          )}
+
+                          {/* X-axis Label */}
+                          <text
+                            x={pt.cx}
+                            y="152"
+                            textAnchor="middle"
+                            className={`text-[10px] select-none cursor-pointer ${
+                              isHovered || hasData
+                                ? 'fill-[#0c685a] font-bold'
+                                : 'fill-slate-400 font-medium'
+                            }`}
+                          >
+                            {pt.shortLabel}
+                          </text>
+
+                          {/* Hit area for hover and click interaction */}
+                          <circle
+                            cx={pt.cx}
+                            cy={pt.cy}
+                            r={18}
+                            fill="transparent"
+                            className="cursor-pointer"
+                            onMouseEnter={() => setHoveredVolumeIndex(pt.index)}
+                            onMouseLeave={() => setHoveredVolumeIndex(null)}
+                            onClick={() => setSelectedVolumeBucket(pt)}
+                          />
+                        </g>
+                      );
+                    })}
+                  </svg>
+
+                  {/* Interactive Floating Tooltip */}
+                  {hoveredVolumeIndex !== null && pointsWithCoords[hoveredVolumeIndex] && (
+                    <div
+                      style={{
+                        left: `${(pointsWithCoords[hoveredVolumeIndex].cx / 500) * 100}%`,
+                        top: '-14px',
+                        transform: 'translateX(-50%)',
+                      }}
+                      className="absolute z-20 pointer-events-none bg-[#092342] text-white rounded-xl px-3.5 py-2.5 shadow-2xl text-xs min-w-[215px] border border-slate-700 animate-in fade-in zoom-in-95 duration-100"
+                    >
+                      <div className="flex items-center justify-between border-b border-white/10 pb-1.5 mb-1.5">
+                        <span className="font-extrabold text-white text-[11px]">
+                          {pointsWithCoords[hoveredVolumeIndex].label}
+                        </span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#0c685a] text-white">
+                          {pointsWithCoords[hoveredVolumeIndex].totalVolume} Total
+                        </span>
+                      </div>
+                      <div className="space-y-1 text-[11px]">
+                        <div className="flex items-center justify-between text-slate-300">
+                          <span>{isEn ? 'Applications:' : 'Candidatures :'}</span>
+                          <span className="font-bold text-white">
+                            {pointsWithCoords[hoveredVolumeIndex].applicationsCount}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-slate-300">
+                          <span>{isEn ? 'New Enquiries:' : 'Nouvelles demandes :'}</span>
+                          <span className="font-bold text-white">
+                            {pointsWithCoords[hoveredVolumeIndex].enquiriesCount}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-slate-300">
+                          <span>{isEn ? 'Qualified Candidates:' : 'Candidats qualifiés :'}</span>
+                          <span className="font-bold text-white">
+                            {pointsWithCoords[hoveredVolumeIndex].candidatsCount}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="mt-2 pt-1.5 border-t border-white/10 text-[10px] text-emerald-400 font-semibold flex items-center justify-between">
+                        <span>
+                          {selectedHub === 'cd'
+                            ? '🇨🇩 DRC Hub'
+                            : selectedHub === 'cg'
+                            ? '🇨🇬 Congo Hub'
+                            : '🇨🇩 & 🇨🇬 All Hubs'}
+                        </span>
+                        <span className="text-[9.5px] text-slate-300 underline font-medium">
+                          {isEn ? 'Click to inspect records' : 'Cliquer pour inspecter'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
+          {/* Bottom Card Summary & Download Intake Audit Action */}
           <div className="mt-3 pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-            <div className="font-bold text-[#0c685a] flex items-center gap-1.5">
-              <TrendingUp className="w-3.5 h-3.5" />
-              <span>Session growth tracking on target across all academic intakes</span>
-            </div>
-            <button
-              onClick={() => onNotify('Exporting session intake summary...')}
-              className="inline-flex items-center gap-1.5 font-bold text-[#092342] hover:text-[#0c685a] transition cursor-pointer"
+            <div
+              className={`font-bold flex items-center gap-1.5 ${
+                growthCalculation.status === 'declining'
+                  ? 'text-amber-700'
+                  : 'text-[#0c685a]'
+              }`}
             >
-              <span>Download Intake Audit</span>
-              <Download className="w-3.5 h-3.5" />
+              {growthCalculation.status === 'declining' ? (
+                <TrendingDown className="w-3.5 h-3.5" />
+              ) : growthCalculation.status === 'stable' ? (
+                <Minus className="w-3.5 h-3.5" />
+              ) : (
+                <TrendingUp className="w-3.5 h-3.5" />
+              )}
+              <span>{growthCalculation.text}</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleDownloadIntakeAudit}
+              disabled={isExportingAudit || filteredVolumeRecords.length === 0}
+              className="inline-flex items-center gap-1.5 font-bold text-[#092342] hover:text-[#0c685a] transition cursor-pointer disabled:opacity-50"
+            >
+              <span>
+                {isExportingAudit
+                  ? (isEn ? 'Generating CSV...' : 'Génération CSV...')
+                  : (isEn ? 'Download Intake Audit' : "Télécharger l'audit d'admission")}
+              </span>
+              {isExportingAudit ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5" />
+              )}
             </button>
           </div>
         </div>
@@ -808,12 +1557,47 @@ export default function OverviewScreen({
             setSelectedBreakdownService(null);
             if (record.sourceModule === 'demandes') {
               onSelectDemande(record.ref);
+              onNavigate('demandes');
             } else if (record.sourceModule === 'candidats') {
               onNavigate('candidats');
             } else if (record.sourceModule === 'avi') {
               onNavigate('avi');
             } else if (record.sourceModule === 'accommodation') {
               onNavigate('accommodation');
+            }
+          }}
+        />
+      )}
+
+      {/* Detail Modal for Clicked Volume Data Point */}
+      {selectedVolumeBucket && (
+        <VolumeBreakdownDetailModal
+          isOpen={Boolean(selectedVolumeBucket)}
+          periodLabel={selectedVolumeBucket.label}
+          intakeLabel={
+            (isEn
+              ? ACADEMIC_INTAKE_OPTIONS.find((o) => o.id === cohortLabel)?.labelEn
+              : ACADEMIC_INTAKE_OPTIONS.find((o) => o.id === cohortLabel)?.labelFr) || cohortLabel
+          }
+          hubLabel={
+            selectedHub === 'cd'
+              ? '🇨🇩 Democratic Republic of Congo (DRC Hub)'
+              : selectedHub === 'cg'
+              ? '🇨🇬 Republic of Congo (Congo-Brazzaville Hub)'
+              : '🇨🇩 & 🇨🇬 All Recruitment Hubs (DRC & Congo)'
+          }
+          records={selectedVolumeBucket.records}
+          isEn={isEn}
+          onClose={() => setSelectedVolumeBucket(null)}
+          onOpenRecord={(record) => {
+            setSelectedVolumeBucket(null);
+            if (record.sourceModule === 'demandes') {
+              onSelectDemande(record.ref);
+              onNavigate('demandes');
+            } else if (record.sourceModule === 'candidats') {
+              onNavigate('candidats');
+            } else if (record.sourceModule === 'prospects') {
+              onNavigate('prospects');
             }
           }}
         />

@@ -1629,6 +1629,7 @@ export default function LiecWorkspacePage() {
                   onToggleTask={handleToggleTask}
                   onResetTasks={handleResetTasks}
                   onNotify={showToast}
+                  onRefresh={fetchWorkspace}
                   lang={lang}
                   userRole={rolePreview}
                 />
