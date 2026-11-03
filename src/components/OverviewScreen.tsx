@@ -673,21 +673,21 @@ export default function OverviewScreen({
     }
   }, [chartPeriod, cohortLabel, filteredVolumeRecords]);
 
-  // 6. SVG Trendline Coordinate Calculations
+  // 6. SVG Trendline Coordinate Calculations (Enhanced high-visibility dimensions)
   const maxVolumeVal = Math.max(...volumeBuckets.map((b) => b.totalVolume), 1);
   const niceVolumeMax = Math.max(Math.ceil(maxVolumeVal / 5) * 5, 5);
 
-  const xStart = 45;
-  const xEnd = 475;
-  const yTop = 25;
-  const yBottom = 125;
+  const xStart = 50;
+  const xEnd = 570;
+  const yTop = 35;
+  const yBottom = 195;
 
   const pointsWithCoords = useMemo(() => {
     return volumeBuckets.map((b, i) => {
       const cx =
         volumeBuckets.length > 1
           ? xStart + (i / (volumeBuckets.length - 1)) * (xEnd - xStart)
-          : 260;
+          : 310;
       const cy = yBottom - (b.totalVolume / niceVolumeMax) * (yBottom - yTop);
       return { ...b, cx, cy, index: i };
     });
@@ -1117,15 +1117,15 @@ export default function OverviewScreen({
               </div>
             </div>
 
-            {/* SVG Trend Line Visual & Dynamic Chart */}
+            {/* SVG Trend Line Visual & Dynamic Chart (High Visibility Enhanced Sizing) */}
             <div className="my-6 relative">
               {filteredVolumeRecords.length === 0 ? (
-                <div className="h-36 rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 flex flex-col items-center justify-center text-center p-4">
-                  <BarChart2 className="w-8 h-8 text-slate-300 mb-2" />
-                  <p className="text-xs font-bold text-slate-700">
+                <div className="h-56 sm:h-64 lg:h-72 rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 flex flex-col items-center justify-center text-center p-6">
+                  <BarChart2 className="w-10 h-10 text-slate-300 mb-2" />
+                  <p className="text-sm font-bold text-slate-700">
                     {isEn ? 'No records match this selection' : 'Aucun dossier ne correspond à cette sélection'}
                   </p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
+                  <p className="text-xs text-slate-400 mt-1 max-w-sm">
                     {isEn
                       ? 'Try switching recruitment hubs or selecting another academic intake.'
                       : 'Essayez de changer de pôle de recrutement ou de choisir une autre rentrée.'}
@@ -1133,10 +1133,10 @@ export default function OverviewScreen({
                 </div>
               ) : (
                 <div className="relative">
-                  <svg viewBox="0 0 500 160" className="w-full h-36 overflow-visible">
+                  <svg viewBox="0 0 600 240" className="w-full h-56 sm:h-64 lg:h-72 overflow-visible">
                     <defs>
                       <linearGradient id="trendGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                        <stop offset="0%" stopColor="#0c685a" stopOpacity="0.25" />
+                        <stop offset="0%" stopColor="#0c685a" stopOpacity="0.28" />
                         <stop offset="100%" stopColor="#0c685a" stopOpacity="0.0" />
                       </linearGradient>
                     </defs>
@@ -1148,15 +1148,23 @@ export default function OverviewScreen({
                       x2={xEnd}
                       y2={yTop}
                       stroke="#f1f5f9"
-                      strokeDasharray="3 3"
+                      strokeDasharray="4 4"
                     />
                     <line
                       x1={xStart}
-                      y1={(yTop + yBottom) / 2}
+                      y1={yTop + (yBottom - yTop) * 0.33}
                       x2={xEnd}
-                      y2={(yTop + yBottom) / 2}
+                      y2={yTop + (yBottom - yTop) * 0.33}
                       stroke="#f1f5f9"
-                      strokeDasharray="3 3"
+                      strokeDasharray="4 4"
+                    />
+                    <line
+                      x1={xStart}
+                      y1={yTop + (yBottom - yTop) * 0.67}
+                      x2={xEnd}
+                      y2={yTop + (yBottom - yTop) * 0.67}
+                      stroke="#f1f5f9"
+                      strokeDasharray="4 4"
                     />
                     <line
                       x1={xStart}
@@ -1164,30 +1172,39 @@ export default function OverviewScreen({
                       x2={xEnd}
                       y2={yBottom}
                       stroke="#e2e8f0"
+                      strokeWidth="1.5"
                     />
 
                     {/* Y-axis Scale Labels */}
                     <text
-                      x={xStart - 10}
-                      y={yTop + 3}
+                      x={xStart - 12}
+                      y={yTop + 4}
                       textAnchor="end"
-                      className="text-[9px] fill-slate-400 font-semibold select-none"
+                      className="text-[10px] fill-slate-400 font-bold select-none"
                     >
                       {niceVolumeMax}
                     </text>
                     <text
-                      x={xStart - 10}
-                      y={(yTop + yBottom) / 2 + 3}
+                      x={xStart - 12}
+                      y={yTop + (yBottom - yTop) * 0.33 + 4}
                       textAnchor="end"
-                      className="text-[9px] fill-slate-400 font-semibold select-none"
+                      className="text-[10px] fill-slate-400 font-bold select-none"
                     >
-                      {Math.round(niceVolumeMax / 2)}
+                      {Math.round(niceVolumeMax * 0.67)}
                     </text>
                     <text
-                      x={xStart - 10}
-                      y={yBottom + 3}
+                      x={xStart - 12}
+                      y={yTop + (yBottom - yTop) * 0.67 + 4}
                       textAnchor="end"
-                      className="text-[9px] fill-slate-400 font-semibold select-none"
+                      className="text-[10px] fill-slate-400 font-bold select-none"
+                    >
+                      {Math.round(niceVolumeMax * 0.33)}
+                    </text>
+                    <text
+                      x={xStart - 12}
+                      y={yBottom + 4}
+                      textAnchor="end"
+                      className="text-[10px] fill-slate-400 font-bold select-none"
                     >
                       0
                     </text>
@@ -1200,7 +1217,7 @@ export default function OverviewScreen({
                       points={polylinePoints}
                       fill="none"
                       stroke="#0c685a"
-                      strokeWidth="3.5"
+                      strokeWidth="4"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     />
@@ -1217,7 +1234,7 @@ export default function OverviewScreen({
                             <circle
                               cx={pt.cx}
                               cy={pt.cy}
-                              r={8}
+                              r={11}
                               className="fill-[#0c685a]/25 animate-pulse"
                             />
                           )}
@@ -1226,7 +1243,7 @@ export default function OverviewScreen({
                           <circle
                             cx={pt.cx}
                             cy={pt.cy}
-                            r={isHovered ? 5.5 : hasData ? 4.5 : 3.5}
+                            r={isHovered ? 7 : hasData ? 5.5 : 4.5}
                             className={
                               hasData || isHovered
                                 ? 'fill-[#0c685a] stroke-white stroke-2 cursor-pointer'
@@ -1238,9 +1255,9 @@ export default function OverviewScreen({
                           {(hasData || isHovered) && (
                             <text
                               x={pt.cx}
-                              y={pt.cy - 8}
+                              y={pt.cy - 10}
                               textAnchor="middle"
-                              className="text-[10px] font-extrabold fill-[#092342] select-none pointer-events-none"
+                              className="text-[11.5px] font-black fill-[#092342] select-none pointer-events-none"
                             >
                               {pt.totalVolume}
                             </text>
@@ -1249,22 +1266,22 @@ export default function OverviewScreen({
                           {/* X-axis Label */}
                           <text
                             x={pt.cx}
-                            y="152"
+                            y="222"
                             textAnchor="middle"
-                            className={`text-[10px] select-none cursor-pointer ${
+                            className={`text-[11px] select-none cursor-pointer ${
                               isHovered || hasData
-                                ? 'fill-[#0c685a] font-bold'
-                                : 'fill-slate-400 font-medium'
+                                ? 'fill-[#0c685a] font-extrabold'
+                                : 'fill-slate-500 font-semibold'
                             }`}
                           >
                             {pt.shortLabel}
                           </text>
 
-                          {/* Hit area for hover and click interaction */}
+                          {/* Wide hit area for hover and click interaction */}
                           <circle
                             cx={pt.cx}
                             cy={pt.cy}
-                            r={18}
+                            r={24}
                             fill="transparent"
                             className="cursor-pointer"
                             onMouseEnter={() => setHoveredVolumeIndex(pt.index)}
@@ -1280,11 +1297,11 @@ export default function OverviewScreen({
                   {hoveredVolumeIndex !== null && pointsWithCoords[hoveredVolumeIndex] && (
                     <div
                       style={{
-                        left: `${(pointsWithCoords[hoveredVolumeIndex].cx / 500) * 100}%`,
-                        top: '-14px',
+                        left: `${(pointsWithCoords[hoveredVolumeIndex].cx / 600) * 100}%`,
+                        top: '-18px',
                         transform: 'translateX(-50%)',
                       }}
-                      className="absolute z-20 pointer-events-none bg-[#092342] text-white rounded-xl px-3.5 py-2.5 shadow-2xl text-xs min-w-[215px] border border-slate-700 animate-in fade-in zoom-in-95 duration-100"
+                      className="absolute z-20 pointer-events-none bg-[#092342] text-white rounded-xl px-3.5 py-2.5 shadow-2xl text-xs min-w-[220px] border border-slate-700 animate-in fade-in zoom-in-95 duration-100"
                     >
                       <div className="flex items-center justify-between border-b border-white/10 pb-1.5 mb-1.5">
                         <span className="font-extrabold text-white text-[11px]">
