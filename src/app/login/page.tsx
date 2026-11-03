@@ -36,6 +36,16 @@ export default function LoginPage() {
 
   React.useEffect(() => {
     if (typeof window !== 'undefined') {
+      // Security: purge any stale authentication data when landing on the login page
+      try {
+        localStorage.removeItem('liec_user');
+        localStorage.removeItem('liec_role');
+        localStorage.removeItem('liec_last_activity');
+        sessionStorage.clear();
+        document.cookie = 'liec_user_email=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+        fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+      } catch {}
+
       const params = new URLSearchParams(window.location.search);
       if (params.get('reason') === 'session_timeout') {
         const timeout = params.get('timeout') || '15';
@@ -121,7 +131,7 @@ export default function LoginPage() {
         localStorage.setItem('liec_user', JSON.stringify(data.user));
         localStorage.setItem('liec_role', data.user.role);
         document.cookie = `liec_user_email=${encodeURIComponent(data.user.email)}; path=/; max-age=604800; SameSite=Lax`;
-        router.push('/');
+        window.location.replace('/');
       } else {
         setError(data.error || 'Invalid credentials. Please check your email and password.');
       }
@@ -152,7 +162,7 @@ export default function LoginPage() {
         localStorage.setItem('liec_user', JSON.stringify(fallbackUser));
         localStorage.setItem('liec_role', fallbackUser.role);
         document.cookie = `liec_user_email=${encodeURIComponent(fallbackUser.email)}; path=/; max-age=604800; SameSite=Lax`;
-        router.push('/');
+        window.location.replace('/');
       } else {
         setError('Invalid credentials. Please check your email address and password.');
       }
@@ -190,7 +200,7 @@ export default function LoginPage() {
         localStorage.setItem('liec_user', JSON.stringify(data.user));
         localStorage.setItem('liec_role', data.user.role);
         document.cookie = `liec_user_email=${encodeURIComponent(data.user.email)}; path=/; max-age=604800; SameSite=Lax`;
-        router.push('/');
+        window.location.replace('/');
       } else {
         setError(data.error || 'Code Google Authenticator invalide ou expiré.');
       }
@@ -200,7 +210,7 @@ export default function LoginPage() {
         localStorage.setItem('liec_user', JSON.stringify(twoFaData.user));
         localStorage.setItem('liec_role', twoFaData.user.role);
         document.cookie = `liec_user_email=${encodeURIComponent(twoFaData.user.email)}; path=/; max-age=604800; SameSite=Lax`;
-        router.push('/');
+        window.location.replace('/');
       } else {
         setError('Code à 6 chiffres invalide.');
       }
@@ -237,7 +247,7 @@ export default function LoginPage() {
         localStorage.setItem('liec_user', JSON.stringify(data.user));
         localStorage.setItem('liec_role', data.user.role);
         document.cookie = `liec_user_email=${encodeURIComponent(data.user.email)}; path=/; max-age=604800; SameSite=Lax`;
-        router.push('/');
+        window.location.replace('/');
       } else {
         setError(data.error || 'Erreur lors du changement de mot de passe.');
       }

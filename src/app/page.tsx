@@ -309,13 +309,60 @@ export default function LiecWorkspacePage() {
     }
   }, [rolePreview, isEn, showToast]);
 
+  const performLogout = useCallback((reason?: string) => {
+    try {
+      localStorage.removeItem('liec_user');
+      localStorage.removeItem('liec_role');
+      localStorage.removeItem('liec_last_activity');
+      sessionStorage.clear();
+      document.cookie = 'liec_user_email=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+      fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    } catch {}
+    setIsAuthenticated(false);
+    const targetUrl = reason ? `/login?${reason}` : '/login';
+    window.location.replace(targetUrl);
+  }, []);
+
+  // Defeat Back-Forward Cache (bfcache): re-verify session when restored from browser cache
+  useEffect(() => {
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        const savedUser = localStorage.getItem('liec_user');
+        const cookiePresent = document.cookie.includes('liec_user_email=');
+        if (!savedUser || !cookiePresent) {
+          performLogout();
+        }
+      }
+    };
+
+    window.addEventListener('pageshow', handlePageShow);
+    return () => window.removeEventListener('pageshow', handlePageShow);
+  }, [performLogout]);
+
+  // Prevent browser back arrow from dropping user onto login page or exiting workspace
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    window.history.pushState({ liecWorkspaceSession: true }, '', window.location.href);
+
+    const handlePopState = () => {
+      window.history.pushState({ liecWorkspaceSession: true }, '', window.location.href);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [isAuthenticated]);
+
   // Initial authentication enforcement & load ONCE on mount
   useEffect(() => {
     const savedUserStr = localStorage.getItem('liec_user');
-    if (!savedUserStr) {
+    const cookiePresent = typeof document !== 'undefined' && document.cookie.includes('liec_user_email=');
+    if (!savedUserStr || !cookiePresent) {
       setCheckingAuth(false);
       setIsAuthenticated(false);
-      router.replace('/login');
+      performLogout();
       return;
     }
 
@@ -330,7 +377,7 @@ export default function LiecWorkspacePage() {
         localStorage.removeItem('liec_role');
         setCheckingAuth(false);
         setIsAuthenticated(false);
-        router.replace('/login');
+        performLogout();
         return;
       }
 
@@ -372,7 +419,7 @@ export default function LiecWorkspacePage() {
       localStorage.removeItem('liec_role');
       setCheckingAuth(false);
       setIsAuthenticated(false);
-      router.replace('/login');
+      performLogout();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -480,18 +527,9 @@ export default function LiecWorkspacePage() {
   }, [isAuthenticated]);
 
   const handleSessionTimeoutLogout = useCallback(() => {
-    try {
-      localStorage.removeItem('liec_user');
-      localStorage.removeItem('liec_role');
-      localStorage.removeItem('liec_last_activity');
-      document.cookie = 'liec_user_email=; path=/; max-age=0; SameSite=Lax';
-    } catch {}
-    setIsAuthenticated(false);
     setShowSessionWarning(false);
-    router.replace(
-      `/login?reason=session_timeout&role=${encodeURIComponent(userRole || 'staff')}&timeout=${sessionTimeoutMinutes}`
-    );
-  }, [router, userRole, sessionTimeoutMinutes, lang]);
+    performLogout(`reason=session_timeout&role=${encodeURIComponent(userRole || 'staff')}&timeout=${sessionTimeoutMinutes}`);
+  }, [performLogout, userRole, sessionTimeoutMinutes]);
 
   const handleExtendSession = () => {
     const now = Date.now();
@@ -1368,12 +1406,7 @@ export default function LiecWorkspacePage() {
             </div>
 
             <button
-              onClick={() => {
-                localStorage.removeItem('liec_user');
-                localStorage.removeItem('liec_role');
-                document.cookie = 'liec_user_email=; path=/; max-age=0; SameSite=Lax';
-                router.replace('/login');
-              }}
+              onClick={() => performLogout()}
               title={isEn ? 'Log out' : 'Se déconnecter'}
               className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200/70 hover:text-[#092342] transition shrink-0 cursor-pointer"
             >
@@ -2343,11 +2376,8 @@ export default function LiecWorkspacePage() {
             <div className="border-t border-slate-100 pt-3 flex items-center justify-between gap-3">
               <button
                 onClick={() => {
-                  localStorage.removeItem('liec_user');
-                  localStorage.removeItem('liec_role');
-                  document.cookie = 'liec_user_email=; path=/; max-age=0; SameSite=Lax';
                   setShowProfileModal(false);
-                  router.replace('/login');
+                  performLogout();
                 }}
                 className="rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-4 py-2 text-xs font-extrabold flex items-center gap-1.5 transition cursor-pointer"
               >
