@@ -499,6 +499,8 @@ export async function PATCH(req: NextRequest) {
       const verifiedName = activeAdvisor.name;
       const verifiedEmail = activeAdvisor.email;
       const assignedAtIso = new Date().toISOString();
+      const clientProvidedKey = (body.idempotencyKey || body.idempotency_key || req.headers.get('idempotency-key') || '').trim();
+      let originalAssignmentTimestamp: string | null = null;
 
       const assignedProspects: { ref: string; fullName: string; country?: string; program?: string }[] = [];
       const failedRefs: string[] = [];
@@ -510,6 +512,13 @@ export async function PATCH(req: NextRequest) {
           if (!dem) {
             failedRefs.push(targetRef);
             continue;
+          }
+
+          // If this record was already assigned to this advisor, preserve the original assignment timestamp for idempotency
+          if (dem.adviser_email && dem.adviser_email.toLowerCase() === verifiedEmail.toLowerCase() && dem.adviser_assigned_at) {
+            if (!originalAssignmentTimestamp) {
+              originalAssignmentTimestamp = new Date(dem.adviser_assigned_at).toISOString();
+            }
           }
 
           let history: any[] = [];
@@ -588,16 +597,30 @@ export async function PATCH(req: NextRequest) {
       // If at least one prospect was assigned, send email notification
       let emailSent = false;
       let emailError: string | null = null;
+      let emailProvider: string | null = null;
+      let emailMessageId: string | null = null;
       if (assignedProspects.length > 0) {
         try {
+          // Re-use original assignment timestamp on retries so idempotency key is perfectly stable
+          const stableTimestamp = originalAssignmentTimestamp || assignedAtIso;
+          const displayAssignedAt = new Date(stableTimestamp).toLocaleString('fr-FR', { timeZone: 'Africa/Kinshasa' });
+
+          const cleanRefList = assignedProspects.map((p) => p.ref.replace(/[^a-zA-Z0-9_-]/g, '')).sort().join('_');
+          const cleanEmail = verifiedEmail.replace(/[^a-zA-Z0-9_-]/g, '_');
+          const cleanTime = stableTimestamp.replace(/[^0-9]/g, '').slice(0, 14);
+          const stableIdempotencyKey = clientProvidedKey || `assign_${cleanEmail}_${cleanRefList}_${cleanTime}`.slice(0, 120);
+
           const emailRes = await sendAdvisorAssignmentEmail({
             advisorName: verifiedName,
             advisorEmail: verifiedEmail,
             assignedBy: actor,
-            assignedAt: new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Kinshasa' }),
+            assignedAt: displayAssignedAt,
             prospects: assignedProspects,
+            idempotencyKey: stableIdempotencyKey,
           });
           emailSent = emailRes.success;
+          emailProvider = emailRes.provider;
+          emailMessageId = emailRes.messageId || null;
         } catch (e: any) {
           console.warn('Advisor assignment email notification error:', e.message);
           emailError = e.message;
@@ -617,6 +640,8 @@ export async function PATCH(req: NextRequest) {
         failedRefs,
         emailSent,
         emailError,
+        emailProvider,
+        emailMessageId,
         adviserName: verifiedName,
         adviserEmail: verifiedEmail,
       });

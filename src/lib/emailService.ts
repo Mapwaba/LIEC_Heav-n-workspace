@@ -14,7 +14,12 @@ export interface AccommodationEmailPayload {
   specialRequirements?: string;
   partnerEmail?: string;
   partnerContactName?: string;
+  idempotencyKey?: string;
+  confirmedResend?: boolean;
 }
+
+export type EmailProviderType = 'resend' | 'smtp' | 'json_transport' | 'simulated';
+export type EmailDeliveryStatus = 'Pending' | 'Accepted by provider' | 'Delivered' | 'Failed' | 'Bounced';
 
 export interface EmailSendResult {
   success: boolean;
@@ -23,10 +28,42 @@ export interface EmailSendResult {
   sentAt: string;
   error?: string;
   transport: string;
+  provider: EmailProviderType;
+  status: EmailDeliveryStatus;
+  idempotencyKey?: string;
+  details?: Record<string, any>;
+}
+
+export interface SendEmailOptions {
+  to: string | string[];
+  from?: string;
+  replyTo?: string | string[];
+  subject: string;
+  html: string;
+  text: string;
+  idempotencyKey?: string;
+  workflow?: 'accommodation' | 'advisor_assignment' | 'general';
+  reference?: string;
+  allowSimulation?: boolean;
+}
+
+export interface AdvisorAssignmentEmailPayload {
+  advisorName: string;
+  advisorEmail: string;
+  assignedBy: string;
+  assignedAt: string;
+  prospects: {
+    ref: string;
+    fullName: string;
+    country?: string;
+    program?: string;
+  }[];
+  workspaceUrl?: string;
+  idempotencyKey?: string;
 }
 
 /**
- * Validates mandatory fields according to the accommodation partner requirements.
+ * Validates mandatory fields according to accommodation partner requirements.
  */
 export function validateAccommodationMandatoryFields(payload: Partial<AccommodationEmailPayload>): {
   valid: boolean;
@@ -52,27 +89,256 @@ export function validateAccommodationMandatoryFields(payload: Partial<Accommodat
 }
 
 /**
- * Returns the configured accommodation partner recipient email address.
+ * Returns configured accommodation partner recipient email address.
  */
 export function getAccommodationPartnerEmail(): string {
   const envEmail = process.env.ACCOMMODATION_PARTNER_EMAIL?.trim();
   if (envEmail && envEmail.includes('@')) {
     return envEmail;
   }
-  // Standard configured LIEC housing partner address
   return 'housing-partner@liecconsulting.com';
 }
 
 /**
- * Generates the official HTML email body using LIEC Heav'n branding.
+ * Resolves verified sender address with fallback hierarchy.
+ */
+export function resolveSenderAddress(override?: string): string {
+  if (override && override.trim()) {
+    return override.trim();
+  }
+  const resendFrom = process.env.RESEND_FROM?.trim();
+  if (resendFrom) {
+    return resendFrom;
+  }
+  const smtpFrom = process.env.SMTP_FROM?.trim();
+  if (smtpFrom) {
+    return smtpFrom;
+  }
+  return "LIEC Heav'n <bmapwabantoro@liecconsulting.com>";
+}
+
+/**
+ * Returns server-side provider status without exposing credentials.
+ */
+export function getEmailProviderDiagnostics(): {
+  activeProvider: EmailProviderType | 'none';
+  hasResendKey: boolean;
+  hasSmtpConfig: boolean;
+  senderAddress: string;
+  isProduction: boolean;
+} {
+  const hasResend = Boolean(process.env.RESEND_API_KEY?.trim());
+  const hasSmtp = Boolean(
+    process.env.SMTP_HOST?.trim() && process.env.SMTP_USER?.trim() && process.env.SMTP_PASS?.trim()
+  );
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+
+  let activeProvider: EmailProviderType | 'none' = 'none';
+  if (hasResend) activeProvider = 'resend';
+  else if (hasSmtp) activeProvider = 'smtp';
+  else if (!isProduction) activeProvider = 'json_transport';
+
+  return {
+    activeProvider,
+    hasResendKey: hasResend,
+    hasSmtpConfig: hasSmtp,
+    senderAddress: resolveSenderAddress(),
+    isProduction,
+  };
+}
+
+/**
+ * Sends outbound email via the primary configured provider with fallback.
+ * Provider Priority:
+ *  1. Resend REST API (when RESEND_API_KEY is configured)
+ *  2. SMTP via Nodemailer (when SMTP credentials are configured)
+ *  3. JSON Transport (development / simulation only - NEVER in production)
+ */
+export async function sendEmail(options: SendEmailOptions): Promise<EmailSendResult> {
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+  const resendApiKey = process.env.RESEND_API_KEY?.trim();
+  const fromAddress = resolveSenderAddress(options.from);
+
+  const recipientList = Array.isArray(options.to)
+    ? options.to.map((r) => r.trim()).filter(Boolean)
+    : [options.to.trim()].filter(Boolean);
+
+  if (recipientList.length === 0) {
+    throw new Error('Email delivery error: At least one recipient address is required.');
+  }
+
+  const recipientString = recipientList.join(', ');
+  let replyToArray: string[] | undefined = undefined;
+  if (options.replyTo) {
+    replyToArray = Array.isArray(options.replyTo)
+      ? options.replyTo.map((r) => r.trim()).filter(Boolean)
+      : [options.replyTo.trim()].filter(Boolean);
+  }
+
+  // --- PROVIDER 1: RESEND REST API ---
+  if (resendApiKey) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s timeout
+
+    try {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${resendApiKey}`,
+        'Content-Type': 'application/json',
+      };
+
+      if (options.idempotencyKey) {
+        // Enforce Resend idempotency headers to prevent duplicate sends on network retries
+        headers['Idempotency-Key'] = options.idempotencyKey;
+        headers['X-Entity-Ref-ID'] = options.idempotencyKey;
+      }
+
+      const bodyPayload = {
+        from: fromAddress,
+        to: recipientList,
+        reply_to: replyToArray && replyToArray.length > 0 ? replyToArray : undefined,
+        subject: options.subject,
+        html: options.html,
+        text: options.text,
+      };
+
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(bodyPayload),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const messageId = data?.id || `resend_${Date.now()}`;
+
+        return {
+          success: true,
+          messageId,
+          recipient: recipientString,
+          sentAt: new Date().toISOString(),
+          transport: 'resend',
+          provider: 'resend',
+          status: 'Accepted by provider',
+          idempotencyKey: options.idempotencyKey,
+        };
+      }
+
+      // Handle non-200 responses from Resend API (definitive provider rejection)
+      const resendDiag = await res.json().catch(() => ({}));
+      const statusCode = res.status;
+      const errorMsg = resendDiag?.message || `HTTP ${statusCode} ${res.statusText}`;
+
+      // In production workflows, never silently substitute or redirect recipients.
+      // Explicitly fail so that the administrative team can correct configuration.
+      if (statusCode === 403) {
+        throw new Error(
+          `Resend authorization error (403): ${errorMsg}. Please ensure the sender domain (${fromAddress}) is verified in the Resend dashboard and the API key has sending permissions.`
+        );
+      }
+
+      throw new Error(`Resend provider error (${statusCode}): ${errorMsg}`);
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+
+      if (err.name === 'AbortError') {
+        throw new Error(
+          `Resend request timeout (20s). The outbound email request was aborted. Because Resend may have accepted the request, retrying with the same idempotency key (${options.idempotencyKey || 'N/A'}) prevents duplicate dispatch.`
+        );
+      }
+
+      // Surface the error directly; do not silently fail over to secondary providers
+      // after a network attempt to avoid duplicate dispatch across disparate systems.
+      throw err;
+    }
+  }
+
+  // --- PROVIDER 2: SMTP TRANSPORT (Used when Resend is not configured) ---
+  const smtpHost = process.env.SMTP_HOST?.trim();
+  const smtpUser = process.env.SMTP_USER?.trim();
+  const smtpPass = process.env.SMTP_PASS?.trim();
+  const smtpPort = Number(process.env.SMTP_PORT) || 587;
+
+  if (smtpHost && smtpUser && smtpPass) {
+    try {
+      const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpPort === 465,
+        auth: { user: smtpUser, pass: smtpPass },
+      });
+
+      const info = await transporter.sendMail({
+        from: fromAddress,
+        to: recipientString,
+        replyTo: replyToArray && replyToArray.length > 0 ? replyToArray.join(', ') : undefined,
+        subject: options.subject,
+        html: options.html,
+        text: options.text,
+      });
+
+      return {
+        success: true,
+        messageId: info.messageId || `smtp_${Date.now()}`,
+        recipient: recipientString,
+        sentAt: new Date().toISOString(),
+        transport: 'smtp',
+        provider: 'smtp',
+        status: 'Accepted by provider',
+        idempotencyKey: options.idempotencyKey,
+      };
+    } catch (smtpErr: any) {
+      console.error('[SMTP Transport Error]', smtpErr?.message || smtpErr);
+      throw new Error(`SMTP delivery failed: ${smtpErr?.message || 'Outbound transport failed'}`);
+    }
+  }
+
+  // --- PROVIDER 3: JSON TRANSPORT / SIMULATION (DEV ONLY) ---
+  if (isProduction) {
+    throw new Error(
+      'Email Delivery Failure: No production email provider is configured. Neither RESEND_API_KEY nor SMTP credentials were found in the environment. Outbound email cannot be delivered in production.'
+    );
+  }
+
+  // Local development / testing only
+  const simTransporter = nodemailer.createTransport({ jsonTransport: true });
+  const info = await simTransporter.sendMail({
+    from: fromAddress,
+    to: recipientString,
+    replyTo: replyToArray && replyToArray.length > 0 ? replyToArray.join(', ') : undefined,
+    subject: options.subject,
+    html: options.html,
+    text: options.text,
+  });
+
+  const isSimAllowed = Boolean(options.allowSimulation);
+  return {
+    success: isSimAllowed,
+    messageId: info.messageId || `sim_${Date.now()}`,
+    recipient: recipientString,
+    sentAt: new Date().toISOString(),
+    transport: 'json_transport',
+    provider: 'json_transport',
+    status: isSimAllowed ? 'Accepted by provider' : 'Pending',
+    error: isSimAllowed
+      ? undefined
+      : 'Development simulation: Email compiled via JSON transport (no real outbound email was transmitted).',
+    idempotencyKey: options.idempotencyKey,
+  };
+}
+
+/**
+ * Generates the official HTML email body using LIEC Heav\'n branding.
  */
 export function renderAccommodationPartnerHtml(data: AccommodationEmailPayload): string {
-  const partnerName = data.partnerContactName || process.env.ACCOMMODATION_PARTNER_CONTACT_NAME || 'Accommodation Partner Team';
+  const partnerName =
+    data.partnerContactName || process.env.ACCOMMODATION_PARTNER_CONTACT_NAME || 'Accommodation Partner Team';
   const liecContactEmail = process.env.LIEC_CONTACT_EMAIL || 'secretariat@liecconsulting.com';
   const liecContactPhone = process.env.LIEC_CONTACT_PHONE || '+33 4 78 00 00 00';
 
-  return `
-<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -81,17 +347,17 @@ export function renderAccommodationPartnerHtml(data: AccommodationEmailPayload):
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 20px; color: #1e293b; }
     .container { max-width: 650px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
-    .header { background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%); padding: 28px 32px; color: #ffffff; }
+    .header { background: linear-gradient(135deg, #092342 0%, #0c685a 100%); padding: 28px 32px; color: #ffffff; }
     .header h1 { margin: 0 0 6px 0; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
     .header p { margin: 0; font-size: 13px; color: #93c5fd; }
-    .badge { display: inline-block; background: #0284c7; color: #ffffff; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; margin-bottom: 8px; }
+    .badge { display: inline-block; background: #0c685a; color: #ffffff; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; margin-bottom: 8px; }
     .content { padding: 32px; font-size: 14px; line-height: 1.6; }
-    .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #0284c7; margin: 24px 0 12px 0; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }
+    .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #0c685a; margin: 24px 0 12px 0; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }
     .data-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
     .data-table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; font-size: 13.5px; }
     .data-table td.label { width: 38%; font-weight: 600; color: #64748b; background-color: #f8fafc; }
-    .data-table td.val { width: 62%; font-weight: 500; color: #0f172a; }
-    .highlight-box { background: #f0f9ff; border-left: 4px solid #0284c7; padding: 14px 16px; border-radius: 0 8px 8px 0; margin: 20px 0; font-size: 13.5px; }
+    .data-table td.val { width: 62%; font-weight: 500; color: #092342; }
+    .highlight-box { background: #f0faf7; border-left: 4px solid #0c685a; padding: 14px 16px; border-radius: 0 8px 8px 0; margin: 20px 0; font-size: 13.5px; }
     .footer { background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 24px 32px; font-size: 12.5px; color: #64748b; }
     .signature { margin-top: 24px; font-weight: 500; }
   </style>
@@ -99,65 +365,65 @@ export function renderAccommodationPartnerHtml(data: AccommodationEmailPayload):
 <body>
   <div class="container">
     <div class="header">
-      <div class="badge">Official Partner Communication</div>
-      <h1>LIEC Accommodation Request</h1>
-      <p>Reference: <strong>${data.requestRef}</strong> • Lyon International Education Consulting</p>
+      <div class="badge">Official Partner Dispatch</div>
+      <h1>LIEC Heav'n - Student Housing Reservation Request</h1>
+      <p>Lyon International Education Consulting (LIEC) &bull; Ref: ${data.requestRef}</p>
     </div>
 
     <div class="content">
-      <p>Dear ${partnerName},</p>
-      <p>Lyon International Education Consulting (LIEC) is submitting an accommodation reservation request on behalf of the following student.</p>
+      <p>Dear <strong>${partnerName}</strong>,</p>
+      <p>Please find below the official student housing request submitted by LIEC on behalf of our enrolled candidate. All student and admission background details have been verified by our admissions secretariat.</p>
 
-      <div class="section-title">Student Information</div>
+      <div class="section-title">Candidate Details</div>
       <table class="data-table">
         <tr>
-          <td class="label">Full Name</td>
-          <td class="val"><strong>${data.studentFullName}</strong></td>
+          <td class="label">Candidate Name:</td>
+          <td class="val">${data.studentFullName}</td>
         </tr>
         <tr>
-          <td class="label">LIEC Reference</td>
-          <td class="val">${data.studentRef}</td>
+          <td class="label">LIEC Reference:</td>
+          <td class="val"><code>${data.studentRef}</code></td>
         </tr>
         <tr>
-          <td class="label">Email</td>
-          <td class="val"><a href="mailto:${data.studentEmail}" style="color: #0284c7;">${data.studentEmail}</a></td>
-        </tr>
-        <tr>
-          <td class="label">Phone / WhatsApp</td>
-          <td class="val">${data.studentPhone}</td>
-        </tr>
-        <tr>
-          <td class="label">Nationality</td>
+          <td class="label">Nationality:</td>
           <td class="val">${data.studentNationality}</td>
         </tr>
         <tr>
-          <td class="label">Expected Arrival Date</td>
+          <td class="label">Candidate Email:</td>
+          <td class="val"><a href="mailto:${data.studentEmail}" style="color: #0c685a;">${data.studentEmail}</a></td>
+        </tr>
+        <tr>
+          <td class="label">Contact Phone:</td>
+          <td class="val">${data.studentPhone}</td>
+        </tr>
+      </table>
+
+      <div class="section-title">Accommodation Specifications</div>
+      <table class="data-table">
+        <tr>
+          <td class="label">Expected Arrival Date:</td>
           <td class="val"><strong>${data.arrivalDate}</strong></td>
         </tr>
         <tr>
-          <td class="label">Preferred Location</td>
+          <td class="label">Preferred Location:</td>
           <td class="val">${data.preferredLocation}</td>
         </tr>
         <tr>
-          <td class="label">Accommodation Type</td>
+          <td class="label">Accommodation Type:</td>
           <td class="val">${data.accommodationType}</td>
         </tr>
         <tr>
-          <td class="label">Budget</td>
+          <td class="label">Indicated Monthly Budget:</td>
           <td class="val"><strong>${data.budget}</strong></td>
         </tr>
         <tr>
-          <td class="label">Additional Requirements</td>
-          <td class="val">${data.specialRequirements || 'Standard student requirements (furnished, internet connection).'}</td>
-        </tr>
-        <tr>
-          <td class="label">Request Reference</td>
-          <td class="val"><strong style="color: #0369a1;">${data.requestRef}</strong></td>
+          <td class="label">Special Requirements / Notes:</td>
+          <td class="val">${data.specialRequirements?.trim() || 'None specified'}</td>
         </tr>
       </table>
 
       <div class="highlight-box">
-        <strong>Next Steps & Partner Action:</strong><br>
+        <strong>Next Steps:</strong><br>
         Please review this request and confirm availability, the proposed accommodation arrangements, pricing, and any additional documents or information required to proceed.<br><br>
         <em>Kindly include the accommodation request reference <strong>(${data.requestRef})</strong> in your response.</em>
       </div>
@@ -174,46 +440,15 @@ export function renderAccommodationPartnerHtml(data: AccommodationEmailPayload):
     </div>
 
     <div class="footer">
-      This transmission is confidential and intended solely for the designated LIEC accommodation partner. LIEC Heav’n Education Management Workspace • Lyon, France.
+      This transmission is confidential and intended solely for the designated LIEC accommodation partner. LIEC Heav'n Education Management Workspace &bull; Lyon, France.
     </div>
   </div>
 </body>
-</html>
-  `.trim();
+</html>`.trim();
 }
 
 /**
- * Creates and configures the mail transporter.
- */
-function createTransporter() {
-  const host = process.env.SMTP_HOST?.trim();
-  const port = Number(process.env.SMTP_PORT) || 587;
-  const user = process.env.SMTP_USER?.trim();
-  const pass = process.env.SMTP_PASS?.trim();
-
-  if (host && user && pass) {
-    return {
-      transporter: nodemailer.createTransport({
-        host,
-        port,
-        secure: port === 465,
-        auth: { user, pass },
-      }),
-      type: 'smtp',
-    };
-  }
-
-  // Built-in verified secure test transporter (executes full nodemailer RFC/MIME compilation)
-  return {
-    transporter: nodemailer.createTransport({
-      jsonTransport: true,
-    }),
-    type: 'internal_mail_service',
-  };
-}
-
-/**
- * Sends the formatted accommodation request email to the partner.
+ * Sends formatted accommodation request email to the partner via primary provider.
  */
 export async function sendAccommodationPartnerEmail(
   payload: AccommodationEmailPayload
@@ -224,63 +459,61 @@ export async function sendAccommodationPartnerEmail(
   }
 
   const recipient = payload.partnerEmail?.trim() || getAccommodationPartnerEmail();
-  const subject = `LIEC Accommodation Request — ${payload.requestRef} — ${payload.studentFullName}`;
+  const subject = `LIEC Accommodation Request - ${payload.requestRef} - ${payload.studentFullName}`;
   const htmlContent = renderAccommodationPartnerHtml({ ...payload, partnerEmail: recipient });
 
-  const { transporter, type } = createTransporter();
+  const textContent =
+    `LIEC Accommodation Request - ${payload.requestRef} - ${payload.studentFullName}
 
-  const fromAddress =
-    process.env.SMTP_FROM || 'LIEC Secretariat <secretariat@liecconsulting.com>';
+` +
+    `Student Full Name: ${payload.studentFullName}
+` +
+    `LIEC Reference: ${payload.studentRef}
+` +
+    `Email: ${payload.studentEmail}
+` +
+    `Phone: ${payload.studentPhone}
+` +
+    `Nationality: ${payload.studentNationality}
+` +
+    `Expected Arrival Date: ${payload.arrivalDate}
+` +
+    `Preferred Location: ${payload.preferredLocation}
+` +
+    `Accommodation Type: ${payload.accommodationType}
+` +
+    `Budget: ${payload.budget}
+` +
+    `Additional Requirements: ${payload.specialRequirements || 'N/A'}
+` +
+    `Request Reference: ${payload.requestRef}
 
-  const info = await transporter.sendMail({
-    from: fromAddress,
+` +
+    `Please review this request and confirm availability and pricing.`;
+
+  // Compute stable idempotency key for Resend deduplication
+  const cleanRef = payload.requestRef.replace(/[^a-zA-Z0-9_-]/g, '');
+  const idempotencyKey =
+    payload.idempotencyKey ||
+    (payload.confirmedResend ? `acc_${cleanRef}_resend_${Date.now()}` : `acc_${cleanRef}`);
+
+  return sendEmail({
     to: recipient,
     subject,
     html: htmlContent,
-    text: `LIEC Accommodation Request — ${payload.requestRef} — ${payload.studentFullName}\n\n` +
-      `Student Full Name: ${payload.studentFullName}\n` +
-      `LIEC Reference: ${payload.studentRef}\n` +
-      `Email: ${payload.studentEmail}\n` +
-      `Phone: ${payload.studentPhone}\n` +
-      `Nationality: ${payload.studentNationality}\n` +
-      `Expected Arrival Date: ${payload.arrivalDate}\n` +
-      `Preferred Location: ${payload.preferredLocation}\n` +
-      `Accommodation Type: ${payload.accommodationType}\n` +
-      `Budget: ${payload.budget}\n` +
-      `Additional Requirements: ${payload.specialRequirements || 'N/A'}\n` +
-      `Request Reference: ${payload.requestRef}\n\n` +
-      `Please review this request and confirm availability and pricing.`,
+    text: textContent,
+    idempotencyKey,
+    workflow: 'accommodation',
+    reference: payload.requestRef,
   });
-
-  return {
-    success: true,
-    messageId: info.messageId || `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-    recipient,
-    sentAt: new Date().toISOString(),
-    transport: type,
-  };
-}
-
-
-export interface AdvisorAssignmentEmailPayload {
-  advisorName: string;
-  advisorEmail: string;
-  assignedBy: string;
-  assignedAt: string;
-  prospects: {
-    ref: string;
-    fullName: string;
-    country?: string;
-    program?: string;
-  }[];
-  workspaceUrl?: string;
 }
 
 /**
  * Renders HTML email template for newly assigned prospects using LIEC branding.
  */
 export function renderAdvisorAssignmentHtml(data: AdvisorAssignmentEmailPayload): string {
-  const workspaceUrl = data.workspaceUrl || process.env.NEXT_PUBLIC_APP_URL || 'https://workspace.liecconsulting.com';
+  const workspaceUrl =
+    data.workspaceUrl || process.env.NEXT_PUBLIC_APP_URL || 'https://workspace.liecconsulting.com';
   const count = data.prospects.length;
 
   const rowsHtml = data.prospects
@@ -290,7 +523,7 @@ export function renderAdvisorAssignmentHtml(data: AdvisorAssignmentEmailPayload)
         <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #092342;">${p.ref}</td>
         <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #1e293b;">${p.fullName}</td>
         <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #0c685a; font-size: 13px;">${p.program || 'Lyon Partner Program'}</td>
-        <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 13px;">${p.country || 'RDC'}</td>
+        <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 13px;">${p.country || 'DRC'}</td>
       </tr>`
     )
     .join('');
@@ -300,7 +533,7 @@ export function renderAdvisorAssignmentHtml(data: AdvisorAssignmentEmailPayload)
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>New Prospect Assignment – LIEC Heav’n</title>
+  <title>New Prospect Assignment - LIEC Heav'n</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
     .container { max-width: 650px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
@@ -321,9 +554,9 @@ export function renderAdvisorAssignmentHtml(data: AdvisorAssignmentEmailPayload)
 <body>
   <div class="container">
     <div class="header">
-      <div class="badge">LIEC Heav’n • CRM Advisory Notification</div>
+      <div class="badge">LIEC Heav'n - CRM Advisory Notification</div>
       <h1>New Prospect Assignment</h1>
-      <p>Official assignment notification from the LIEC Heav’n CRM Pipeline</p>
+      <p>Official assignment notification from the LIEC Heav'n CRM Pipeline</p>
     </div>
     <div class="content">
       <p>Dear <strong>${data.advisorName}</strong>,</p>
@@ -357,16 +590,16 @@ export function renderAdvisorAssignmentHtml(data: AdvisorAssignmentEmailPayload)
       </div>
     </div>
     <div class="footer">
-      <p style="margin: 0 0 6px 0;"><strong>LIEC Heav'n Consulting • Student Intake &amp; Advisory Platform</strong></p>
+      <p style="margin: 0 0 6px 0;"><strong>LIEC Heav'n Consulting &bull; Student Intake &amp; Advisory Platform</strong></p>
       <p style="margin: 0;">Security &amp; Confidentiality Notice: This message contains confidential internal assignment information intended solely for authorized LIEC advisory personnel. Do not forward or expose externally.</p>
     </div>
   </div>
 </body>
-</html>`;
+</html>`.trim();
 }
 
 /**
- * Sends professional assignment email to the assigned advisor.
+ * Sends professional assignment email to the assigned advisor via primary provider.
  */
 export async function sendAdvisorAssignmentEmail(
   payload: AdvisorAssignmentEmailPayload
@@ -376,15 +609,15 @@ export async function sendAdvisorAssignmentEmail(
     throw new Error('Invalid advisor professional email address');
   }
 
-  const subject = `New Prospect Assignment – LIEC Heav’n (${payload.prospects.length} lead${payload.prospects.length > 1 ? 's' : ''})`;
+  const subject = `New Prospect Assignment - LIEC Heav'n (${payload.prospects.length} lead${payload.prospects.length > 1 ? 's' : ''})`;
   const htmlContent = renderAdvisorAssignmentHtml(payload);
 
   const prospectListText = payload.prospects
-    .map((p) => `- ${p.ref}: ${p.fullName} (${p.program || 'Partner School Lyon'}, ${p.country || 'RDC'})`)
+    .map((p) => `- ${p.ref}: ${p.fullName} (${p.program || 'Partner School Lyon'}, ${p.country || 'DRC'})`)
     .join('\n');
 
   const textContent = [
-    'New Prospect Assignment – LIEC Heav’n',
+    "New Prospect Assignment - LIEC Heav'n",
     '',
     `Dear ${payload.advisorName},`,
     '',
@@ -398,25 +631,25 @@ export async function sendAdvisorAssignmentEmail(
     "Access your assigned prospects in the LIEC Heav'n Workspace:",
     payload.workspaceUrl || 'https://workspace.liecconsulting.com',
     '',
-    "LIEC Heav'n Consulting • Confidential Advisory Internal Communication",
+    "LIEC Heav'n Consulting - Confidential Advisory Internal Communication",
   ].join('\n');
 
-  const { transporter, type } = createTransporter();
-  const fromAddress = process.env.SMTP_FROM || 'LIEC Secretariat <secretariat@liecconsulting.com>';
+  // Compute stable idempotency key for Resend deduplication
+  const refList = payload.prospects
+    .map((p) => p.ref.replace(/[^a-zA-Z0-9_-]/g, ''))
+    .sort()
+    .join('_');
+  const cleanEmail = recipient.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const cleanTime = payload.assignedAt.replace(/[^0-9]/g, '').substring(0, 12);
+  const idempotencyKey =
+    payload.idempotencyKey || `assign_${cleanEmail}_${refList}_${cleanTime}`.substring(0, 120);
 
-  const info = await transporter.sendMail({
-    from: fromAddress,
+  return sendEmail({
     to: recipient,
     subject,
     html: htmlContent,
     text: textContent,
+    idempotencyKey,
+    workflow: 'advisor_assignment',
   });
-
-  return {
-    success: true,
-    messageId: info.messageId || `assign_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-    recipient,
-    sentAt: new Date().toISOString(),
-    transport: type,
-  };
 }

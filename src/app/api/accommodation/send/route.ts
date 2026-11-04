@@ -131,12 +131,21 @@ export async function POST(req: NextRequest) {
       // 4. Send email via secure server-side service
       const sendResult = await sendAccommodationPartnerEmail(emailPayload);
 
+      // Never treat development simulation as a successful production send
+      if (!sendResult.success) {
+        throw new Error(sendResult.error || 'Outbound email delivery was not accepted by any configured provider.');
+      }
+
       // 5. Update submission status only after confirmation of successful outbound submission
+      const providerLabel =
+        sendResult.provider === 'resend' ? 'Resend' : sendResult.provider === 'smtp' ? 'SMTP' : 'Mail Service';
+      const emailDeliveryStatus = sendResult.status || 'Accepted by provider';
+
       history.unshift({
         timestamp,
         author: `${user.name} (${user.business_profile})`,
         action: 'EMAIL_SENT',
-        details: `Dispatched official partner email to ${sendResult.recipient} (Message ID: ${sendResult.messageId}).`,
+        details: `Dispatched official partner email to ${sendResult.recipient} via ${providerLabel} (Message ID: ${sendResult.messageId}). Status: ${emailDeliveryStatus}.`,
         status: 'Sent',
       });
 
@@ -146,14 +155,15 @@ export async function POST(req: NextRequest) {
           email_sent_at = CURRENT_TIMESTAMP,
           email_sent_by = $1,
           email_recipient = $2,
-          email_status = 'Sent',
+          email_status = $3,
           email_error = NULL,
-          history_json = $3,
+          history_json = $4,
           updated_at = CURRENT_TIMESTAMP
-         WHERE ref = $4`,
+         WHERE ref = $5`,
         [
           `${user.name} (${user.business_profile})`,
           sendResult.recipient,
+          emailDeliveryStatus,
           JSON.stringify(history),
           ref,
         ]
@@ -166,7 +176,7 @@ export async function POST(req: NextRequest) {
           timestamp,
           author: `${user.name} (${user.business_profile})`,
           activity_type: 'ACCOMMODATION_SUBMITTED',
-          details: `Accommodation request ${ref} successfully submitted by email to partner (${sendResult.recipient}).`,
+          details: `Accommodation request ${ref} successfully submitted by email to partner (${sendResult.recipient}) via ${providerLabel}.`,
         });
         await db.query('UPDATE candidats SET history_json = $1 WHERE ref = $2', [
           JSON.stringify(studentHistory),
@@ -183,17 +193,19 @@ export async function POST(req: NextRequest) {
         [
           `${user.name} (${user.business_profile})`,
           ref,
-          `Successfully sent accommodation request to ${sendResult.recipient} for student ${student.full_name} (${student.ref}). Message ID: ${sendResult.messageId}`,
+          `Successfully dispatched accommodation request to ${sendResult.recipient} for student ${student.full_name} (${student.ref}) via ${providerLabel}. Message ID: ${sendResult.messageId}. Status: ${emailDeliveryStatus}.`,
         ]
       );
 
       return NextResponse.json({
         success: true,
         status: 'Sent',
+        emailStatus: emailDeliveryStatus,
+        provider: sendResult.provider,
         recipient: sendResult.recipient,
         sentAt: sendResult.sentAt,
         messageId: sendResult.messageId,
-        message: `Accommodation request ${ref} successfully sent to ${sendResult.recipient}.`,
+        message: `Accommodation request ${ref} successfully accepted by ${providerLabel} for delivery to ${sendResult.recipient}.`,
       });
     } catch (sendError: any) {
       console.error('Email sending failed:', sendError);
