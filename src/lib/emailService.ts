@@ -550,7 +550,11 @@ export function resolveWorkspaceRedirectUrl(override?: string): string {
   if (override && override.startsWith('http')) {
     return override.includes('?') ? override : `${override.replace(/\/+$/, '')}/?tab=prospects`;
   }
-  return 'https://liec-heav-n-workspace-git-main-bmapwabantoro-7094.vercel.app/?tab=prospects';
+  const customUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || '').trim();
+  if (customUrl && !customUrl.includes('localhost') && !customUrl.includes('127.0.0.1')) {
+    return customUrl.includes('?') ? customUrl : `${customUrl.replace(/\/+$/, '')}/?tab=prospects`;
+  }
+  return 'https://workspace.liecconsulting.com/?tab=prospects';
 }
 
 /**

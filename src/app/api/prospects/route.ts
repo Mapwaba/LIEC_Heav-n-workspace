@@ -223,7 +223,7 @@ export async function PATCH(req: NextRequest) {
             assignedBy: actor,
             assignedAt: displayAssignedAt,
             prospects: assignedProspects,
-            workspaceUrl: 'https://liec-heav-n-workspace-git-main-bmapwabantoro-7094.vercel.app/?tab=prospects',
+            workspaceUrl: 'https://workspace.liecconsulting.com/?tab=prospects',
             idempotencyKey: stableIdempotencyKey,
           });
           emailSent = emailRes.success;
@@ -490,7 +490,7 @@ export async function PUT(req: NextRequest) {
                 program: program_tag || oldP.program_tag,
               },
             ],
-            workspaceUrl: 'https://liec-heav-n-workspace-git-main-bmapwabantoro-7094.vercel.app/?tab=prospects',
+            workspaceUrl: 'https://workspace.liecconsulting.com/?tab=prospects',
             idempotencyKey,
           });
 
