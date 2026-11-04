@@ -100,21 +100,56 @@ export function getAccommodationPartnerEmail(): string {
 }
 
 /**
- * Resolves verified sender address with fallback hierarchy.
+ * Cleans and sanitizes the sender address so it strictly adheres
+ * to RFC 5322 and Resend API validation rules: "Name <email@example.com>" or "email@example.com".
+ * Strips accidental wrapping quotes, apostrophes, and curly quotes which trigger Resend HTTP 422.
+ */
+export function cleanSenderAddress(raw: string): string {
+  if (!raw) return 'bmapwabantoro@liecconsulting.com';
+  let clean = raw.trim().replace(/^["']+|["']+$/g, '').trim();
+
+  // Bare email format
+  if (/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+.[a-zA-Z]{2,}$/.test(clean)) {
+    return clean;
+  }
+
+  // Name <email@example.com> format
+  const angleMatch = clean.match(/<([^>]+)>/);
+  if (angleMatch) {
+    const email = angleMatch[1].trim();
+    let name = clean.slice(0, clean.indexOf('<')).trim();
+    // Resend 422: Invalid 'from' field occurs if name has apostrophes or quotation marks
+    name = name.replace(/["'’`]/g, '').trim();
+    if (name) {
+      return `${name} <${email}>`;
+    }
+    return email;
+  }
+
+  const emailMatch = clean.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+.[a-zA-Z]{2,}/);
+  if (emailMatch) {
+    return emailMatch[0];
+  }
+
+  return clean;
+}
+
+/**
+ * Resolves verified sender address with fallback hierarchy and strict formatting.
  */
 export function resolveSenderAddress(override?: string): string {
   if (override && override.trim()) {
-    return override.trim();
+    return cleanSenderAddress(override.trim());
   }
   const resendFrom = process.env.RESEND_FROM?.trim();
   if (resendFrom) {
-    return resendFrom;
+    return cleanSenderAddress(resendFrom);
   }
   const smtpFrom = process.env.SMTP_FROM?.trim();
   if (smtpFrom) {
-    return smtpFrom;
+    return cleanSenderAddress(smtpFrom);
   }
-  return "LIEC Heav'n <bmapwabantoro@liecconsulting.com>";
+  return 'LIEC Heavn <bmapwabantoro@liecconsulting.com>';
 }
 
 /**
