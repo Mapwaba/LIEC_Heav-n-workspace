@@ -616,6 +616,7 @@ export async function PATCH(req: NextRequest) {
             assignedBy: actor,
             assignedAt: displayAssignedAt,
             prospects: assignedProspects,
+            workspaceUrl: 'https://workspace.liecconsulting.com?tab=prospects',
             idempotencyKey: stableIdempotencyKey,
           });
           emailSent = emailRes.success;

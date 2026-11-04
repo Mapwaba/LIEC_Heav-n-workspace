@@ -664,7 +664,7 @@ export async function sendAdvisorAssignmentEmail(
     `Date & Time: ${payload.assignedAt}`,
     '',
     "Access your assigned prospects in the LIEC Heav'n Workspace:",
-    payload.workspaceUrl || 'https://workspace.liecconsulting.com',
+    resolveWorkspaceRedirectUrl(payload.workspaceUrl),
     '',
     "LIEC Heav'n Consulting - Confidential Advisory Internal Communication",
   ].join('\n');

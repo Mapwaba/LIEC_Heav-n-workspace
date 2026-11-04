@@ -394,11 +394,20 @@ export default function LiecWorkspacePage() {
         localStorage.setItem('liec_last_activity', String(freshNow));
       } catch {}
 
-      if (u.role === 'avi') {
-        setActiveTab('services');
-      } else {
-        setActiveTab('overview');
+      let initialTab: NavTab = u.role === 'avi' ? 'services' : 'overview';
+      if (typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search);
+        const requestedTab = urlParams.get('tab') as NavTab | null;
+        const validTabs: NavTab[] = [
+          'overview', 'demandes', 'prospects', 'candidats', 'prepa',
+          'services', 'accommodation', 'contenus', 'finance',
+          'notifications', 'parametres', 'support'
+        ];
+        if (requestedTab && validTabs.includes(requestedTab)) {
+          initialTab = requestedTab;
+        }
       }
+      setActiveTab(initialTab);
 
       const savedLang = localStorage.getItem('liec_lang') as Lang | null;
       if (savedLang === 'fr' || savedLang === 'en') {

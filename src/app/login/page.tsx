@@ -20,6 +20,17 @@ interface TwoFaSetupData {
   };
 }
 
+function getRedirectTarget(): string {
+  if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    if (tab) return `/?tab=${encodeURIComponent(tab)}`;
+    const redirect = params.get('redirect');
+    if (redirect && redirect.startsWith('/')) return redirect;
+  }
+  return '/';
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [step, setStep] = useState<'credentials' | '2fa' | 'first_login_password_change'>('credentials');
@@ -131,7 +142,7 @@ export default function LoginPage() {
         localStorage.setItem('liec_user', JSON.stringify(data.user));
         localStorage.setItem('liec_role', data.user.role);
         document.cookie = `liec_user_email=${encodeURIComponent(data.user.email)}; path=/; max-age=604800; SameSite=Lax`;
-        window.location.replace('/');
+        window.location.replace(getRedirectTarget());
       } else {
         setError(data.error || 'Invalid credentials. Please check your email and password.');
       }
@@ -162,7 +173,7 @@ export default function LoginPage() {
         localStorage.setItem('liec_user', JSON.stringify(fallbackUser));
         localStorage.setItem('liec_role', fallbackUser.role);
         document.cookie = `liec_user_email=${encodeURIComponent(fallbackUser.email)}; path=/; max-age=604800; SameSite=Lax`;
-        window.location.replace('/');
+        window.location.replace(getRedirectTarget());
       } else {
         setError('Invalid credentials. Please check your email address and password.');
       }
@@ -200,7 +211,7 @@ export default function LoginPage() {
         localStorage.setItem('liec_user', JSON.stringify(data.user));
         localStorage.setItem('liec_role', data.user.role);
         document.cookie = `liec_user_email=${encodeURIComponent(data.user.email)}; path=/; max-age=604800; SameSite=Lax`;
-        window.location.replace('/');
+        window.location.replace(getRedirectTarget());
       } else {
         setError(data.error || 'Code Google Authenticator invalide ou expiré.');
       }
@@ -210,7 +221,7 @@ export default function LoginPage() {
         localStorage.setItem('liec_user', JSON.stringify(twoFaData.user));
         localStorage.setItem('liec_role', twoFaData.user.role);
         document.cookie = `liec_user_email=${encodeURIComponent(twoFaData.user.email)}; path=/; max-age=604800; SameSite=Lax`;
-        window.location.replace('/');
+        window.location.replace(getRedirectTarget());
       } else {
         setError('Code à 6 chiffres invalide.');
       }
@@ -247,7 +258,7 @@ export default function LoginPage() {
         localStorage.setItem('liec_user', JSON.stringify(data.user));
         localStorage.setItem('liec_role', data.user.role);
         document.cookie = `liec_user_email=${encodeURIComponent(data.user.email)}; path=/; max-age=604800; SameSite=Lax`;
-        window.location.replace('/');
+        window.location.replace(getRedirectTarget());
       } else {
         setError(data.error || 'Erreur lors du changement de mot de passe.');
       }
