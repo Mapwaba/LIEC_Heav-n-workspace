@@ -544,11 +544,20 @@ export async function sendAccommodationPartnerEmail(
 }
 
 /**
+ * Resolves the canonical workspace redirect URL for advisor email notifications.
+ */
+export function resolveWorkspaceRedirectUrl(override?: string): string {
+  if (override && override.startsWith('http') && override.includes('workspace.liecconsulting.com')) {
+    return override.includes('?') ? override : `${override}?tab=prospects`;
+  }
+  return 'https://workspace.liecconsulting.com?tab=prospects';
+}
+
+/**
  * Renders HTML email template for newly assigned prospects using LIEC branding.
  */
 export function renderAdvisorAssignmentHtml(data: AdvisorAssignmentEmailPayload): string {
-  const workspaceUrl =
-    data.workspaceUrl || process.env.NEXT_PUBLIC_APP_URL || 'https://workspace.liecconsulting.com';
+  const workspaceUrl = resolveWorkspaceRedirectUrl(data.workspaceUrl);
   const count = data.prospects.length;
 
   const rowsHtml = data.prospects
