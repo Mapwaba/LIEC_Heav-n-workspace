@@ -547,10 +547,10 @@ export async function sendAccommodationPartnerEmail(
  * Resolves the canonical workspace redirect URL for advisor email notifications.
  */
 export function resolveWorkspaceRedirectUrl(override?: string): string {
-  if (override && override.startsWith('http') && override.includes('workspace.liecconsulting.com')) {
-    return override.includes('?') ? override : `${override}?tab=prospects`;
+  if (override && override.startsWith('http')) {
+    return override.includes('?') ? override : `${override.replace(/\/+$/, '')}/?tab=prospects`;
   }
-  return 'https://workspace.liecconsulting.com?tab=prospects';
+  return 'https://liec-heav-n-workspace-git-main-bmapwabantoro-7094.vercel.app/?tab=prospects';
 }
 
 /**
