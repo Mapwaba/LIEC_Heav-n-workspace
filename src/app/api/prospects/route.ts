@@ -228,9 +228,21 @@ export async function PATCH(req: NextRequest) {
           emailSent = emailRes.success;
           emailProvider = emailRes.provider;
           emailMessageId = emailRes.messageId || null;
+
+          await db.query(
+            `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+             VALUES ($1, 'Advisor Email Dispatched', $2, 'Succès', $3)`,
+            [actor, `PROSPECTS-${assignedProspects.length}`, `Dispatched to ${verifiedEmail} via ${emailProvider}. ID: ${emailMessageId || 'N/A'}`]
+          );
         } catch (e: any) {
           console.warn('Advisor assignment email notification error:', e.message);
           emailError = e.message;
+
+          await db.query(
+            `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+             VALUES ($1, 'Advisor Email Failed', $2, 'Echec', $3)`,
+            [actor, `PROSPECTS-${assignedProspects.length}`, `Failed to dispatch to ${verifiedEmail}: ${e.message}`]
+          );
         }
       }
 
@@ -483,9 +495,21 @@ export async function PUT(req: NextRequest) {
           emailSent = emailRes.success;
           emailProvider = emailRes.provider;
           emailMessageId = emailRes.messageId || null;
+
+          await db.query(
+            `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+             VALUES ($1, 'Advisor Email Dispatched', $2, 'Succès', $3)`,
+            [actor, `PROSPECT-${pId}`, `Dispatched to ${verifiedAdviserEmail} via ${emailProvider}. ID: ${emailMessageId || 'N/A'}`]
+          );
         } catch (e: any) {
           console.warn('Advisor assignment email notification error on prospect card edit:', e.message);
           emailError = e.message;
+
+          await db.query(
+            `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+             VALUES ($1, 'Advisor Email Failed', $2, 'Echec', $3)`,
+            [actor, `PROSPECT-${pId}`, `Failed to dispatch to ${verifiedAdviserEmail}: ${e.message}`]
+          );
         }
 
         await db.query(
