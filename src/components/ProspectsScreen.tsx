@@ -253,7 +253,13 @@ export default function ProspectsScreen({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Assignment failed');
-      onNotify(isEn ? `Assigned ${data.assignedCount} prospect(s) to ${advisorName}.` : `${data.assignedCount} prospect(s) attribué(s) à ${advisorName}.`);
+      let notifyMsg = isEn ? `Assigned ${data.assignedCount} prospect(s) to ${advisorName}.` : `${data.assignedCount} prospect(s) attribué(s) à ${advisorName}.`;
+      if (data.emailSent) {
+        notifyMsg += isEn ? ` Official notification sent via ${data.emailProvider || 'Resend'}.` : ` Notification envoyée via ${data.emailProvider || 'Resend'}.`;
+      } else if (data.emailError) {
+        notifyMsg += isEn ? ` Warning: email delivery failed (${data.emailError}).` : ` Attention : échec d'envoi d'email (${data.emailError}).`;
+      }
+      onNotify(notifyMsg);
       setCheckedIds([]);
       onRefresh();
     } finally {

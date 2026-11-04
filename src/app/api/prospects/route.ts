@@ -370,23 +370,130 @@ export async function PUT(req: NextRequest) {
       country_city,
       program_tag,
       adviser_name,
+      adviser_email,
       estimated_value,
       is_urgent,
       meta_right,
       meta_left,
+      badge_text,
+      actor: clientActor,
     } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Prospect ID requis' }, { status: 400 });
     }
 
+    const pId = Number(id);
+    const oldRes = await db.query(`SELECT * FROM prospects WHERE id = $1`, [pId]);
+    const oldP = oldRes.rows[0];
+    if (!oldP) {
+      return NextResponse.json({ error: 'Prospect introuvable' }, { status: 404 });
+    }
+
+    const actor =
+      clientActor ||
+      req.headers.get('x-user-name') ||
+      req.headers.get('x-user-email') ||
+      'Barthelemy MAPWABA NTORO';
+
     let adviserInitials = undefined;
+    let verifiedAdviserName = adviser_name;
+    let verifiedAdviserEmail = adviser_email;
+    let emailSent = false;
+    let emailError: string | null = null;
+    let emailProvider: string | null = null;
+    let emailMessageId: string | null = null;
+
     if (adviser_name) {
       adviserInitials = adviser_name
         .split(/\s+/)
         .map((w: string) => w[0]?.toUpperCase() || '')
         .join('')
         .slice(0, 2);
+
+      // Verify and resolve advisor email from users table
+      const uRes = await db.query(
+        `SELECT id, name, email FROM users WHERE active = TRUE AND (LOWER(name) = LOWER($1) OR LOWER(email) = LOWER($1) OR LOWER(email) = LOWER($2)) LIMIT 1`,
+        [adviser_name.trim(), (adviser_email || '').trim()]
+      );
+
+      if (uRes.rows.length > 0) {
+        verifiedAdviserName = uRes.rows[0].name;
+        verifiedAdviserEmail = uRes.rows[0].email;
+      }
+
+      // If an advisor is newly assigned or changed, dispatch notification email
+      const isNewOrChangedAdvisor =
+        verifiedAdviserName &&
+        (oldP.adviser_name !== verifiedAdviserName || !oldP.adviser_email);
+
+      if (isNewOrChangedAdvisor && verifiedAdviserEmail) {
+        const assignedAtIso = new Date().toISOString();
+        const displayAssignedAt = new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Kinshasa' });
+
+        let history: any[] = [];
+        try {
+          history = oldP.assignment_history_json ? JSON.parse(oldP.assignment_history_json) : [];
+          if (!Array.isArray(history)) history = [];
+        } catch {
+          history = [];
+        }
+
+        history.unshift({
+          previous_adviser: oldP.adviser_name || 'Unassigned',
+          previous_adviser_email: oldP.adviser_email || null,
+          new_adviser: verifiedAdviserName,
+          new_adviser_email: verifiedAdviserEmail,
+          assigned_by: actor,
+          assigned_at: assignedAtIso,
+          source: 'prospect card modal edit',
+        });
+
+        await db.query(
+          `UPDATE prospects SET
+            adviser_assigned_at = CURRENT_TIMESTAMP,
+            adviser_assigned_by = $1,
+            assignment_history_json = $2
+           WHERE id = $3`,
+          [actor, JSON.stringify(history), pId]
+        );
+
+        try {
+          const cleanRef = `PROSPECT-${pId}`.replace(/[^a-zA-Z0-9_-]/g, '');
+          const cleanEmail = verifiedAdviserEmail.replace(/[^a-zA-Z0-9_-]/g, '_');
+          const cleanTime = assignedAtIso.replace(/[^0-9]/g, '').slice(0, 14);
+          const idempotencyKey = `assign_${cleanEmail}_${cleanRef}_${cleanTime}`.slice(0, 120);
+
+          const emailRes = await sendAdvisorAssignmentEmail({
+            advisorName: verifiedAdviserName,
+            advisorEmail: verifiedAdviserEmail,
+            assignedBy: actor,
+            assignedAt: displayAssignedAt,
+            prospects: [
+              {
+                ref: `PROSPECT-${pId}`,
+                fullName: full_name || oldP.full_name,
+                country: country_city || oldP.country_city,
+                program: program_tag || oldP.program_tag,
+              },
+            ],
+            idempotencyKey,
+          });
+
+          emailSent = emailRes.success;
+          emailProvider = emailRes.provider;
+          emailMessageId = emailRes.messageId || null;
+        } catch (e: any) {
+          console.warn('Advisor assignment email notification error on prospect card edit:', e.message);
+          emailError = e.message;
+        }
+
+        await db.query(
+          `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+           VALUES ($1, 'Assign Advisor (Prospects CRM - Card Edit)', $2, 'Succès', $3)`,
+          [actor, `PROSPECT-${pId}`, `Assigned to ${verifiedAdviserName} (${verifiedAdviserEmail}) by ${actor}`]
+        );
+      }
     }
 
     const res = await db.query(
@@ -397,34 +504,45 @@ export async function PUT(req: NextRequest) {
         program_tag = COALESCE($4, program_tag),
         adviser_name = COALESCE($5, adviser_name),
         adviser_initials = COALESCE($6, adviser_initials),
-        estimated_value = COALESCE($7, estimated_value),
-        is_urgent = COALESCE($8, is_urgent),
-        meta_right = COALESCE($9, meta_right),
-        meta_left = COALESCE($10, meta_left)
-      WHERE id = $11
+        adviser_email = COALESCE($7, adviser_email),
+        estimated_value = COALESCE($8, estimated_value),
+        is_urgent = COALESCE($9, is_urgent),
+        meta_right = COALESCE($10, meta_right),
+        meta_left = COALESCE($11, meta_left),
+        badge_text = COALESCE($12, badge_text)
+      WHERE id = $13
       RETURNING *`,
       [
         full_name,
         stage,
         country_city,
         program_tag,
-        adviser_name,
+        verifiedAdviserName || adviser_name,
         adviserInitials,
+        verifiedAdviserEmail || adviser_email || null,
         estimated_value !== undefined ? Number(estimated_value) : null,
         is_urgent !== undefined ? Boolean(is_urgent) : null,
         meta_right,
         meta_left,
-        Number(id),
+        badge_text,
+        pId,
       ]
     );
 
     await db.query(
       `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
-       VALUES ('Barthelemy MAPWABA NTORO', $1, $2, 'Succès')`,
-      [`Mise à jour fiche prospect (${res.rows[0]?.full_name || id})`, `PROSPECT-${id}`]
+       VALUES ($1, $2, $3, 'Succès')`,
+      [actor, `Mise à jour fiche prospect (${res.rows[0]?.full_name || id})`, `PROSPECT-${id}`]
     );
 
-    return NextResponse.json({ prospect: res.rows[0], ok: true });
+    return NextResponse.json({
+      prospect: res.rows[0],
+      ok: true,
+      emailSent,
+      emailError,
+      emailProvider,
+      emailMessageId,
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message }, { status: 500 });
   }

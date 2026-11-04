@@ -256,14 +256,16 @@ export function EditProspectModal({
   prospect,
   staffList = [],
   isEn = true,
+  actor = 'Barthelemy MAPWABA NTORO',
   onClose,
   onSaved,
 }: {
   prospect: ProspectItem;
   staffList: { name: string; email?: string; title?: string }[];
   isEn?: boolean;
+  actor?: string;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (msg?: string) => void;
 }) {
   const [fullName, setFullName] = useState(prospect.full_name);
   const [stage, setStage] = useState(prospect.stage);
@@ -281,6 +283,7 @@ export function EditProspectModal({
     setError(null);
 
     try {
+      const selectedAdvisor = staffList.find((s) => s.name === adviserName);
       const res = await fetch('/api/prospects', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -291,17 +294,30 @@ export function EditProspectModal({
           country_city: countryCity.trim(),
           program_tag: programTag.trim(),
           adviser_name: adviserName,
+          adviser_email: selectedAdvisor?.email,
           estimated_value: Number(estimatedValue),
           is_urgent: isUrgent,
+          actor,
         }),
       });
 
+      const data = await res.json();
       if (!res.ok) {
-        const data = await res.json();
         throw new Error(data.error || 'Failed to update prospect');
       }
 
-      onSaved();
+      let outcomeMsg = isEn ? `Prospect ${fullName.trim()} updated.` : `Prospect ${fullName.trim()} mis à jour.`;
+      if (data.emailSent) {
+        outcomeMsg += isEn
+          ? ` Notification email sent via ${data.emailProvider || 'Resend'}.`
+          : ` Notification email envoyée via ${data.emailProvider || 'Resend'}.`;
+      } else if (data.emailError) {
+        outcomeMsg += isEn
+          ? ` Warning: email delivery failed (${data.emailError}).`
+          : ` Attention : échec de transmission email (${data.emailError}).`;
+      }
+
+      onSaved(outcomeMsg);
       onClose();
     } catch (err: any) {
       setError(err?.message || 'Erreur lors de la mise à jour');
