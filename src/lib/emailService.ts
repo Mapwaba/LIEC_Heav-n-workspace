@@ -550,7 +550,7 @@ export function resolveWorkspaceRedirectUrl(override?: string): string {
   if (override && override.startsWith('http')) {
     return override.includes('?') ? override : `${override.replace(/\/+$/, '')}/?tab=prospects`;
   }
-  return 'https://liec-heav-n-workspace-git-main-bmapwabantoro-7094.vercel.app/?tab=prospects';
+  return 'https://workspace.liecconsulting.com/?tab=prospects';
 }
 
 /**
