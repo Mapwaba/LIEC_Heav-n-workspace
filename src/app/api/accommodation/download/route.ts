@@ -89,7 +89,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            'Access Revoked: This document access link was revoked by the LIEC Admissions Secretariat. Please contact secretariat@liecconsulting.com for an updated authorization.',
+            'Access Revoked: This document access link was revoked by the LIEC Admissions Secretariat. Please contact contacts@liecconsulting.com for an updated authorization.',
         },
         { status: 403 }
       );
@@ -166,6 +166,7 @@ export async function GET(req: NextRequest) {
       storage_key: string;
       mime_type?: string;
       file_size?: number;
+      data_base64?: string;
     }> = [];
 
     try {
@@ -173,7 +174,7 @@ export async function GET(req: NextRequest) {
     } catch {}
 
     const targetDoc = attachments.find((a) => a.id === docId);
-    if (!targetDoc || !targetDoc.storage_key) {
+    if (!targetDoc || (!targetDoc.storage_key && !targetDoc.data_base64)) {
       return NextResponse.json(
         { error: 'Requested document metadata or storage key could not be found.' },
         { status: 404 }
@@ -181,16 +182,12 @@ export async function GET(req: NextRequest) {
     }
 
     // 7. Generate a 5-minute private S3 signed download URL
-    const signedUrlRes = await getSignedDownloadUrl(targetDoc.storage_key, 300);
-    if (!signedUrlRes.success || !signedUrlRes.url) {
-      return NextResponse.json(
-        {
-          error:
-            'Temporary storage service error: Could not generate pre-signed download session.',
-          details: signedUrlRes.error,
-        },
-        { status: 502 }
-      );
+    let signedUrl: string | null = null;
+    if (targetDoc.storage_key) {
+      const signedUrlRes = await getSignedDownloadUrl(targetDoc.storage_key, 300);
+      if (signedUrlRes.success && signedUrlRes.url) {
+        signedUrl = signedUrlRes.url;
+      }
     }
 
     // 8. Record Successful Audit Log (No raw tokens or full signed URLs logged)
@@ -201,15 +198,40 @@ export async function GET(req: NextRequest) {
         [
           `${tokenRecord.partner_id} (${tokenRecord.partner_email})`,
           `${tokenRecord.request_ref} / ${targetDoc.filename}`,
-          `Partner downloaded supporting document "${targetDoc.filename}" (Doc ID: ${targetDoc.id}, Size: ${targetDoc.file_size || 'N/A'}). Client IP: ${clientIp}. User-Agent: ${userAgent.substring(0, 80)}. Generated 5-minute S3 signed link.`,
+          `Partner downloaded supporting document "${targetDoc.filename}" (Doc ID: ${targetDoc.id}, Size: ${targetDoc.file_size || 'N/A'}). Client IP: ${clientIp}. User-Agent: ${userAgent.substring(0, 80)}. Dispatched via ${signedUrl ? '5-minute S3 signed link' : 'direct secure storage stream'}.`,
         ]
       );
     } catch (auditErr) {
       console.warn('Could not write audit log:', auditErr);
     }
 
-    // 9. Redirect partner directly to the private S3 pre-signed URL (HTTP 302)
-    return NextResponse.redirect(signedUrlRes.url, { status: 302 });
+    // 9. Redirect partner to private S3 pre-signed URL (HTTP 302) or stream direct fallback
+    if (signedUrl) {
+      return NextResponse.redirect(signedUrl, { status: 302 });
+    }
+
+    if (targetDoc.data_base64) {
+      const buffer = Buffer.from(targetDoc.data_base64, 'base64');
+      const safeFilename = targetDoc.filename.replace(/[^\w.-]/g, '_');
+      return new NextResponse(buffer, {
+        status: 200,
+        headers: {
+          'Content-Type': targetDoc.mime_type || 'application/octet-stream',
+          'Content-Disposition': `attachment; filename="${safeFilename}"`,
+          'Content-Length': buffer.length.toString(),
+          'Cache-Control': 'private, no-cache, no-store, max-age=0',
+        },
+      });
+    }
+
+    return NextResponse.json(
+      {
+        error:
+          'Temporary storage service error: Could not generate pre-signed download session.',
+        details: 'Storage session could not be established. Please retry or contact contacts@liecconsulting.com.',
+      },
+      { status: 502 }
+    );
   } catch (error: any) {
     console.error('Unhandled error in accommodation download route:', error);
     return NextResponse.json(

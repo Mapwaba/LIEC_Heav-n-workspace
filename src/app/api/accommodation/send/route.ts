@@ -178,6 +178,7 @@ export async function POST(req: NextRequest) {
       file_size: number;
       sizeFormatted: string;
       uploaded_at: string;
+      data_base64?: string;
     }
 
     const attachedMetadata: StoredDocumentMetadata[] = [];
@@ -261,6 +262,7 @@ export async function POST(req: NextRequest) {
         file_size: file.size,
         sizeFormatted,
         uploaded_at: new Date().toISOString(),
+        data_base64: buffer.toString('base64'),
       });
     }
 

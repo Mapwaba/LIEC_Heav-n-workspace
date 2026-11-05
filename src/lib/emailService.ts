@@ -427,8 +427,8 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
 export function renderAccommodationPartnerHtml(data: AccommodationEmailPayload): string {
   const partnerContactName =
     data.partnerContactName || data.partnerName || 'Équipe Partenaire Logement';
-  const liecContactEmail = process.env.LIEC_CONTACT_EMAIL || 'secretariat@liecconsulting.com';
-  const liecContactPhone = process.env.LIEC_CONTACT_PHONE || '+33 4 78 00 00 00';
+  const liecContactEmail = process.env.LIEC_CONTACT_EMAIL || 'contacts@liecconsulting.com';
+  const liecContactPhone = process.env.LIEC_CONTACT_PHONE || '+243 8 03  61 55 43(whatsapp only)';
   const submissionTimestamp =
     data.submissionDate || new Date().toISOString().replace('T', ' ').substring(0, 16);
 
@@ -599,7 +599,7 @@ export function renderAccommodationPartnerHtml(data: AccommodationEmailPayload):
 
     <div class="footer">
       <p style="margin: 0 0 6px 0;"><strong>LIEC Heav'n Consulting &bull; Student Housing Placement &amp; Admissions Platform</strong></p>
-      <p style="margin: 0;">Confidentiality Notice: This transmission contains confidential student details intended exclusively for <strong>${data.partnerName}</strong> (${data.partnerEmail}). Enclosed attachments and applicant records must be handled in compliance with applicable data protection regulations. If you received this transmission in error, please immediately inform secretariat@liecconsulting.com.</p>
+      <p style="margin: 0;">Confidentiality Notice: This transmission contains confidential student details intended exclusively for <strong>${data.partnerName}</strong> (${data.partnerEmail}). Enclosed attachments and applicant records must be handled in compliance with applicable data protection regulations. If you received this transmission in error, please immediately inform contacts@liecconsulting.com.</p>
     </div>
   </div>
 </body>
@@ -667,7 +667,9 @@ export async function sendAccommodationPartnerEmail(
     'Kind regards,',
     'LIEC Admissions & Housing Secretariat',
     'Lyon International Education Consulting (LIEC)',
-    'secretariat@liecconsulting.com',
+    'Email: contacts@liecconsulting.com',
+    'Phone: +243 8 03  61 55 43(whatsapp only)',
+    'Workspace: workspace.liecconsulting.com',
   ].join('\n');
 
   // Compute stable idempotency key for Resend deduplication

@@ -16,11 +16,17 @@ export interface StorageConfig {
 }
 
 export function getStorageConfig(): StorageConfig | null {
-  const endpoint = process.env.AWS_ENDPOINT_URL_S3;
-  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-  const bucket = process.env.S3_BUCKET;
-  const region = process.env.AWS_REGION || 'us-east-1';
+  const endpoint =
+    process.env.AWS_ENDPOINT_URL_S3 ||
+    'https://br-delicate-glitter-b9g66zzx.storage.c-7.eu-central-1.aws.neon.tech';
+  const accessKeyId =
+    process.env.AWS_ACCESS_KEY_ID ||
+    'nak_live_257a0c60381541988b13bc2faa525b22';
+  const secretAccessKey =
+    process.env.AWS_SECRET_ACCESS_KEY ||
+    'nsk_live_38f426f35207ea4c2f055c81d93a497a546d1251c7f23c813de94ad8e25158a9';
+  const bucket = process.env.S3_BUCKET || 'uploads';
+  const region = process.env.AWS_REGION || 'eu-central-1';
 
   if (!endpoint || !accessKeyId || !secretAccessKey || !bucket) {
     return null;
