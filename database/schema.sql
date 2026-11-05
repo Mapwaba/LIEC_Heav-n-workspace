@@ -273,6 +273,8 @@ CREATE TABLE IF NOT EXISTS accommodation_requests (
   supporting_docs TEXT DEFAULT '',
   status VARCHAR(50) NOT NULL DEFAULT 'Draft',
   assigned_agent VARCHAR(120) NOT NULL DEFAULT 'Barthelemy MAPWABA NTORO',
+  partner_name VARCHAR(120),
+  attachments_json TEXT DEFAULT '[]',
   notes TEXT,
   history_json TEXT NOT NULL DEFAULT '[]',
   email_sent_at TIMESTAMP WITH TIME ZONE,
@@ -283,6 +285,22 @@ CREATE TABLE IF NOT EXISTS accommodation_requests (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS accommodation_access_tokens (
+  id SERIAL PRIMARY KEY,
+  token_hash VARCHAR(64) UNIQUE NOT NULL,
+  request_ref VARCHAR(50) NOT NULL,
+  partner_id VARCHAR(50) NOT NULL,
+  partner_email VARCHAR(160) NOT NULL,
+  document_ids TEXT NOT NULL DEFAULT '[]',
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  revoked BOOLEAN NOT NULL DEFAULT FALSE,
+  revoked_at TIMESTAMP WITH TIME ZONE,
+  revoked_by VARCHAR(120),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_acc_tokens_hash ON accommodation_access_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_acc_tokens_ref ON accommodation_access_tokens(request_ref);
 
 CREATE TABLE IF NOT EXISTS audit_logs (
   id SERIAL PRIMARY KEY,

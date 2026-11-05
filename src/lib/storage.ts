@@ -129,3 +129,82 @@ export async function uploadDocument(
     return { success: false, key: fileKey, error: err.message };
   }
 }
+
+/**
+ * Generates an S3 SigV4 pre-signed GET download URL with a short expiration.
+ * Default expiration is 300 seconds (5 minutes).
+ */
+export async function getSignedDownloadUrl(
+  fileKey: string,
+  expiresInSeconds: number = 300
+): Promise<{ success: boolean; url?: string; error?: string }> {
+  const config = getStorageConfig();
+  if (!config) {
+    return {
+      success: false,
+      error: 'Object storage environment variables are not configured.',
+    };
+  }
+
+  try {
+    const cleanKey = fileKey.replace(/^\//, '');
+    const endpointUrl = new URL(config.endpoint);
+    const host = endpointUrl.host;
+    const date = new Date();
+    const amzDate = date.toISOString().replace(/[:-]|\.\d{3}/g, '');
+    const dateStamp = amzDate.slice(0, 8);
+    const credentialScope = `${dateStamp}/${config.region}/s3/aws4_request`;
+
+    const queryParams: Record<string, string> = {
+      'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+      'X-Amz-Credential': `${config.accessKeyId}/${credentialScope}`,
+      'X-Amz-Date': amzDate,
+      'X-Amz-Expires': String(expiresInSeconds),
+      'X-Amz-SignedHeaders': 'host',
+    };
+
+    const canonicalQueryString = Object.keys(queryParams)
+      .sort()
+      .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(queryParams[k])}`)
+      .join('&');
+
+    const canonicalUri = `/${encodeURIComponent(config.bucket)}/${cleanKey.split('/').map(encodeURIComponent).join('/')}`;
+    const canonicalHeaders = `host:${host}\n`;
+    const signedHeaders = 'host';
+    const payloadHash = 'UNSIGNED-PAYLOAD';
+
+    const canonicalRequest = [
+      'GET',
+      canonicalUri,
+      canonicalQueryString,
+      canonicalHeaders,
+      signedHeaders,
+      payloadHash,
+    ].join('\n');
+
+    const stringToSign = [
+      'AWS4-HMAC-SHA256',
+      amzDate,
+      credentialScope,
+      crypto.createHash('sha256').update(canonicalRequest).digest('hex'),
+    ].join('\n');
+
+    const kDate = crypto.createHmac('sha256', `AWS4${config.secretAccessKey}`).update(dateStamp).digest();
+    const kRegion = crypto.createHmac('sha256', kDate).update(config.region).digest();
+    const kService = crypto.createHmac('sha256', kRegion).update('s3').digest();
+    const kSigning = crypto.createHmac('sha256', kService).update('aws4_request').digest();
+    const signature = crypto.createHmac('sha256', kSigning).update(stringToSign).digest('hex');
+
+    const presignedUrl = `${config.endpoint}/${config.bucket}/${cleanKey}?${canonicalQueryString}&X-Amz-Signature=${signature}`;
+
+    return {
+      success: true,
+      url: presignedUrl,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message,
+    };
+  }
+}

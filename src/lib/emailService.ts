@@ -1,4 +1,18 @@
 import nodemailer from 'nodemailer';
+import {
+  ACCOMMODATION_PARTNERS,
+  AccommodationPartner,
+  getAccommodationPartnerById,
+  getAccommodationPartnerByEmail,
+} from './accommodationPartners';
+
+export interface AccommodationAttachment {
+  id?: string;
+  filename: string;
+  sizeFormatted?: string;
+  contentType?: string;
+  downloadUrl?: string;
+}
 
 export interface AccommodationEmailPayload {
   requestRef: string;
@@ -7,19 +21,32 @@ export interface AccommodationEmailPayload {
   studentEmail: string;
   studentPhone: string;
   studentNationality: string;
-  arrivalDate: string;
-  preferredLocation: string;
+  studentDob?: string;
+  partnerName: string;
+  partnerEmail: string;
+  partnerContactName?: string;
   accommodationType: string;
+  preferredLocation: string;
+  arrivalDate: string;
+  departureDate?: string;
+  occupants?: string;
   budget: string;
   specialRequirements?: string;
-  partnerEmail?: string;
-  partnerContactName?: string;
+  submissionDate?: string;
+  assignedAdvisor?: string;
+  attachedFiles?: AccommodationAttachment[];
   idempotencyKey?: string;
   confirmedResend?: boolean;
 }
 
 export type EmailProviderType = 'resend' | 'smtp' | 'json_transport' | 'simulated';
 export type EmailDeliveryStatus = 'Pending' | 'Accepted by provider' | 'Delivered' | 'Failed' | 'Bounced';
+
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer | string;
+  contentType?: string;
+}
 
 export interface EmailSendResult {
   success: boolean;
@@ -41,6 +68,7 @@ export interface SendEmailOptions {
   subject: string;
   html: string;
   text: string;
+  attachments?: EmailAttachment[];
   idempotencyKey?: string;
   workflow?: 'accommodation' | 'advisor_assignment' | 'general';
   reference?: string;
@@ -81,6 +109,8 @@ export function validateAccommodationMandatoryFields(payload: Partial<Accommodat
   if (!payload.preferredLocation?.trim()) missingFields.push('Preferred Location (preferredLocation)');
   if (!payload.accommodationType?.trim()) missingFields.push('Accommodation Type (accommodationType)');
   if (!payload.budget?.trim()) missingFields.push('Budget (budget)');
+  if (!payload.partnerEmail?.trim()) missingFields.push('Partner Email (partnerEmail)');
+  if (!payload.partnerName?.trim()) missingFields.push('Partner Name (partnerName)');
 
   return {
     valid: missingFields.length === 0,
@@ -227,7 +257,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
         headers['X-Entity-Ref-ID'] = options.idempotencyKey;
       }
 
-      const bodyPayload = {
+      const bodyPayload: Record<string, any> = {
         from: fromAddress,
         to: recipientList,
         reply_to: replyToArray && replyToArray.length > 0 ? replyToArray : undefined,
@@ -235,6 +265,14 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
         html: options.html,
         text: options.text,
       };
+
+      if (options.attachments && options.attachments.length > 0) {
+        bodyPayload.attachments = options.attachments.map((att) => ({
+          filename: att.filename,
+          content: Buffer.isBuffer(att.content) ? att.content.toString('base64') : att.content,
+          content_type: att.contentType,
+        }));
+      }
 
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -305,14 +343,24 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
         auth: { user: smtpUser, pass: smtpPass },
       });
 
-      const info = await transporter.sendMail({
+      const mailOptions: any = {
         from: fromAddress,
         to: recipientString,
         replyTo: replyToArray && replyToArray.length > 0 ? replyToArray.join(', ') : undefined,
         subject: options.subject,
         html: options.html,
         text: options.text,
-      });
+      };
+
+      if (options.attachments && options.attachments.length > 0) {
+        mailOptions.attachments = options.attachments.map((att) => ({
+          filename: att.filename,
+          content: att.content,
+          contentType: att.contentType,
+        }));
+      }
+
+      const info = await transporter.sendMail(mailOptions);
 
       return {
         success: true,
@@ -339,14 +387,23 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
 
   // Local development / testing only
   const simTransporter = nodemailer.createTransport({ jsonTransport: true });
-  const info = await simTransporter.sendMail({
+  const simMailOptions: any = {
     from: fromAddress,
     to: recipientString,
     replyTo: replyToArray && replyToArray.length > 0 ? replyToArray.join(', ') : undefined,
     subject: options.subject,
     html: options.html,
     text: options.text,
-  });
+  };
+
+  if (options.attachments && options.attachments.length > 0) {
+    simMailOptions.attachments = options.attachments.map((att) => ({
+      filename: att.filename,
+      contentType: att.contentType,
+    }));
+  }
+
+  const info = await simTransporter.sendMail(simMailOptions);
 
   const isSimAllowed = Boolean(options.allowSimulation);
   return {
@@ -365,117 +422,184 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
 }
 
 /**
- * Generates the official HTML email body using LIEC Heav\'n branding.
+ * Generates the official HTML email body using LIEC Heav'n branding and task assignment visual structure.
  */
 export function renderAccommodationPartnerHtml(data: AccommodationEmailPayload): string {
-  const partnerName =
-    data.partnerContactName || process.env.ACCOMMODATION_PARTNER_CONTACT_NAME || 'Accommodation Partner Team';
+  const partnerContactName =
+    data.partnerContactName || data.partnerName || 'Équipe Partenaire Logement';
   const liecContactEmail = process.env.LIEC_CONTACT_EMAIL || 'secretariat@liecconsulting.com';
   const liecContactPhone = process.env.LIEC_CONTACT_PHONE || '+33 4 78 00 00 00';
+  const submissionTimestamp =
+    data.submissionDate || new Date().toISOString().replace('T', ' ').substring(0, 16);
+
+  // Render attached supporting documents if present
+  let attachmentsSectionHtml = '';
+  if (data.attachedFiles && data.attachedFiles.length > 0) {
+    const docRowsHtml = data.attachedFiles
+      .map(
+        (f) => `
+            <tr>
+              <td style="padding: 10px 14px; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #092342; font-size: 13px;">
+                &#128196; ${f.filename}
+              </td>
+              <td style="padding: 10px 14px; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 12px;">
+                ${f.sizeFormatted || '—'}
+              </td>
+              <td style="padding: 10px 14px; border-bottom: 1px solid #f1f5f9; text-align: right;">
+                ${
+                  f.downloadUrl
+                    ? `<a href="${f.downloadUrl}" target="_blank" style="display: inline-block; background: #0c685a; color: #ffffff; text-decoration: none; padding: 6px 14px; border-radius: 6px; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Download Document &rarr;</a>`
+                    : '<span style="color: #94a3b8; font-size: 12px;">Unavailable</span>'
+                }
+              </td>
+            </tr>`
+      )
+      .join('');
+
+    attachmentsSectionHtml = `
+      <div style="margin-top: 24px; margin-bottom: 8px; font-size: 13px; font-weight: 800; text-transform: uppercase; color: #092342; letter-spacing: 0.04em;">
+        Secure Supporting Documents (${data.attachedFiles.length})
+      </div>
+      <div class="table-container" style="margin: 10px 0 16px 0; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+        <table>
+          <thead>
+            <tr style="background: #f1f5f9; border-bottom: 1px solid #e2e8f0;">
+              <th style="padding: 10px 14px; font-size: 11px; font-weight: 800; text-transform: uppercase; color: #475569; letter-spacing: 0.03em;">Document Name</th>
+              <th style="padding: 10px 14px; font-size: 11px; font-weight: 800; text-transform: uppercase; color: #475569; letter-spacing: 0.03em;">Size</th>
+              <th style="padding: 10px 14px; font-size: 11px; font-weight: 800; text-transform: uppercase; color: #475569; letter-spacing: 0.03em; text-align: right;">Access</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${docRowsHtml}
+          </tbody>
+        </table>
+      </div>
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; margin: 0 0 20px 0; font-size: 12px; color: #475569; line-height: 1.5;">
+        <strong style="color: #0c685a;">&#x1F512; Security &amp; Data Protection:</strong> Candidate supporting documents are stored in private S3-compatible cloud storage. Download links are single-use tokens valid for <strong>48 hours</strong> from dispatch. Direct email file attachments are disabled to prevent unauthorized data replication.
+      </div>`;
+  }
+
+  // Build Student Information Table Rows (only display optional fields when available)
+  const studentRows: string[] = [
+    `<tr><td style="width: 35%; padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #475569; background: #f8fafc;">Full Name</td><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #092342;">${data.studentFullName}</td></tr>`,
+    `<tr><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #475569; background: #f8fafc;">Student Reference ID</td><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #0c685a; font-family: monospace;">${data.studentRef}</td></tr>`,
+    `<tr><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #475569; background: #f8fafc;">Email Address</td><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9;"><a href="mailto:${data.studentEmail}" style="color: #0c685a; text-decoration: none; font-weight: 600;">${data.studentEmail}</a></td></tr>`,
+    `<tr><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #475569; background: #f8fafc;">Phone Number</td><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #1e293b;">${data.studentPhone}</td></tr>`,
+    `<tr><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #475569; background: #f8fafc;">Nationality</td><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #1e293b;">${data.studentNationality}</td></tr>`,
+  ];
+  if (data.studentDob && data.studentDob.trim()) {
+    studentRows.push(
+      `<tr><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #475569; background: #f8fafc;">Date of Birth</td><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #1e293b;">${data.studentDob.trim()}</td></tr>`
+    );
+  }
+
+  // Build Accommodation Details Table Rows (only display optional fields when available)
+  const accommodationRows: string[] = [
+    `<tr><td style="width: 35%; padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #475569; background: #f8fafc;">Selected Partner</td><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #092342;">${data.partnerName}</td></tr>`,
+    `<tr><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #475569; background: #f8fafc;">Requested Type</td><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #092342;">${data.accommodationType}</td></tr>`,
+    `<tr><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #475569; background: #f8fafc;">Preferred Location / City</td><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #1e293b;">${data.preferredLocation}</td></tr>`,
+    `<tr><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #475569; background: #f8fafc;">Expected Arrival Date</td><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #0c685a;">${data.arrivalDate}</td></tr>`,
+  ];
+  if (data.departureDate && data.departureDate.trim()) {
+    accommodationRows.push(
+      `<tr><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #475569; background: #f8fafc;">Expected Departure / Duration</td><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #1e293b;">${data.departureDate.trim()}</td></tr>`
+    );
+  }
+  if (data.occupants && data.occupants.trim()) {
+    accommodationRows.push(
+      `<tr><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #475569; background: #f8fafc;">Number of Occupants</td><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #1e293b;">${data.occupants.trim()}</td></tr>`
+    );
+  }
+  accommodationRows.push(
+    `<tr><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #475569; background: #f8fafc;">Indicated Monthly Budget</td><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #092342;">${data.budget}</td></tr>`
+  );
+  if (data.specialRequirements && data.specialRequirements.trim()) {
+    accommodationRows.push(
+      `<tr><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #475569; background: #f8fafc;">Additional Requirements / Comments</td><td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #1e293b; white-space: pre-line;">${data.specialRequirements.trim()}</td></tr>`
+    );
+  }
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LIEC Accommodation Request</title>
+  <title>LIEC Heav'n – New Accommodation Reservation Request</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 20px; color: #1e293b; }
-    .container { max-width: 650px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
-    .header { background: linear-gradient(135deg, #092342 0%, #0c685a 100%); padding: 28px 32px; color: #ffffff; }
-    .header h1 { margin: 0 0 6px 0; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
-    .header p { margin: 0; font-size: 13px; color: #93c5fd; }
-    .badge { display: inline-block; background: #0c685a; color: #ffffff; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; margin-bottom: 8px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
+    .container { max-width: 650px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+    .header { background: linear-gradient(135deg, #092342 0%, #0c685a 100%); padding: 32px; color: #ffffff; }
+    .badge { display: inline-block; background: rgba(255,255,255,0.15); color: #5eead4; font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+    .header h1 { margin: 0 0 6px 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+    .header p { margin: 0; font-size: 13.5px; color: #cbd5e1; }
     .content { padding: 32px; font-size: 14px; line-height: 1.6; }
-    .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #0c685a; margin: 24px 0 12px 0; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }
-    .data-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-    .data-table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; font-size: 13.5px; }
-    .data-table td.label { width: 38%; font-weight: 600; color: #64748b; background-color: #f8fafc; }
-    .data-table td.val { width: 62%; font-weight: 500; color: #092342; }
-    .highlight-box { background: #f0faf7; border-left: 4px solid #0c685a; padding: 14px 16px; border-radius: 0 8px 8px 0; margin: 20px 0; font-size: 13.5px; }
-    .footer { background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 24px 32px; font-size: 12.5px; color: #64748b; }
-    .signature { margin-top: 24px; font-weight: 500; }
+    .meta-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin: 20px 0; font-size: 13px; }
+    .meta-box strong { color: #092342; }
+    .section-title { font-size: 13px; font-weight: 800; text-transform: uppercase; color: #092342; letter-spacing: 0.04em; margin: 24px 0 10px 0; }
+    .table-container { margin: 12px 0 20px 0; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; text-align: left; }
+    .highlight-box { background: #f0faf7; border-left: 4px solid #0c685a; padding: 16px 20px; border-radius: 0 10px 10px 0; margin: 24px 0; font-size: 13.5px; line-height: 1.6; }
+    .footer { background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 24px 32px; font-size: 12px; color: #64748b; line-height: 1.5; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <div class="badge">Official Partner Dispatch</div>
-      <h1>LIEC Heav'n - Student Housing Reservation Request</h1>
-      <p>Lyon International Education Consulting (LIEC) &bull; Ref: ${data.requestRef}</p>
+      <div class="badge">Official Partner Reservation Request</div>
+      <h1>Student Housing Reservation Request</h1>
+      <p>Official dispatch from the LIEC Heav'n Advisory &amp; Admissions Platform &bull; Ref: ${data.requestRef}</p>
     </div>
 
     <div class="content">
-      <p>Dear <strong>${partnerName}</strong>,</p>
-      <p>Please find below the official student housing request submitted by LIEC on behalf of our enrolled candidate. All student and admission background details have been verified by our admissions secretariat.</p>
+      <p>Dear <strong>${partnerContactName}</strong>,</p>
+      <p>Please find below an official student accommodation reservation request submitted on behalf of our enrolled candidate for housing placement in Lyon. All student background details have been verified by the LIEC Admissions Secretariat.</p>
 
-      <div class="section-title">Candidate Details</div>
-      <table class="data-table">
-        <tr>
-          <td class="label">Candidate Name:</td>
-          <td class="val">${data.studentFullName}</td>
-        </tr>
-        <tr>
-          <td class="label">LIEC Reference:</td>
-          <td class="val"><code>${data.studentRef}</code></td>
-        </tr>
-        <tr>
-          <td class="label">Nationality:</td>
-          <td class="val">${data.studentNationality}</td>
-        </tr>
-        <tr>
-          <td class="label">Candidate Email:</td>
-          <td class="val"><a href="mailto:${data.studentEmail}" style="color: #0c685a;">${data.studentEmail}</a></td>
-        </tr>
-        <tr>
-          <td class="label">Contact Phone:</td>
-          <td class="val">${data.studentPhone}</td>
-        </tr>
-      </table>
-
-      <div class="section-title">Accommodation Specifications</div>
-      <table class="data-table">
-        <tr>
-          <td class="label">Expected Arrival Date:</td>
-          <td class="val"><strong>${data.arrivalDate}</strong></td>
-        </tr>
-        <tr>
-          <td class="label">Preferred Location:</td>
-          <td class="val">${data.preferredLocation}</td>
-        </tr>
-        <tr>
-          <td class="label">Accommodation Type:</td>
-          <td class="val">${data.accommodationType}</td>
-        </tr>
-        <tr>
-          <td class="label">Indicated Monthly Budget:</td>
-          <td class="val"><strong>${data.budget}</strong></td>
-        </tr>
-        <tr>
-          <td class="label">Special Requirements / Notes:</td>
-          <td class="val">${data.specialRequirements?.trim() || 'None specified'}</td>
-        </tr>
-      </table>
-
-      <div class="highlight-box">
-        <strong>Next Steps:</strong><br>
-        Please review this request and confirm availability, the proposed accommodation arrangements, pricing, and any additional documents or information required to proceed.<br><br>
-        <em>Kindly include the accommodation request reference <strong>(${data.requestRef})</strong> in your response.</em>
+      <div class="meta-box">
+        <div><strong>Designated Accommodation Partner:</strong> ${data.partnerName} (${data.partnerEmail})</div>
+        <div style="margin-top: 4px;"><strong>Request Reference ID:</strong> <code style="color: #0c685a; font-weight: 700;">${data.requestRef}</code></div>
+        <div style="margin-top: 4px;"><strong>Submission Date:</strong> ${submissionTimestamp}</div>
+        <div style="margin-top: 4px;"><strong>Assigned LIEC Advisor / Sender:</strong> ${data.assignedAdvisor || 'LIEC Admissions & Housing Secretariat'}</div>
       </div>
 
-      <p>Thank you for your collaboration.</p>
+      <div class="section-title">Candidate Details</div>
+      <div class="table-container">
+        <table>
+          <tbody>
+            ${studentRows.join('\n            ')}
+          </tbody>
+        </table>
+      </div>
 
-      <div class="signature">
+      <div class="section-title">Accommodation Specifications</div>
+      <div class="table-container">
+        <table>
+          <tbody>
+            ${accommodationRows.join('\n            ')}
+          </tbody>
+        </table>
+      </div>
+
+      ${attachmentsSectionHtml}
+
+      <div class="highlight-box">
+        <strong style="color: #092342;">Action Required:</strong><br>
+        Please review the above candidate specifications and confirm room availability, proposed accommodation options, and rental pricing.<br><br>
+        <em>Kindly reply directly to this notification or reference <strong>${data.requestRef}</strong> in all related correspondence.</em>
+      </div>
+
+      <div style="margin-top: 24px; font-size: 13.5px; line-height: 1.6;">
         Kind regards,<br><br>
-        <strong>LIEC Secretariat</strong><br>
+        <strong style="color: #092342;">LIEC Admissions &amp; Housing Secretariat</strong><br>
         Lyon International Education Consulting (LIEC)<br>
-        Email: ${liecContactEmail}<br>
-        Phone: ${liecContactPhone}
+        Email: <a href="mailto:${liecContactEmail}" style="color: #0c685a; text-decoration: none; font-weight: 600;">${liecContactEmail}</a><br>
+        Phone: ${liecContactPhone}<br>
+        Workspace: <a href="https://workspace.liecconsulting.com" style="color: #0c685a; text-decoration: none;">workspace.liecconsulting.com</a>
       </div>
     </div>
 
     <div class="footer">
-      This transmission is confidential and intended solely for the designated LIEC accommodation partner. LIEC Heav'n Education Management Workspace &bull; Lyon, France.
+      <p style="margin: 0 0 6px 0;"><strong>LIEC Heav'n Consulting &bull; Student Housing Placement &amp; Admissions Platform</strong></p>
+      <p style="margin: 0;">Confidentiality Notice: This transmission contains confidential student details intended exclusively for <strong>${data.partnerName}</strong> (${data.partnerEmail}). Enclosed attachments and applicant records must be handled in compliance with applicable data protection regulations. If you received this transmission in error, please immediately inform secretariat@liecconsulting.com.</p>
     </div>
   </div>
 </body>
@@ -486,57 +610,81 @@ export function renderAccommodationPartnerHtml(data: AccommodationEmailPayload):
  * Sends formatted accommodation request email to the partner via primary provider.
  */
 export async function sendAccommodationPartnerEmail(
-  payload: AccommodationEmailPayload
+  payload: AccommodationEmailPayload,
+  attachments?: EmailAttachment[]
 ): Promise<EmailSendResult> {
   const validation = validateAccommodationMandatoryFields(payload);
   if (!validation.valid) {
     throw new Error(`Missing mandatory accommodation fields: ${validation.missingFields.join(', ')}`);
   }
 
-  const recipient = payload.partnerEmail?.trim() || getAccommodationPartnerEmail();
-  const subject = `LIEC Accommodation Request - ${payload.requestRef} - ${payload.studentFullName}`;
-  const htmlContent = renderAccommodationPartnerHtml({ ...payload, partnerEmail: recipient });
+  const recipient = payload.partnerEmail.trim();
+  const subject = `LIEC Heav’n – New Accommodation Reservation Request | ${payload.studentFullName}`;
+  const htmlContent = renderAccommodationPartnerHtml(payload);
 
-  const textContent =
-    `LIEC Accommodation Request - ${payload.requestRef} - ${payload.studentFullName}
-
-` +
-    `Student Full Name: ${payload.studentFullName}
-` +
-    `LIEC Reference: ${payload.studentRef}
-` +
-    `Email: ${payload.studentEmail}
-` +
-    `Phone: ${payload.studentPhone}
-` +
-    `Nationality: ${payload.studentNationality}
-` +
-    `Expected Arrival Date: ${payload.arrivalDate}
-` +
-    `Preferred Location: ${payload.preferredLocation}
-` +
-    `Accommodation Type: ${payload.accommodationType}
-` +
-    `Budget: ${payload.budget}
-` +
-    `Additional Requirements: ${payload.specialRequirements || 'N/A'}
-` +
-    `Request Reference: ${payload.requestRef}
-
-` +
-    `Please review this request and confirm availability and pricing.`;
+  const textContent = [
+    `LIEC Heav’n – New Accommodation Reservation Request | ${payload.studentFullName}`,
+    `Reference: ${payload.requestRef}`,
+    '',
+    `Dear ${payload.partnerContactName || payload.partnerName},`,
+    '',
+    'Please find below an official student accommodation reservation request submitted on behalf of our enrolled candidate:',
+    '',
+    '--- CANDIDATE DETAILS ---',
+    `Full Name: ${payload.studentFullName}`,
+    `Student Reference: ${payload.studentRef}`,
+    `Email: ${payload.studentEmail}`,
+    `Phone: ${payload.studentPhone}`,
+    `Nationality: ${payload.studentNationality}`,
+    ...(payload.studentDob ? [`Date of Birth: ${payload.studentDob}`] : []),
+    '',
+    '--- ACCOMMODATION SPECIFICATIONS ---',
+    `Designated Partner: ${payload.partnerName}`,
+    `Accommodation Type: ${payload.accommodationType}`,
+    `Preferred Location: ${payload.preferredLocation}`,
+    `Expected Arrival Date: ${payload.arrivalDate}`,
+    ...(payload.departureDate ? [`Expected Departure: ${payload.departureDate}`] : []),
+    ...(payload.occupants ? [`Occupants: ${payload.occupants}`] : []),
+    `Budget: ${payload.budget}`,
+    ...(payload.specialRequirements ? [`Special Requirements: ${payload.specialRequirements}`] : []),
+    ...(payload.attachedFiles && payload.attachedFiles.length > 0
+      ? [
+          '',
+          `--- SECURE SUPPORTING DOCUMENTS (${payload.attachedFiles.length}) ---`,
+          'For data protection, candidate documents are accessible via temporary 48-hour secure links:',
+          ...payload.attachedFiles.map(
+            (f) =>
+              `- ${f.filename}${f.sizeFormatted ? ` (${f.sizeFormatted})` : ''}: ${
+                f.downloadUrl || 'Available in workspace'
+              }`
+          ),
+          'Notice: Links automatically expire 48 hours after transmission.',
+        ]
+      : []),
+    '',
+    'Please review this request and confirm availability, proposed terms, and rental conditions.',
+    '',
+    'Kind regards,',
+    'LIEC Admissions & Housing Secretariat',
+    'Lyon International Education Consulting (LIEC)',
+    'secretariat@liecconsulting.com',
+  ].join('\n');
 
   // Compute stable idempotency key for Resend deduplication
   const cleanRef = payload.requestRef.replace(/[^a-zA-Z0-9_-]/g, '');
+  const partnerTag = payload.partnerName.replace(/[^a-zA-Z0-9]/g, '_');
   const idempotencyKey =
     payload.idempotencyKey ||
-    (payload.confirmedResend ? `acc_${cleanRef}_resend_${Date.now()}` : `acc_${cleanRef}`);
+    (payload.confirmedResend ? `acc_${partnerTag}_${cleanRef}_resend_${Date.now()}` : `acc_${partnerTag}_${cleanRef}`);
 
+  // Secure Document-Sharing Policy: Always pass empty attachments array to email provider
+  // All supporting documents are downloaded exclusively through temporary, signed links
   return sendEmail({
     to: recipient,
     subject,
     html: htmlContent,
     text: textContent,
+    attachments: [],
     idempotencyKey,
     workflow: 'accommodation',
     reference: payload.requestRef,

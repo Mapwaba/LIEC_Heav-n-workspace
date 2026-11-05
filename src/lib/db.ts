@@ -304,6 +304,8 @@ async function initSchemaAndSeed(client: DBClient) {
       supporting_docs TEXT DEFAULT '',
       status VARCHAR(50) NOT NULL DEFAULT 'Draft',
       assigned_agent VARCHAR(120) NOT NULL DEFAULT 'Barthelemy MAPWABA NTORO',
+      partner_name VARCHAR(120),
+      attachments_json TEXT DEFAULT '[]',
       notes TEXT,
       history_json TEXT NOT NULL DEFAULT '[]',
       email_sent_at TIMESTAMP WITH TIME ZONE,
@@ -421,6 +423,22 @@ async function initSchemaAndSeed(client: DBClient) {
       UNIQUE(user_email, notification_id)
     );
 
+    CREATE TABLE IF NOT EXISTS accommodation_access_tokens (
+      id SERIAL PRIMARY KEY,
+      token_hash VARCHAR(64) UNIQUE NOT NULL,
+      request_ref VARCHAR(50) NOT NULL,
+      partner_id VARCHAR(50) NOT NULL,
+      partner_email VARCHAR(160) NOT NULL,
+      document_ids TEXT NOT NULL DEFAULT '[]',
+      expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+      revoked BOOLEAN NOT NULL DEFAULT FALSE,
+      revoked_at TIMESTAMP WITH TIME ZONE,
+      revoked_by VARCHAR(120),
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_acc_tokens_hash ON accommodation_access_tokens(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_acc_tokens_ref ON accommodation_access_tokens(request_ref);
+
     ALTER TABLE roles ADD COLUMN IF NOT EXISTS timeout_minutes INTEGER DEFAULT 15;
 
     ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(60);
@@ -493,6 +511,8 @@ async function initSchemaAndSeed(client: DBClient) {
     ALTER TABLE avi_requests ADD COLUMN IF NOT EXISTS principal_xaf NUMERIC(14,2) NOT NULL DEFAULT 1836680.00;
     ALTER TABLE avi_requests ADD COLUMN IF NOT EXISTS total_interest_eur NUMERIC(10,2) NOT NULL DEFAULT 336.00;
     ALTER TABLE avi_requests ADD COLUMN IF NOT EXISTS supporting_docs TEXT DEFAULT '';
+    ALTER TABLE accommodation_requests ADD COLUMN IF NOT EXISTS partner_name VARCHAR(120);
+    ALTER TABLE accommodation_requests ADD COLUMN IF NOT EXISTS attachments_json TEXT DEFAULT '[]';
   `);
 
   // Ensure new Student Application and Parent Linking columns and tables exist
@@ -588,6 +608,22 @@ async function initSchemaAndSeed(client: DBClient) {
       read_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(user_email, notification_id)
     );
+
+    CREATE TABLE IF NOT EXISTS accommodation_access_tokens (
+      id SERIAL PRIMARY KEY,
+      token_hash VARCHAR(64) UNIQUE NOT NULL,
+      request_ref VARCHAR(50) NOT NULL,
+      partner_id VARCHAR(50) NOT NULL,
+      partner_email VARCHAR(160) NOT NULL,
+      document_ids TEXT NOT NULL DEFAULT '[]',
+      expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+      revoked BOOLEAN NOT NULL DEFAULT FALSE,
+      revoked_at TIMESTAMP WITH TIME ZONE,
+      revoked_by VARCHAR(120),
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_acc_tokens_hash ON accommodation_access_tokens(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_acc_tokens_ref ON accommodation_access_tokens(request_ref);
   `);
 
   // Ensure Admin profile and technical roles are ALWAYS preserved

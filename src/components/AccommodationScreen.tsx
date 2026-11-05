@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Home,
   Search,
@@ -25,8 +25,19 @@ import {
   X,
   MessageSquare,
   History,
+  Upload,
+  Paperclip,
+  Trash2,
+  Building2,
+  ShieldOff,
 } from 'lucide-react';
 import { Lang } from './ServicesAndOtherScreens';
+import {
+  ACCOMMODATION_PARTNERS,
+  AccommodationPartner,
+  AccommodationPartnerId,
+  getAccommodationPartnerById,
+} from '@/lib/accommodationPartners';
 
 export interface AccommodationRequest {
   id: number;
@@ -50,6 +61,8 @@ export interface AccommodationRequest {
   budget: string;
   special_requirements?: string;
   supporting_docs?: string;
+  partner_name?: string;
+  attachments?: Array<{ filename: string; sizeFormatted?: string; contentType?: string }>;
   status:
     | 'Draft'
     | 'Ready to Send'
@@ -115,10 +128,80 @@ export default function AccommodationScreen({
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
-  // Send Confirmation Dialog State
+  // Send Confirmation Dialog State & Partner Selection
   const [showSendConfirmDialog, setShowSendConfirmDialog] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [confirmedResend, setConfirmedResend] = useState(false);
+  const [selectedPartnerId, setSelectedPartnerId] = useState<AccommodationPartnerId>('danova');
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [fileUploadError, setFileUploadError] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // File Attachment Validation & Handling
+  const handleAddFiles = (newFiles: FileList | File[]) => {
+    setFileUploadError(null);
+    const validExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.docx', '.doc'];
+    const maxFileSizeBytes = 5 * 1024 * 1024; // 5 MB
+
+    const filesArray = Array.from(newFiles);
+    const accumulated = [...selectedFiles];
+
+    for (const file of filesArray) {
+      if (accumulated.length >= 5) {
+        setFileUploadError(
+          isEn ? 'Maximum 5 supporting documents allowed.' : 'Maximum 5 pièces justificatives autorisées.'
+        );
+        break;
+      }
+
+      const extMatch = file.name.match(/\.[0-9a-z]+$/i);
+      const ext = extMatch ? extMatch[0].toLowerCase() : '';
+
+      if (!validExtensions.includes(ext)) {
+        setFileUploadError(
+          isEn
+            ? `File "${file.name}" has an unsupported format. Allowed formats: PDF, JPG, PNG, DOCX.`
+            : `Le fichier "${file.name}" a un format non pris en charge. Formats acceptés : PDF, JPG, PNG, DOCX.`
+        );
+        continue;
+      }
+
+      if (file.size > maxFileSizeBytes) {
+        setFileUploadError(
+          isEn
+            ? `File "${file.name}" (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds the 5 MB limit.`
+            : `Le fichier "${file.name}" (${(file.size / (1024 * 1024)).toFixed(1)} Mo) dépasse la limite de 5 Mo.`
+        );
+        continue;
+      }
+
+      if (accumulated.some((f) => f.name === file.name && f.size === file.size)) {
+        continue;
+      }
+
+      accumulated.push(file);
+    }
+
+    setSelectedFiles(accumulated);
+  };
+
+  const handleRemoveFile = (index: number) => {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
+    setFileUploadError(null);
+  };
+
+  const openSendModal = (req: AccommodationRequest) => {
+    setSelectedRequest(req);
+    setConfirmedResend(req.status === 'Sent');
+    const existingPartner = ACCOMMODATION_PARTNERS.find(
+      (p) => p.name === req.partner_name || p.email === req.email_recipient
+    );
+    setSelectedPartnerId(existingPartner ? existingPartner.id : 'danova');
+    setSelectedFiles([]);
+    setFileUploadError(null);
+    setShowSendConfirmDialog(true);
+  };
 
   // New Request Form State
   const [newStudentRef, setNewStudentRef] = useState(candidats[0]?.ref || '');
@@ -269,20 +352,31 @@ export default function AccommodationScreen({
 
   // Handle Send Partner Email
   const handleSendEmail = async () => {
-    if (!selectedRequest) return;
+    if (!selectedRequest || !selectedPartnerId) return;
     setIsSending(true);
 
     try {
+      const targetPartner = getAccommodationPartnerById(selectedPartnerId);
+      if (!targetPartner) {
+        throw new Error('Please select a valid partner (SCI DANOVA or CITY PROPERTY).');
+      }
+
+      const formData = new FormData();
+      formData.append('ref', selectedRequest.ref);
+      formData.append('partner_id', selectedPartnerId);
+      if (confirmedResend) {
+        formData.append('confirmed_resend', 'true');
+      }
+      for (const file of selectedFiles) {
+        formData.append('attachments', file);
+      }
+
       const res = await fetch('/api/accommodation/send', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
         },
-        body: JSON.stringify({
-          ref: selectedRequest.ref,
-          confirmed_resend: confirmedResend,
-        }),
+        body: formData,
       });
 
       const data = await res.json();
@@ -290,7 +384,12 @@ export default function AccommodationScreen({
       if (res.status === 409 && data.requiresConfirmation) {
         // Needs explicit resend confirmation
         setConfirmedResend(true);
-        onNotify('Previous submission detected. Please confirm to resend.');
+        onNotify(
+          data.message ||
+            (isEn
+              ? 'Previous submission detected. Please confirm to resend.'
+              : 'Demande déjà envoyée. Veuillez confirmer pour réexpédier.')
+        );
         setIsSending(false);
         return;
       }
@@ -299,15 +398,66 @@ export default function AccommodationScreen({
         throw new Error(data.error || 'Failed to send partner email');
       }
 
-      onNotify(`Official accommodation request sent to partner (${data.recipient})!`);
+      const docNote =
+        data.attachmentsCount > 0
+          ? ` (${data.attachmentsCount} ${isEn ? 'document(s) enclosed' : 'document(s) joint(s)'})`
+          : '';
+
+      onNotify(
+        isEn
+          ? `Accommodation reservation request sent exclusively to ${data.partner} (${data.recipient})${docNote}!`
+          : `Demande de réservation envoyée exclusivement à ${data.partner} (${data.recipient})${docNote} !`
+      );
       setShowSendConfirmDialog(false);
       setShowDetailModal(false);
       setConfirmedResend(false);
+      setSelectedFiles([]);
+      setFileUploadError(null);
       await onRefresh();
     } catch (err: any) {
       onNotify(`Error sending request: ${err.message}`);
     } finally {
       setIsSending(false);
+    }
+  };
+
+  // Revocation State & Handler for Partner Download Tokens
+  const [isRevoking, setIsRevoking] = useState(false);
+  const handleRevokeAccess = async () => {
+    if (!selectedRequest) return;
+    const confirmMessage = isEn
+      ? `Are you sure you want to revoke partner document download access for request ${selectedRequest.ref}? All temporary download links dispatched to the partner will immediately stop functioning.`
+      : `Êtes-vous sûr de vouloir révoquer l'accès aux documents pour la demande ${selectedRequest.ref} ? Tous les liens de téléchargement temporaires transmis au partenaire cesseront immédiatement de fonctionner.`;
+
+    if (!window.confirm(confirmMessage)) return;
+
+    setIsRevoking(true);
+    try {
+      const res = await fetch('/api/accommodation/revoke', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
+        },
+        body: JSON.stringify({ ref: selectedRequest.ref }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to revoke partner access tokens');
+      }
+
+      onNotify(
+        isEn
+          ? `Partner document access revoked successfully (${data.revokedTokensCount} active token(s) deactivated).`
+          : `Accès révoqué avec succès (${data.revokedTokensCount} jeton(s) d’accès désactivé(s)).`
+      );
+      setShowDetailModal(false);
+      await onRefresh();
+    } catch (err: any) {
+      onNotify(`Error revoking access: ${err.message}`);
+    } finally {
+      setIsRevoking(false);
     }
   };
 
@@ -501,6 +651,12 @@ export default function AccommodationScreen({
                           <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
                           {badge.label}
                         </span>
+                        {(req.partner_name || req.email_recipient) && (
+                          <div className="text-[10px] text-indigo-700 dark:text-indigo-400 mt-1 font-semibold flex items-center gap-1">
+                            <Building2 className="w-3 h-3 text-indigo-500 flex-shrink-0" />
+                            <span className="truncate max-w-[130px]">{req.partner_name || req.email_recipient}</span>
+                          </div>
+                        )}
                       </td>
 
                       <td className="py-3.5 px-4 text-slate-600 dark:text-slate-400 whitespace-nowrap">
@@ -512,11 +668,7 @@ export default function AccommodationScreen({
                           {isAuthorizedToSend && (
                             <button
                               type="button"
-                              onClick={() => {
-                                setSelectedRequest(req);
-                                setConfirmedResend(req.status === 'Sent');
-                                setShowSendConfirmDialog(true);
-                              }}
+                              onClick={() => openSendModal(req)}
                               className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 transition-colors shadow-sm"
                               title={
                                 req.status === 'Sent'
@@ -600,10 +752,7 @@ export default function AccommodationScreen({
               <div className="flex items-center gap-2">
                 {isAuthorizedToSend && (
                   <button
-                    onClick={() => {
-                      setConfirmedResend(selectedRequest.status === 'Sent');
-                      setShowSendConfirmDialog(true);
-                    }}
+                    onClick={() => openSendModal(selectedRequest)}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors"
                   >
                     <Send className="w-3.5 h-3.5" />
@@ -631,12 +780,22 @@ export default function AccommodationScreen({
               {selectedRequest.email_sent_at && (
                 <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300 flex items-start gap-2.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="font-semibold">
-                      {isEn ? 'Official Partner Email Dispatched' : 'Email partenaire expédié avec succès'}
+                  <div className="space-y-0.5">
+                    <p className="font-semibold flex items-center gap-2">
+                      <span>{isEn ? 'Official Partner Email Dispatched' : 'Email partenaire expédié avec succès'}</span>
+                      {selectedRequest.partner_name && (
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-bold text-[10px] uppercase">
+                          {selectedRequest.partner_name}
+                        </span>
+                      )}
                     </p>
                     <p className="text-[11px] opacity-90">
-                      {isEn ? 'Delivered to' : 'Envoyé à'} <strong>{selectedRequest.email_recipient}</strong> {isEn ? 'on' : 'le'} {selectedRequest.email_sent_at} {isEn ? 'by' : 'par'} {selectedRequest.email_sent_by}.
+                      {isEn ? 'Delivered exclusively to' : 'Envoyé exclusivement à'}{' '}
+                      <strong className="font-mono text-emerald-900 dark:text-emerald-100">
+                        {selectedRequest.email_recipient}
+                      </strong>{' '}
+                      {isEn ? 'on' : 'le'} {selectedRequest.email_sent_at} {isEn ? 'by' : 'par'}{' '}
+                      {selectedRequest.email_sent_by}.
                     </p>
                   </div>
                 </div>
@@ -764,12 +923,30 @@ export default function AccommodationScreen({
                   </p>
                 </div>
 
-                {selectedRequest.supporting_docs && (
+                {(selectedRequest.supporting_docs || (selectedRequest.attachments && selectedRequest.attachments.length > 0)) && (
                   <div className="mt-3 p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-850 text-xs">
-                    <span className="text-[10px] font-semibold text-slate-400 uppercase block mb-1">
-                      {isEn ? 'Supporting Documents' : 'Pièces Justificatives'}
+                    <span className="text-[10px] font-semibold text-slate-400 uppercase block mb-1.5 flex items-center gap-1.5">
+                      <Paperclip className="w-3 h-3 text-indigo-500" />
+                      {isEn ? 'Supporting Documents & Attachments' : 'Pièces Justificatives & Pièces Jointes'}
                     </span>
-                    <p className="text-slate-700 dark:text-slate-300">{selectedRequest.supporting_docs}</p>
+                    {selectedRequest.attachments && selectedRequest.attachments.length > 0 ? (
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {selectedRequest.attachments.map((att, attIdx) => (
+                          <div
+                            key={attIdx}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] text-slate-800 dark:text-slate-200"
+                          >
+                            <FileText className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                            <span className="font-medium">{att.filename}</span>
+                            {att.sizeFormatted && (
+                              <span className="text-[10px] text-slate-400">({att.sizeFormatted})</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-slate-700 dark:text-slate-300">{selectedRequest.supporting_docs}</p>
+                    )}
                   </div>
                 )}
               </div>
@@ -816,94 +993,291 @@ export default function AccommodationScreen({
             </div>
 
             {/* Footer */}
-            <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex items-center justify-between">
+            <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex flex-wrap items-center justify-between gap-3">
               <span className="text-[11px] text-slate-400">
                 {isEn ? 'Assigned to:' : 'Assigné à :'} <strong>{selectedRequest.assigned_agent}</strong>
               </span>
-              <button
-                onClick={() => setShowDetailModal(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50"
-              >
-                {isEn ? 'Close' : 'Fermer'}
-              </button>
+              <div className="flex items-center gap-2">
+                {selectedRequest.status === 'Sent' && isAuthorizedToSend && (
+                  <button
+                    onClick={handleRevokeAccess}
+                    disabled={isRevoking}
+                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:text-white hover:bg-rose-600 border border-rose-300 dark:border-rose-800 rounded-lg transition-colors disabled:opacity-50"
+                    title={isEn ? 'Immediately revoke partner access to uploaded documents' : 'Révoquer immédiatement l’accès du partenaire aux documents'}
+                  >
+                    <ShieldOff className="w-3.5 h-3.5" />
+                    <span>{isRevoking ? (isEn ? 'Revoking...' : 'Révocation...') : (isEn ? 'Revoke Partner Access' : 'Révoquer l’accès partenaire')}</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowDetailModal(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50"
+                >
+                  {isEn ? 'Close' : 'Fermer'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* SEND CONFIRMATION MODAL */}
+      {/* PARTNER SELECTION & ATTACHMENT MODAL */}
       {showSendConfirmDialog && selectedRequest && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
-                <Send className="w-5 h-5" />
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4 my-8">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-sky-600 text-white flex items-center justify-center shadow-md">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                    {confirmedResend
+                      ? isEn
+                        ? 'Resend Accommodation Reservation'
+                        : 'Réexpédier la Demande de Logement'
+                      : isEn
+                      ? 'Submit Accommodation Reservation Request'
+                      : 'Transmettre la Demande de Logement'}
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    <span className="font-mono text-indigo-600 dark:text-indigo-400 font-semibold">{selectedRequest.ref}</span>
+                    {' • '}
+                    <span>{selectedRequest.student_name}</span>
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="font-bold text-slate-900 dark:text-white text-sm">
-                  {confirmedResend
-                    ? isEn
-                      ? 'Confirm Resending Request Email'
-                      : 'Confirmer la réexpédition'
-                    : isEn
-                    ? 'Confirm Accommodation Request Email'
-                    : 'Confirmer l’envoi au partenaire'}
-                </h3>
-                <p className="text-xs text-slate-500 font-mono">{selectedRequest.ref}</p>
-              </div>
-            </div>
-
-            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 text-xs space-y-2">
-              <p>
-                <strong className="text-slate-800 dark:text-slate-200">{isEn ? 'Recipient:' : 'Destinataire :'}</strong>{' '}
-                <span className="text-indigo-600 dark:text-indigo-400 font-mono">
-                  housing-partner@liecconsulting.com
-                </span>
-              </p>
-              <p>
-                <strong className="text-slate-800 dark:text-slate-200">{isEn ? 'Applicant:' : 'Candidat :'}</strong>{' '}
-                {selectedRequest.student_name} ({selectedRequest.student_ref})
-              </p>
-              <p>
-                <strong className="text-slate-800 dark:text-slate-200">{isEn ? 'Location:' : 'Lieu :'}</strong>{' '}
-                {selectedRequest.preferred_location}
-              </p>
-              <p>
-                <strong className="text-slate-800 dark:text-slate-200">{isEn ? 'Budget:' : 'Budget :'}</strong>{' '}
-                {selectedRequest.budget}
-              </p>
-              <p>
-                <strong className="text-slate-800 dark:text-slate-200">{isEn ? 'Arrival Date:' : 'Date d’arrivée :'}</strong>{' '}
-                {selectedRequest.arrival_date}
-              </p>
-            </div>
-
-            {confirmedResend && (
-              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
-                <p>
-                  {isEn
-                    ? 'Warning: This request was already sent previously. Clicking confirm will trigger an official email resend.'
-                    : 'Attention : Cette demande a déjà été envoyée. La confirmation entraînera une réexpédition par email.'}
-                </p>
-              </div>
-            )}
-
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              {isEn
-                ? 'The partner email will be securely dispatched using the official LIEC template with complete student and accommodation specifications.'
-                : 'L’email sera généré et expédié via le modèle officiel LIEC avec les pièces et critères du dossier.'}
-            </p>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
               <button
                 type="button"
                 onClick={() => {
                   setShowSendConfirmDialog(false);
                   setConfirmedResend(false);
+                  setSelectedFiles([]);
+                  setFileUploadError(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* PARTNER SELECTION SECTION */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                  {isEn ? '1. Select Accommodation Partner *' : '1. Choisir le Partenaire Hébergement *'}
+                </label>
+                <span className="text-[11px] text-slate-400">
+                  {isEn ? 'Exclusive recipient' : 'Destinataire exclusif'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {ACCOMMODATION_PARTNERS.map((partner) => {
+                  const isSelected = selectedPartnerId === partner.id;
+                  return (
+                    <div
+                      key={partner.id}
+                      onClick={() => setSelectedPartnerId(partner.id)}
+                      className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all relative flex flex-col justify-between ${
+                        isSelected
+                          ? 'border-indigo-600 bg-indigo-50/60 dark:bg-indigo-950/40 shadow-sm ring-2 ring-indigo-500/20'
+                          : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-850 hover:border-slate-300 dark:hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
+                            {partner.badge}
+                          </span>
+                          <h4 className="font-bold text-slate-900 dark:text-white text-sm mt-1.5">
+                            {partner.name}
+                          </h4>
+                        </div>
+                        <div
+                          className={`w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                            isSelected
+                              ? 'border-indigo-600 bg-indigo-600 text-white'
+                              : 'border-slate-300 dark:border-slate-600'
+                          }`}
+                        >
+                          {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 pt-2.5 border-t border-slate-200/60 dark:border-slate-800 text-[11px]">
+                        <div className="flex items-center gap-1.5 text-slate-800 dark:text-slate-200 font-mono font-semibold">
+                          <Mail className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
+                          <span className="truncate">{partner.email}</span>
+                        </div>
+                        <p className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
+                          {partner.description}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* STUDENT & SPECIFICATIONS SUMMARY */}
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 text-xs">
+              <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+                {isEn ? '2. Summary of Student Request' : '2. Synthèse du Dossier'}
+              </h4>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-slate-700 dark:text-slate-300">
+                <div>
+                  <span className="text-[10px] text-slate-400 block">{isEn ? 'Candidate' : 'Candidat'}</span>
+                  <span className="font-semibold text-slate-900 dark:text-white truncate block">
+                    {selectedRequest.student_name}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 block">{isEn ? 'Location' : 'Secteur'}</span>
+                  <span className="font-medium truncate block">{selectedRequest.preferred_location}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 block">{isEn ? 'Arrival Date' : 'Arrivée'}</span>
+                  <span className="font-medium text-emerald-600 dark:text-emerald-400 block">{selectedRequest.arrival_date}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 block">{isEn ? 'Indicated Budget' : 'Budget'}</span>
+                  <span className="font-semibold text-slate-900 dark:text-white block">{selectedRequest.budget}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* FILE ATTACHMENT SECTION */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <Paperclip className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>{isEn ? '3. Supporting Documents (Attachments)' : '3. Pièces Justificatives (Pièces Jointes)'}</span>
+                </label>
+                <span className="text-[11px] text-slate-400">
+                  {selectedFiles.length}/5 {isEn ? 'files' : 'fichiers'}
+                </span>
+              </div>
+
+              {/* Hidden File Input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.jpg,.jpeg,.png,.webp,.docx,.doc"
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files) handleAddFiles(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+
+              {/* Dropzone */}
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragging(true);
+                }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDragging(false);
+                  if (e.dataTransfer.files) handleAddFiles(e.dataTransfer.files);
+                }}
+                onClick={() => fileInputRef.current?.click()}
+                className={`p-4 rounded-xl border-2 border-dashed text-center cursor-pointer transition-all ${
+                  isDragging
+                    ? 'border-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/50'
+                    : 'border-slate-300 dark:border-slate-700 hover:border-indigo-400 bg-slate-50/50 dark:bg-slate-850/50 hover:bg-slate-50'
+                }`}
+              >
+                <Upload className="w-6 h-6 mx-auto text-indigo-500 mb-1.5 opacity-80" />
+                <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                  {isEn ? 'Click or drag & drop documents here' : 'Cliquez ou glissez-déposez vos pièces ici'}
+                </p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {isEn
+                    ? 'Passport copy, proof of registration, school admission letter, guarantor proof (PDF, JPG, PNG, DOCX — Max 5 MB each)'
+                    : 'Passeport, attestation d’inscription, lettre d’admission, garant (PDF, JPG, PNG, DOCX — Max 5 Mo)'}
+                </p>
+              </div>
+
+              {/* Validation Error Banner */}
+              {fileUploadError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <span>{fileUploadError}</span>
+                </div>
+              )}
+
+              {/* Selected Files List */}
+              {selectedFiles.length > 0 && (
+                <div className="space-y-1.5 mt-2">
+                  {selectedFiles.map((file, idx) => {
+                    const sizeKb = file.size / 1024;
+                    const formatted = sizeKb >= 1024 ? `${(sizeKb / 1024).toFixed(1)} MB` : `${Math.round(sizeKb)} KB`;
+                    return (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FileText className="w-4 h-4 text-indigo-600 dark:text-indigo-400 flex-shrink-0" />
+                          <span className="font-medium text-slate-800 dark:text-slate-200 truncate">{file.name}</span>
+                          <span className="text-[10px] text-slate-400 flex-shrink-0 font-mono">({formatted})</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveFile(idx);
+                          }}
+                          className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                          title={isEn ? 'Remove attachment' : 'Retirer le document'}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* WARNING OR NOTICE */}
+            {confirmedResend ? (
+              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                <p>
+                  {isEn
+                    ? 'Warning: This request was already sent previously. Confirming will resend the official request exclusively to the selected partner.'
+                    : 'Attention : Cette demande a déjà été envoyée. La confirmation réexpédiera la demande exclusivement au partenaire sélectionné.'}
+                </p>
+              </div>
+            ) : (
+              <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 flex items-start gap-2">
+                <Shield className="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0" />
+                <p>
+                  {isEn
+                    ? `Documents are securely archived in private cloud storage. ${getAccommodationPartnerById(selectedPartnerId)?.name} (${getAccommodationPartnerById(selectedPartnerId)?.email}) will receive temporary 48-hour download links (no raw files are attached to the email).`
+                    : `Les documents sont archivés sur un espace cloud privé sécurisé. ${getAccommodationPartnerById(selectedPartnerId)?.name} (${getAccommodationPartnerById(selectedPartnerId)?.email}) recevra des liens de téléchargement valables 48 heures (aucun fichier brut n’est envoyé en pièce jointe).`}
+                </p>
+              </div>
+            )}
+
+            {/* MODAL ACTIONS */}
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSendConfirmDialog(false);
+                  setConfirmedResend(false);
+                  setSelectedFiles([]);
+                  setFileUploadError(null);
                 }}
                 disabled={isSending}
-                className="px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50"
+                className="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors"
               >
                 {isEn ? 'Cancel' : 'Annuler'}
               </button>
@@ -911,8 +1285,8 @@ export default function AccommodationScreen({
               <button
                 type="button"
                 onClick={handleSendEmail}
-                disabled={isSending}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow disabled:opacity-50 transition-colors"
+                disabled={isSending || !selectedPartnerId}
+                className="flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow disabled:opacity-50 transition-colors"
               >
                 {isSending ? (
                   <>
@@ -922,13 +1296,15 @@ export default function AccommodationScreen({
                 ) : (
                   <>
                     <Send className="w-3.5 h-3.5" />
-                    {confirmedResend
-                      ? isEn
-                        ? 'Confirm Resend'
-                        : 'Confirmer la réexpédition'
-                      : isEn
-                      ? 'Confirm & Send Email'
-                      : 'Confirmer & Envoyer'}
+                    <span>
+                      {confirmedResend
+                        ? isEn
+                          ? `Confirm Resend to ${getAccommodationPartnerById(selectedPartnerId)?.name}`
+                          : `Confirmer la réexpédition à ${getAccommodationPartnerById(selectedPartnerId)?.name}`
+                        : isEn
+                        ? `Send to ${getAccommodationPartnerById(selectedPartnerId)?.name}`
+                        : `Envoyer à ${getAccommodationPartnerById(selectedPartnerId)?.name}`}
+                    </span>
                   </>
                 )}
               </button>

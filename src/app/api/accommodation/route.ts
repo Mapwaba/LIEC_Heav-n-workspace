@@ -36,6 +36,7 @@ export async function GET(req: NextRequest) {
     const parsed = res.rows.map((row: any) => ({
       ...row,
       history: JSON.parse(row.history_json || '[]'),
+      attachments: JSON.parse(row.attachments_json || '[]'),
     }));
 
     return NextResponse.json({
