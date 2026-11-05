@@ -112,6 +112,7 @@ export async function POST(req: NextRequest) {
     const targetCities = (body.target_cities || 'Lyon (Campus Partenaire LIEC)').trim();
     const currentLevel = (body.current_level || 'Licence / Bac+3 (En cours)').trim();
     const budgetRange = (body.budget_range || '8 500 € – 10 000 € / an').trim();
+    const applicationYear = (body.application_year || '2027–2028').trim();
     const expectedStart = (body.expected_start || 'Septembre 2025').trim();
     const rawSexe = (body.sexe || body.gender || 'Male').trim();
     const sexe = (rawSexe === 'Féminin' || rawSexe === 'Female') ? 'Female' : 'Male';
@@ -168,8 +169,8 @@ export async function POST(req: NextRequest) {
       `INSERT INTO demandes (
         ref, initials, full_name, email, phone, parent_full_name, parent_phone, graduation_year, current_activity, final_year_university,
         whatsapp_verified, country_code, flag, country_name, city, nationality, program, service_pole, target_cities, current_level,
-        budget_range, status, adviser, expected_start, message, submitted_at, is_dashboard_recent, sexe
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
+        budget_range, status, adviser, expected_start, message, submitted_at, is_dashboard_recent, sexe, application_year
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
       RETURNING *`,
       [
         ref,
@@ -200,6 +201,7 @@ export async function POST(req: NextRequest) {
         nowLabel,
         true,
         sexe,
+        applicationYear,
       ]
     );
 

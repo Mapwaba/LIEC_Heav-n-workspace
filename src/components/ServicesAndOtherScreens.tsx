@@ -3557,19 +3557,45 @@ export function ParametresGovernanceScreen({
 
   // Create User Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newFirstName, setNewFirstName] = useState('');
+  const [newLastName, setNewLastName] = useState('');
   const [newUserName, setNewUserName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserProfile, setNewUserProfile] = useState<'Admin' | 'Secretary' | 'Finance Officer'>('Secretary');
   const [newUserRoles, setNewUserRoles] = useState<string[]>(['lh_internal', 'ITIL']);
   const [newUserTitle, setNewUserTitle] = useState('');
 
+  // Auto-generated User ID preview (first_initial + last_name)
+  const generatedUserId = useMemo(() => {
+    const cleanFirst = (newFirstName || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+
+    const cleanLast = (newLastName || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+
+    const initial = cleanFirst.length > 0 ? cleanFirst[0] : '';
+    return (initial + cleanLast) || '';
+  }, [newFirstName, newLastName]);
+
   // Created User Credentials Confirmation Dialog State (Admin-only visibility)
   const [createdUserCredentials, setCreatedUserCredentials] = useState<{
     name: string;
+    first_name?: string;
+    last_name?: string;
+    user_id?: string;
     email: string;
     business_profile: string;
     technical_roles: string[];
     temporaryPassword: string;
+    emailSent?: boolean;
   } | null>(null);
   const [showCreatedPassword, setShowCreatedPassword] = useState(false);
   const [copiedPassword, setCopiedPassword] = useState(false);
@@ -3827,7 +3853,7 @@ export function ParametresGovernanceScreen({
 
   const handleSaveCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUserName.trim() || !newUserEmail.trim()) return;
+    if (!newFirstName.trim() || !newLastName.trim() || !newUserEmail.trim()) return;
     const cleanEmail = newUserEmail.trim().toLowerCase();
     if (!cleanEmail.endsWith('@liecconsulting.com')) {
       showFeedback(
@@ -3847,7 +3873,10 @@ export function ParametresGovernanceScreen({
           'x-user-lang': isEn ? 'en' : 'fr',
         },
         body: JSON.stringify({
-          name: newUserName.trim(),
+          first_name: newFirstName.trim(),
+          last_name: newLastName.trim(),
+          name: `${newFirstName.trim()} ${newLastName.trim()}`,
+          user_id: generatedUserId,
           email: cleanEmail,
           business_profile: newUserProfile,
           technical_roles: newUserRoles,
@@ -3857,19 +3886,27 @@ export function ParametresGovernanceScreen({
       if (res.ok) {
         const data = await res.json();
         setShowCreateModal(false);
+        setNewFirstName('');
+        setNewLastName('');
         setNewUserName('');
         setNewUserEmail('');
         setNewUserTitle('');
         await fetchUsersAndRoles();
         onRefreshWorkspace?.();
 
+        const assignedId = data.userId || data.user?.user_id || generatedUserId;
+
         if (data.temporaryPassword) {
           setCreatedUserCredentials({
-            name: data.user?.name || newUserName.trim(),
+            name: data.user?.name || `${newFirstName.trim()} ${newLastName.trim()}`,
+            first_name: data.user?.first_name || newFirstName.trim(),
+            last_name: data.user?.last_name || newLastName.trim(),
+            user_id: assignedId,
             email: data.user?.email || cleanEmail,
             business_profile: data.user?.business_profile || newUserProfile,
             technical_roles: newUserRoles,
             temporaryPassword: data.temporaryPassword,
+            emailSent: data.emailSent,
           });
           setShowCreatedPassword(false);
           setCopiedPassword(false);
@@ -3878,8 +3915,8 @@ export function ParametresGovernanceScreen({
 
         showFeedback(
           isEn
-            ? `User account created with secure default password.`
-            : `Compte utilisateur créé avec mot de passe temporaire sécurisé.`
+            ? `User '${assignedId}' created successfully.${data.emailSent ? ' Notification email sent.' : ''}`
+            : `Utilisateur '${assignedId}' créé avec succès.${data.emailSent ? ' Email de notification envoyé.' : ''}`
         );
       } else {
         const err = await res.json();
@@ -3962,6 +3999,7 @@ export function ParametresGovernanceScreen({
     const q = userSearch.toLowerCase();
     return (
       u.name?.toLowerCase().includes(q) ||
+      u.user_id?.toLowerCase().includes(q) ||
       u.email?.toLowerCase().includes(q) ||
       u.business_profile?.toLowerCase().includes(q)
     );
@@ -4117,7 +4155,14 @@ export function ParametresGovernanceScreen({
                                   {u.initials || u.name?.slice(0, 2).toUpperCase()}
                                 </div>
                                 <div>
-                                  <div className="font-extrabold text-[#092342]">{u.name}</div>
+                                  <div className="font-extrabold text-[#092342] flex items-center gap-1.5">
+                                    <span>{u.name}</span>
+                                    {u.user_id && (
+                                      <span className="font-mono text-[10px] font-bold px-1.5 py-0.2 rounded bg-teal-50 text-[#0c685a] border border-teal-200">
+                                        @{u.user_id}
+                                      </span>
+                                    )}
+                                  </div>
                                   <div className="text-[11px] text-slate-500">{u.email}</div>
                                 </div>
                               </div>
@@ -4895,18 +4940,57 @@ export function ParametresGovernanceScreen({
             </div>
 
             <form onSubmit={handleSaveCreateUser} className="space-y-3.5 text-xs">
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">
-                  {isEn ? 'Full Name *' : 'Nom complet *'}
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newUserName}
-                  onChange={(e) => setNewUserName(e.target.value)}
-                  placeholder={isEn ? 'e.g. Jean-Paul Mbuyi' : 'ex: Jean-Paul Mbuyi'}
-                  className="w-full rounded-xl border border-slate-200 p-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    {isEn ? 'First Name *' : 'Prénom *'}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newFirstName}
+                    onChange={(e) => setNewFirstName(e.target.value)}
+                    placeholder={isEn ? 'e.g. Barthelemy' : 'ex: Barthelemy'}
+                    className="w-full rounded-xl border border-slate-200 p-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    {isEn ? 'Last Name *' : 'Nom *'}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newLastName}
+                    onChange={(e) => setNewLastName(e.target.value)}
+                    placeholder={isEn ? 'e.g. MAPWABA' : 'ex: MAPWABA'}
+                    className="w-full rounded-xl border border-slate-200 p-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20"
+                  />
+                </div>
+              </div>
+
+              {/* Automatic User ID Generation Preview */}
+              <div className="rounded-xl border border-teal-200 bg-teal-50/70 p-3 flex items-center justify-between">
+                <div>
+                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#0c685a]">
+                    {isEn ? 'Assigned User ID (Auto-Generated)' : 'Identifiant Unique (Auto-Généré)'}
+                  </div>
+                  <div className="font-mono text-sm font-extrabold text-[#092342] mt-0.5">
+                    {generatedUserId || (
+                      <span className="text-slate-400 font-sans font-normal text-xs italic">
+                        {isEn ? 'Type first & last name above' : 'Saisir prénom et nom ci-dessus'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-[#d8f6ea] text-[#0c685a]">
+                    {isEn ? 'first_initial + last_name' : 'initiale + nom'}
+                  </span>
+                  <p className="text-[9.5px] text-slate-400 mt-0.5">
+                    {isEn ? 'Unique dual-login username' : 'Identifiant unique de connexion'}
+                  </p>
+                </div>
               </div>
 
               <div>
@@ -5048,13 +5132,24 @@ export function ParametresGovernanceScreen({
                 <span className="font-extrabold text-[#092342]">{createdUserCredentials.name}</span>
               </div>
               <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-semibold">{isEn ? 'Assigned User ID:' : 'Identifiant User ID :'}</span>
+                <span className="font-mono font-extrabold text-[#0c685a]">{createdUserCredentials.user_id}</span>
+              </div>
+              <div className="flex justify-between items-center">
                 <span className="text-slate-500 font-semibold">{isEn ? 'Work Email:' : 'Email professionnel :'}</span>
                 <span className="font-mono font-bold text-[#0c685a]">{createdUserCredentials.email}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-semibold">{isEn ? 'Business Profile:' : 'Profil Métier :'}</span>
+                <span className="text-slate-500 font-semibold">{isEn ? 'Business Profile / Role:' : 'Profil Métier / Rôle :'}</span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-[#e0f8ef] text-[#0c685a]">
                   {createdUserCredentials.business_profile}
+                </span>
+              </div>
+              <div className="flex justify-between items-center pt-1 border-t border-slate-200/60 text-[11px]">
+                <span className="text-slate-500 font-semibold">{isEn ? 'Resend Email Notification:' : 'Notification email Resend :'}</span>
+                <span className="inline-flex items-center gap-1 font-semibold text-emerald-700">
+                  <Check className="w-3.5 h-3.5" />
+                  {isEn ? 'Dispatched to work email' : 'Envoyé à l’adresse pro'}
                 </span>
               </div>
             </div>
@@ -5118,8 +5213,8 @@ export function ParametresGovernanceScreen({
                 type="button"
                 onClick={() => {
                   const shareText = isEn
-                    ? `Welcome to LIEC Heav’n Workspace.\n\nYour account has been created:\n- Login URL: ${window.location.origin}/login\n- Username / Email: ${createdUserCredentials.email}\n- Temporary Password: ${createdUserCredentials.temporaryPassword}\n\nSecurity Policy: You are required to create a new personal password immediately upon your first login.`
-                    : `Bienvenue sur l'espace LIEC Heav’n Workspace.\n\nVotre compte collaborateur a été créé :\n- Lien de connexion : ${window.location.origin}/login\n- Identifiant / Email : ${createdUserCredentials.email}\n- Mot de passe temporaire : ${createdUserCredentials.temporaryPassword}\n\nPolitique de sécurité : Vous serez invité à définir votre mot de passe personnel dès votre première connexion.`;
+                    ? `Welcome to LIEC Heav’n Workspace.\n\nYour account has been created:\n- Login URL: ${window.location.origin}/login\n- User ID: ${createdUserCredentials.user_id}\n- Professional Email: ${createdUserCredentials.email}\n- Temporary Password: ${createdUserCredentials.temporaryPassword}\n\nDual Login: You can sign in using either your Professional Email or your User ID with this password.\nSecurity Policy: You are required to configure a new personal password immediately upon your first login.`
+                    : `Bienvenue sur l'espace LIEC Heav’n Workspace.\n\nVotre compte collaborateur a été créé :\n- Lien de connexion : ${window.location.origin}/login\n- Identifiant User ID : ${createdUserCredentials.user_id}\n- Email professionnel : ${createdUserCredentials.email}\n- Mot de passe temporaire : ${createdUserCredentials.temporaryPassword}\n\nDouble méthode de connexion : Vous pouvez vous connecter avec votre Email professionnel OU avec votre User ID.\nPolitique de sécurité : Vous serez invité à définir votre mot de passe personnel dès votre première connexion.`;
                   navigator.clipboard.writeText(shareText);
                   setCopiedInvite(true);
                   setTimeout(() => setCopiedInvite(false), 3000);

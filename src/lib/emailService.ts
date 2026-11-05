@@ -701,3 +701,158 @@ export async function sendAdvisorAssignmentEmail(
     workflow: 'advisor_assignment',
   });
 }
+
+export interface NewUserWelcomeEmailPayload {
+  firstName: string;
+  lastName: string;
+  userId: string;
+  email: string;
+  role: string;
+  businessProfile?: string;
+  temporaryPassword?: string;
+  loginUrl?: string;
+  idempotencyKey?: string;
+}
+
+/**
+ * Renders HTML email notification for newly created staff user accounts.
+ */
+export function renderNewUserWelcomeHtml(data: NewUserWelcomeEmailPayload): string {
+  const loginUrl = (data.loginUrl || 'https://workspace.liecconsulting.com/login').trim();
+  const fullName = `${data.firstName} ${data.lastName}`.trim();
+  const displayRole = data.businessProfile || data.role || 'Staff Member';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to LIEC Heav'n Workspace</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
+    .container { max-width: 620px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+    .header { background: linear-gradient(135deg, #092342 0%, #0c685a 100%); padding: 32px; color: #ffffff; }
+    .badge { display: inline-block; background: rgba(255,255,255,0.15); color: #5eead4; font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+    .header h1 { margin: 0 0 6px 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+    .header p { margin: 0; font-size: 13.5px; color: #cbd5e1; }
+    .content { padding: 32px; font-size: 14px; line-height: 1.6; }
+    .credentials-box { background: #f0fdf9; border: 1px solid #bbf0df; border-radius: 12px; padding: 20px; margin: 20px 0; }
+    .credentials-title { font-weight: 800; color: #0c685a; margin-bottom: 12px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .cred-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
+    .cred-label { color: #64748b; font-weight: 600; }
+    .cred-val { font-weight: 700; color: #092342; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .info-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 18px; margin: 18px 0; font-size: 13px; color: #334155; }
+    .btn { display: inline-block; background: #0c685a; color: #ffffff !important; text-decoration: none; padding: 13px 28px; border-radius: 10px; font-weight: 700; font-size: 14px; margin: 16px 0 8px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .footer { background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 24px 32px; font-size: 12px; color: #64748b; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="badge">LIEC Heav'n &bull; User Management</div>
+      <h1>Account Activation &amp; Credentials</h1>
+      <p>Welcome to your LIEC Heav'n Education Management Workspace</p>
+    </div>
+    <div class="content">
+      <p>Hello <strong>${data.firstName}</strong>,</p>
+      <p>Your user account on the <strong>LIEC Heav'n Workspace</strong> platform has been created by the system administrator.</p>
+
+      <div class="credentials-box">
+        <div class="credentials-title">Your Identity &amp; Sign-In Credentials</div>
+        <table style="width:100%; border-collapse: collapse; font-size: 13px;">
+          <tr>
+            <td style="padding: 6px 0; color: #64748b; font-weight: 600;">Full Name:</td>
+            <td style="padding: 6px 0; font-weight: 700; color: #092342;">${fullName}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; color: #64748b; font-weight: 600;">Assigned User ID:</td>
+            <td style="padding: 6px 0; font-weight: 800; color: #0c685a; font-family: monospace;">${data.userId}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; color: #64748b; font-weight: 600;">Professional Email:</td>
+            <td style="padding: 6px 0; font-weight: 700; color: #092342; font-family: monospace;">${data.email}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; color: #64748b; font-weight: 600;">Assigned Role:</td>
+            <td style="padding: 6px 0; font-weight: 700; color: #092342;">${displayRole}</td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="info-card">
+        <strong>Dual Login Capability:</strong><br>
+        You can sign in to the workspace using <em>either</em> your <strong>Professional Email Address</strong> (<span style="color:#0c685a;">${data.email}</span>) or your <strong>User ID</strong> (<span style="color:#0c685a;">${data.userId}</span>) with your secure password.
+      </div>
+
+      <div class="info-card" style="background: #fffbeb; border-color: #fef3c7; color: #92400e;">
+        <strong>Password Security &amp; First Login:</strong><br>
+        A one-time temporary password was generated for initial access and provided by your administrator. For your security, you will be required to choose a new private password upon your first sign-in. Permanent passwords are never sent via plain-text email.
+      </div>
+
+      <div style="text-align: center; margin: 28px 0;">
+        <a href="${loginUrl}" class="btn" target="_blank">Sign In to LIEC Heav'n Workspace &rarr;</a>
+      </div>
+    </div>
+    <div class="footer">
+      <p style="margin: 0 0 6px 0;"><strong>LIEC Heav'n Consulting &bull; Education Management</strong></p>
+      <p style="margin: 0;">Login URL: <a href="${loginUrl}" style="color: #0c685a; text-decoration: none;">${loginUrl}</a></p>
+      <p style="margin: 6px 0 0 0;">This email was sent to ${data.email}. If you did not expect this notification, please contact the platform administrator immediately.</p>
+    </div>
+  </div>
+</body>
+</html>`.trim();
+}
+
+/**
+ * Sends professional account creation notification email to the new user via Resend / configured provider.
+ */
+export async function sendNewUserWelcomeEmail(
+  payload: NewUserWelcomeEmailPayload
+): Promise<EmailSendResult> {
+  const recipient = payload.email?.trim().toLowerCase();
+  if (!recipient || !recipient.includes('@')) {
+    throw new Error('Invalid professional email address for new user');
+  }
+
+  const subject = `Welcome to LIEC Heav'n - Your Account Credentials (${payload.userId})`;
+  const htmlContent = renderNewUserWelcomeHtml(payload);
+  const loginUrl = payload.loginUrl || 'https://workspace.liecconsulting.com/login';
+
+  const textContent = [
+    "Welcome to LIEC Heav'n Workspace",
+    '',
+    `Hello ${payload.firstName},`,
+    '',
+    "Your user account has been successfully configured on the LIEC Heav'n Education Management Workspace.",
+    '',
+    "Your Account Identity & Credentials:",
+    `- Full Name: ${payload.firstName} ${payload.lastName}`,
+    `- Assigned User ID: ${payload.userId}`,
+    `- Professional Email: ${payload.email}`,
+    `- Assigned Role: ${payload.businessProfile || payload.role}`,
+    '',
+    "Dual Login Capability:",
+    `You can sign in using either your professional email (${payload.email}) or your User ID (${payload.userId}).`,
+    '',
+    "Password Security Notice:",
+    "A temporary initial password was generated by your administrator. You will be prompted to set your permanent private password upon first login.",
+    '',
+    `Sign in at: ${loginUrl}`,
+    '',
+    "LIEC Heav'n Consulting - Confidential Internal Staff Communication",
+  ].join('\n');
+
+  const cleanUserId = payload.userId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const idempotencyKey =
+    payload.idempotencyKey || `user_welcome_${cleanUserId}_${Date.now()}`.substring(0, 120);
+
+  return sendEmail({
+    to: recipient,
+    subject,
+    html: htmlContent,
+    text: textContent,
+    idempotencyKey,
+    workflow: 'general',
+    allowSimulation: true,
+  });
+}

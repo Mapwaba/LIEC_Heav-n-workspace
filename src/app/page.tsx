@@ -48,7 +48,7 @@ import {
   Lang,
 } from '@/components/ServicesAndOtherScreens';
 import { KnowledgeBaseScreen } from '@/components/KnowledgeBaseScreen';
-import { ACADEMIC_INTAKE_OPTIONS } from '@/lib/academicIntake';
+import { ACADEMIC_INTAKE_OPTIONS, ACADEMIC_YEAR_OPTIONS } from '@/lib/academicIntake';
 import { GuidedTour } from '@/components/GuidedTour';
 
 type NavTab =
@@ -167,6 +167,7 @@ export default function LiecWorkspacePage() {
   const [newDemParentName, setNewDemParentName] = useState('');
   const [newDemParentPhone, setNewDemParentPhone] = useState('');
   const [newDemGraduationYear, setNewDemGraduationYear] = useState('2024');
+  const [newDemApplicationYear, setNewDemApplicationYear] = useState('2027–2028');
   const [newDemCurrentActivity, setNewDemCurrentActivity] = useState('');
   const [newDemFinalYearUni, setNewDemFinalYearUni] = useState('');
   const [parentStudentLinks, setParentStudentLinks] = useState<any[]>([]);
@@ -703,6 +704,7 @@ export default function LiecWorkspacePage() {
         parent_full_name: newDemParentName.trim(),
         parent_phone: newDemParentPhone.trim(),
         graduation_year: newDemGraduationYear,
+        application_year: newDemApplicationYear,
         current_activity: newDemCurrentActivity.trim(),
         final_year_university: newDemFinalYearUni.trim(),
       });
@@ -715,6 +717,7 @@ export default function LiecWorkspacePage() {
         setNewDemParentName('');
         setNewDemParentPhone('');
         setNewDemGraduationYear('2024');
+        setNewDemApplicationYear('2027–2028');
         setNewDemCurrentActivity('');
         setNewDemFinalYearUni('');
         setShowNewDemandeModal(false);
@@ -2286,6 +2289,24 @@ export default function LiecWorkspacePage() {
                           {isEn ? "ESMES — Master Accounting & Audit (Comptabilité)" : "ESMES — Master Comptabilité & Audit"}
                         </option>
                       </optgroup>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {isEn ? 'Application Year *' : 'Année Académique *'}
+                    </label>
+                    <select
+                      required
+                      name="application_year"
+                      value={newDemApplicationYear}
+                      onChange={(e) => setNewDemApplicationYear(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 bg-white font-bold text-[#092342] focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20 cursor-pointer"
+                    >
+                      {ACADEMIC_YEAR_OPTIONS.map((yr) => (
+                        <option key={yr} value={yr}>
+                          {yr}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div>

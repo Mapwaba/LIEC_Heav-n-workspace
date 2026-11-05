@@ -14,23 +14,23 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const langHeader = req.headers.get('x-user-lang') || body.lang || req.cookies.get('liec_lang')?.value || 'en';
     const isEn = !langHeader.toLowerCase().startsWith('fr');
-    const rawEmail = (body.email || '').trim().toLowerCase();
+    const rawIdentifier = (body.email || body.identifier || body.username || '').trim().toLowerCase();
     const password = (body.password || '').trim();
 
-    if (!rawEmail || !password) {
+    if (!rawIdentifier || !password) {
       return NextResponse.json(
-        { error: isEn ? 'Work email and password are required.' : 'Email et mot de passe requis.' },
+        { error: isEn ? 'Professional email or User ID and password are required.' : 'Email professionnel ou Identifiant et mot de passe requis.' },
         { status: 400 }
       );
     }
 
     const db = await getDb();
     const dbUserRes = await db.query(
-      `SELECT u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials,
+      `SELECT u.id, u.name, u.first_name, u.last_name, u.user_id, u.email, u.business_profile, u.role, u.title, u.initials,
               u.active, u.password_hash, u.password_salt, u.must_change_password
        FROM users u
-       WHERE LOWER(u.email) = $1`,
-      [rawEmail]
+       WHERE LOWER(u.email) = $1 OR LOWER(COALESCE(u.user_id, '')) = $1`,
+      [rawIdentifier]
     );
 
     let userPayload: any = null;
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
         const isValid = verifyPassword(password, dbUser.password_hash, dbUser.password_salt);
         if (!isValid) {
           return NextResponse.json(
-            { error: isEn ? 'Incorrect password for this staff account.' : 'Mot de passe incorrect pour cet utilisateur staff.' },
+            { error: isEn ? 'Invalid email/User ID or password.' : 'Email/Identifiant ou mot de passe incorrect.' },
             { status: 401 }
           );
         }
@@ -59,7 +59,10 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({
             requirePasswordChange: true,
             email: dbUser.email,
+            user_id: dbUser.user_id,
             name: dbUser.name,
+            first_name: dbUser.first_name,
+            last_name: dbUser.last_name,
             role: dbUser.role || 'secretary',
             business_profile: dbUser.business_profile || 'Secretary',
             message: 'First login detected. Password change required.',
@@ -69,6 +72,9 @@ export async function POST(req: NextRequest) {
         userPayload = {
           id: dbUser.id,
           name: dbUser.name,
+          first_name: dbUser.first_name,
+          last_name: dbUser.last_name,
+          user_id: dbUser.user_id,
           email: dbUser.email,
           role: dbUser.role || 'secretary',
           business_profile: dbUser.business_profile || 'Secretary',
@@ -82,16 +88,19 @@ export async function POST(req: NextRequest) {
     if (!userPayload) {
       const matchedAccount = STAFF_ACCOUNTS.find(
         (acc) =>
-          acc.acceptedEmails.some((e) => e.toLowerCase() === rawEmail) ||
-          acc.email.toLowerCase() === rawEmail
+          acc.acceptedEmails.some((e) => e.toLowerCase() === rawIdentifier) ||
+          acc.email.toLowerCase() === rawIdentifier ||
+          (acc as any).user_id?.toLowerCase() === rawIdentifier ||
+          (acc.role === 'admin' && rawIdentifier === 'bmapwaba') ||
+          (acc.role === 'secretary' && rawIdentifier === 'omandeke')
       );
 
       if (!matchedAccount) {
         return NextResponse.json(
           {
             error: isEn
-              ? 'Unrecognized email address. Only authorized LIEC Heav’n staff can access the workspace.'
-              : 'Adresse e-mail non reconnue. Seul le personnel autorisé de LIEC Heav’n peut accéder au workspace.',
+              ? 'Invalid email/User ID or password.'
+              : 'Email/Identifiant ou mot de passe incorrect.',
           },
           { status: 401 }
         );
@@ -104,7 +113,7 @@ export async function POST(req: NextRequest) {
 
       if (!isValidFallback) {
         return NextResponse.json(
-          { error: isEn ? 'Incorrect password for this staff account.' : 'Mot de passe incorrect pour cet utilisateur staff.' },
+          { error: isEn ? 'Invalid email/User ID or password.' : 'Email/Identifiant ou mot de passe incorrect.' },
           { status: 401 }
         );
       }

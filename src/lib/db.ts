@@ -111,6 +111,9 @@ async function initSchemaAndSeed(client: DBClient) {
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       name VARCHAR(120) NOT NULL,
+      first_name VARCHAR(60),
+      last_name VARCHAR(60),
+      user_id VARCHAR(60) UNIQUE,
       email VARCHAR(160) UNIQUE NOT NULL,
       business_profile VARCHAR(50) NOT NULL DEFAULT 'Secretary',
       role VARCHAR(50) NOT NULL DEFAULT 'secretary',
@@ -151,6 +154,7 @@ async function initSchemaAndSeed(client: DBClient) {
       budget_range VARCHAR(100) DEFAULT '8 500 € – 10 000 € / an',
       status VARCHAR(60) DEFAULT 'Nouvelle',
       adviser VARCHAR(100) DEFAULT 'Barthelemy MAPWABA NTORO',
+      application_year VARCHAR(20),
       expected_start VARCHAR(60) DEFAULT 'Septembre 2025',
       message TEXT,
       submitted_at VARCHAR(60) DEFAULT 'Just now',
@@ -419,6 +423,11 @@ async function initSchemaAndSeed(client: DBClient) {
 
     ALTER TABLE roles ADD COLUMN IF NOT EXISTS timeout_minutes INTEGER DEFAULT 15;
 
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(60);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(60);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS user_id VARCHAR(60);
+    CREATE UNIQUE INDEX IF NOT EXISTS users_user_id_unique_idx ON users (LOWER(user_id));
+
     ALTER TABLE users ADD COLUMN IF NOT EXISTS business_profile VARCHAR(50) DEFAULT 'Secretary';
     ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMP WITH TIME ZONE;
@@ -429,6 +438,7 @@ async function initSchemaAndSeed(client: DBClient) {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMP WITH TIME ZONE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS password_updated_at TIMESTAMP WITH TIME ZONE;
     ALTER TABLE demande_notes ADD COLUMN IF NOT EXISTS timestamp_label VARCHAR(60) DEFAULT 'Today';
+    ALTER TABLE demandes ADD COLUMN IF NOT EXISTS application_year VARCHAR(20);
 
     -- Seed Technical Roles from RBAC Specification if empty
     INSERT INTO roles (role_id, role_name, business_profile, description, safeguards, active) VALUES
@@ -453,10 +463,13 @@ async function initSchemaAndSeed(client: DBClient) {
     ON CONFLICT (role_id) DO NOTHING;
 
     -- Ensure Admin user exists with default credentials
-    INSERT INTO users (id, name, email, business_profile, role, title, initials, active)
-    VALUES (1, 'Barthelemy MAPWABA NTORO', 'bmapwabantoro@liecconsulting.com', 'Admin', 'admin', 'Platform Administrator & Managing Director', 'BM', TRUE)
+    INSERT INTO users (id, name, first_name, last_name, user_id, email, business_profile, role, title, initials, active)
+    VALUES (1, 'Barthelemy MAPWABA NTORO', 'Barthelemy', 'MAPWABA NTORO', 'bmapwaba', 'bmapwabantoro@liecconsulting.com', 'Admin', 'admin', 'Platform Administrator & Managing Director', 'BM', TRUE)
     ON CONFLICT (email) DO UPDATE SET
       name = 'Barthelemy MAPWABA NTORO',
+      first_name = COALESCE(users.first_name, 'Barthelemy'),
+      last_name = COALESCE(users.last_name, 'MAPWABA NTORO'),
+      user_id = COALESCE(users.user_id, 'bmapwaba'),
       business_profile = 'Admin',
       role = 'admin',
       title = 'Platform Administrator & Managing Director',
@@ -609,10 +622,13 @@ async function initSchemaAndSeed(client: DBClient) {
 
   // Ensure primary administrator account is present without affecting applicant data
   await client.exec(`
-    INSERT INTO users (id, name, email, business_profile, role, title, initials, active)
-    VALUES (1, 'Barthelemy MAPWABA NTORO', 'bmapwabantoro@liecconsulting.com', 'Admin', 'admin', 'Platform Administrator & Managing Director', 'BM', TRUE)
+    INSERT INTO users (id, name, first_name, last_name, user_id, email, business_profile, role, title, initials, active)
+    VALUES (1, 'Barthelemy MAPWABA NTORO', 'Barthelemy', 'MAPWABA NTORO', 'bmapwaba', 'bmapwabantoro@liecconsulting.com', 'Admin', 'admin', 'Platform Administrator & Managing Director', 'BM', TRUE)
     ON CONFLICT (email) DO UPDATE SET
       name = 'Barthelemy MAPWABA NTORO',
+      first_name = COALESCE(users.first_name, 'Barthelemy'),
+      last_name = COALESCE(users.last_name, 'MAPWABA NTORO'),
+      user_id = COALESCE(users.user_id, 'bmapwaba'),
       business_profile = 'Admin',
       role = 'admin',
       title = 'Platform Administrator & Managing Director',

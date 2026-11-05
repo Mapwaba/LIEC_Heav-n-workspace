@@ -1001,8 +1001,15 @@ export default function DemandesScreen({
                         <div className="font-extrabold text-[#092342] leading-tight">
                           {dem.program || '-'}
                         </div>
-                        <div className="mt-0.5 text-[11px] font-bold text-[#0c685a]">
-                          {dem.service_pole || '-'}
+                        <div className="mt-0.5 flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[11px] font-bold text-[#0c685a]">
+                            {dem.service_pole || '-'}
+                          </span>
+                          {dem.application_year && (
+                            <span className="font-mono text-[9.5px] font-bold px-1.5 py-0.2 rounded bg-teal-50 text-[#0c685a] border border-teal-200">
+                              {dem.application_year}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="py-4 px-3">
@@ -1273,6 +1280,12 @@ export default function DemandesScreen({
                 <div className="grid grid-cols-12 gap-2">
                   <span className="col-span-4 text-slate-400 font-medium">{isEn ? 'Gender' : 'Sexe'}</span>
                   <span className="col-span-8 font-semibold text-[#092342]">{selectedDemande.sexe === 'Female' || selectedDemande.sexe === 'Féminin' ? (isEn ? 'Female' : 'Féminin') : (isEn ? 'Male' : 'Masculin')}</span>
+                </div>
+                <div className="grid grid-cols-12 gap-2">
+                  <span className="col-span-4 text-slate-400 font-medium">Application Year</span>
+                  <span className="col-span-8 font-extrabold text-[#0c685a]">
+                    {selectedDemande.application_year || selectedDemande.expected_start || '—'}
+                  </span>
                 </div>
                 <div className="grid grid-cols-12 gap-2">
                   <span className="col-span-4 text-slate-400 font-medium">Target Cities</span>
@@ -1550,9 +1563,12 @@ export default function DemandesScreen({
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#092342] focus:outline-none focus:ring-2 focus:ring-[#0c685a]/20 cursor-pointer"
                 >
                   <option value="All">{isEn ? 'All Intakes' : 'Toutes les rentrées'}</option>
+                  <option value="2027–2028">2027–2028 Intake</option>
+                  <option value="2026–2027">2026–2027 Intake</option>
                   <option value="2025–2026">2025–2026 Intake</option>
+                  <option value="Septembre 2026">Septembre 2026</option>
+                  <option value="Janvier 2027">Janvier 2027</option>
                   <option value="Septembre 2025">Septembre 2025</option>
-                  <option value="Janvier 2026">Janvier 2026</option>
                 </select>
               </div>
 

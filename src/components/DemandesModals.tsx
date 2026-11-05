@@ -708,6 +708,7 @@ export function FullStudentRecordModal({
             <div class="section-title">Study Project & Financing</div>
             <div class="grid">
               <div><div class="field-label">Desired Program</div><div class="field-value">${demande.program || '-'}</div></div>
+              <div><div class="field-label">Application Year</div><div class="field-value">${demande.application_year || demande.expected_start || '-'}</div></div>
               <div><div class="field-label">Target Cities / Campus</div><div class="field-value">${demande.target_cities || 'Lyon (Exclusivement)'}</div></div>
               <div><div class="field-label">Current Academic Level</div><div class="field-value">${demande.current_level || '-'}</div></div>
               <div><div class="field-label">Guaranteed Annual Budget</div><div class="field-value">${demande.budget_range || '-'} €</div></div>
@@ -879,6 +880,15 @@ export function FullStudentRecordModal({
                 </span>
                 <span className="font-bold text-[#092342] text-sm block">{demande.program || '-'}</span>
                 <span className="text-[11px] text-slate-500 mt-0.5 block">{demande.target_cities || 'Lyon (Exclusivement)'}</span>
+              </div>
+
+              <div className="p-3 rounded-xl border border-slate-200 bg-white">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  {isEn ? 'Application Year' : 'Année Académique'}
+                </span>
+                <span className="font-bold text-[#0c685a] text-sm">
+                  {demande.application_year || demande.expected_start || '—'}
+                </span>
               </div>
 
               <div className="p-3 rounded-xl border border-slate-200 bg-white">

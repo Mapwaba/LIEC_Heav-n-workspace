@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { enforceRbac } from '@/lib/rbac';
 import { generateSecureTemporaryPassword, hashPassword } from '@/lib/passwordSecurity';
+import { sendNewUserWelcomeEmail } from '@/lib/emailService';
 
 /**
  * Admin User-Management Workflow API (Enterprise RBAC)
@@ -16,12 +17,12 @@ export async function GET(req: NextRequest) {
 
   try {
     const usersRes = await db.query(
-      `SELECT u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials,
+      `SELECT u.id, u.name, u.first_name, u.last_name, u.user_id, u.email, u.business_profile, u.role, u.title, u.initials,
               u.active, u.suspended_at, u.suspended_by, u.must_change_password, u.created_at,
               COALESCE(ARRAY_AGG(ur.role_id) FILTER (WHERE ur.role_id IS NOT NULL), ARRAY[]::VARCHAR[]) as technical_roles
        FROM users u
        LEFT JOIN user_roles ur ON u.id = ur.user_id
-       GROUP BY u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials, u.active, u.suspended_at, u.suspended_by, u.must_change_password, u.created_at
+       GROUP BY u.id, u.name, u.first_name, u.last_name, u.user_id, u.email, u.business_profile, u.role, u.title, u.initials, u.active, u.suspended_at, u.suspended_by, u.must_change_password, u.created_at
        ORDER BY u.id ASC`
     );
 
@@ -54,15 +55,34 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const name = (body.name || '').trim();
+    let firstName = (body.first_name || body.firstName || '').trim();
+    let lastName = (body.last_name || body.lastName || '').trim();
+    let name = (body.name || '').trim();
+
+    if ((!firstName || !lastName) && name) {
+      const parts = name.split(/\s+/);
+      if (!firstName) firstName = parts[0] || '';
+      if (!lastName) lastName = parts.slice(1).join(' ') || parts[0] || '';
+    }
+
+    if (!name && (firstName || lastName)) {
+      name = `${firstName} ${lastName}`.trim();
+    }
+
     const email = (body.email || '').trim().toLowerCase();
     const businessProfile = body.business_profile || 'Secretary';
     const technicalRoles: string[] = Array.isArray(body.technical_roles) ? body.technical_roles : [];
     const title = body.title || `${businessProfile} Staff`;
-    const initials = name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 3) || 'CU';
+    const initials =
+      ((firstName ? firstName[0] : '') + (lastName ? lastName[0] : '')).toUpperCase().slice(0, 3) ||
+      name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 3) ||
+      'CU';
 
-    if (!name || !email) {
-      return NextResponse.json({ error: 'Name and email are required' }, { status: 400 });
+    if (!firstName || !lastName || !email) {
+      return NextResponse.json(
+        { error: 'First name, last name, and professional email are required.' },
+        { status: 400 }
+      );
     }
 
     if (!email.endsWith('@liecconsulting.com')) {
@@ -77,16 +97,63 @@ export async function POST(req: NextRequest) {
     if (businessProfile === 'Admin') legacyRole = 'admin';
     else if (businessProfile === 'Finance Officer') legacyRole = 'avi';
 
+    // Automatic User ID Generation: first_initial + last_name, lowercase, no accents or spaces
+    const cleanFirst = firstName
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+
+    const cleanLast = lastName
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+
+    const baseUserId = (cleanFirst ? cleanFirst[0] : '') + cleanLast || 'user';
+    const requestedUserId = (body.user_id || body.userId || '').trim().toLowerCase();
+    const targetUserId = requestedUserId || baseUserId;
+
+    // Validate uniqueness before creating account and resolve predictable suffix if taken
+    let candidateUserId = targetUserId;
+    let suffixCounter = 1;
+    while (true) {
+      const existing = await db.query(
+        'SELECT id FROM users WHERE LOWER(user_id) = LOWER($1) LIMIT 1',
+        [candidateUserId]
+      );
+      if (!existing.rows || existing.rows.length === 0) {
+        break;
+      }
+      suffixCounter++;
+      candidateUserId = `${baseUserId}${suffixCounter}`;
+    }
+    const finalUserId = candidateUserId;
+
+    // Check if email already exists
+    const emailCheck = await db.query(
+      'SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1',
+      [email]
+    );
+    if (emailCheck.rows && emailCheck.rows.length > 0) {
+      return NextResponse.json(
+        { error: `A user with email ${email} already exists.` },
+        { status: 400 }
+      );
+    }
+
     // Generate cryptographically strong temporary password & hash
     const temporaryPassword = generateSecureTemporaryPassword();
     const { hash: passwordHash, salt: passwordSalt } = hashPassword(temporaryPassword);
 
-    // Insert user with secure hash and mandatory first-login password change
+    // Insert user with secure hash, User ID, and mandatory first-login password change
     const insertRes = await db.query(
-      `INSERT INTO users (name, email, business_profile, role, title, initials, active, password_hash, password_salt, must_change_password)
-       VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, $8, TRUE)
-       RETURNING id, name, email, business_profile, role, title, initials, active, must_change_password`,
-      [name, email, businessProfile, legacyRole, title, initials, passwordHash, passwordSalt]
+      `INSERT INTO users (
+        name, first_name, last_name, user_id, email, business_profile, role, title, initials, active, password_hash, password_salt, must_change_password
+      )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, $11, TRUE)
+       RETURNING id, name, first_name, last_name, user_id, email, business_profile, role, title, initials, active, must_change_password`,
+      [name, firstName, lastName, finalUserId, email, businessProfile, legacyRole, title, initials, passwordHash, passwordSalt]
     );
 
     const newUser = insertRes.rows[0];
@@ -101,6 +168,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Automatically send account notification to user's professional email via Resend
+    let emailSent = false;
+    let emailError: string | undefined;
+    try {
+      const mailRes = await sendNewUserWelcomeEmail({
+        firstName,
+        lastName,
+        userId: finalUserId,
+        email,
+        role: legacyRole,
+        businessProfile,
+        temporaryPassword,
+      });
+      emailSent = mailRes.success;
+    } catch (err: any) {
+      console.warn('Notice: New user welcome email notification could not be dispatched:', err?.message);
+      emailError = err?.message;
+    }
+
     // Audit log entry (NEVER log the plain-text password)
     await db.query(
       `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
@@ -108,14 +194,17 @@ export async function POST(req: NextRequest) {
       [
         adminUser.name,
         `USER-${newUser.id}`,
-        `Created user '${name}' with profile '${businessProfile}' and roles [${technicalRoles.join(', ')}]. One-time temporary password generated with mandatory first-login change.`,
+        `Created user '${name}' (User ID: ${finalUserId}) with profile '${businessProfile}' and roles [${technicalRoles.join(', ')}]. One-time temporary password generated with mandatory first-login change. Email dispatch: ${emailSent ? 'Sent' : 'Deferred (' + (emailError || 'pending') + ')'}.`,
       ]
     );
 
     return NextResponse.json({
       success: true,
       user: newUser,
+      userId: finalUserId,
       temporaryPassword,
+      emailSent,
+      emailError,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

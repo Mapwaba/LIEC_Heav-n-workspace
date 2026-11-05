@@ -93,20 +93,33 @@ export default function OverviewScreen({
   const [resolvedUserName, setResolvedUserName] = useState<string>(
     userName || currentUser?.name || ''
   );
+  const [resolvedFirstName, setResolvedFirstName] = useState<string>(() => {
+    if (currentUser?.first_name) return currentUser.first_name;
+    if (currentUser?.firstName) return currentUser.firstName;
+    const fallbackName = userName || currentUser?.name || '';
+    return fallbackName ? fallbackName.trim().split(/\s+/)[0] : '';
+  });
 
   useEffect(() => {
-    if (userName) {
-      setResolvedUserName(userName);
-    } else if (currentUser?.name) {
-      setResolvedUserName(currentUser.name);
-    } else if (typeof window !== 'undefined') {
+    let fn = currentUser?.first_name || currentUser?.firstName || '';
+    let nm = userName || currentUser?.name || '';
+    if (!fn && !nm && typeof window !== 'undefined') {
       try {
         const savedUserStr = localStorage.getItem('liec_user');
         if (savedUserStr) {
           const u = JSON.parse(savedUserStr);
-          if (u?.name) setResolvedUserName(u.name);
+          fn = u?.first_name || u?.firstName || '';
+          nm = u?.name || '';
         }
       } catch {}
+    }
+    if (fn) {
+      setResolvedFirstName(fn);
+    } else if (nm) {
+      setResolvedFirstName(nm.trim().split(/\s+/)[0]);
+    }
+    if (nm) {
+      setResolvedUserName(nm);
     }
   }, [userName, currentUser]);
 
@@ -857,23 +870,21 @@ export default function OverviewScreen({
             </span>
             <span className="text-slate-400">Updated in real-time</span>
           </div>
-          <h1 className="text-[28px] sm:text-[31px] font-extrabold tracking-tight text-[#092342] leading-[1.18]">
-            {resolvedUserName ? (
+          <h1 className="text-2xl sm:text-[28px] lg:text-[30px] font-bold tracking-tight text-[#092342] leading-snug">
+            {isEn ? (
               <>
-                {resolvedUserName}, {isEn ? 'welcome back to your' : 'bienvenue dans votre'}
-                <br />
-                {isEn ? 'LIEC Workspace!' : 'espace LIEC !'}
+                Hi <span className="font-extrabold text-[#0c685a]">{resolvedFirstName || 'there'}</span>, welcome back to your LIEC Heav’n workspace!
               </>
             ) : (
               <>
-                {isEn ? 'Welcome back to your' : 'Bienvenue dans votre'}
-                <br />
-                {isEn ? 'LIEC Workspace!' : 'espace LIEC !'}
+                Bonjour <span className="font-extrabold text-[#0c685a]">{resolvedFirstName || 'à vous'}</span>, bienvenue dans votre espace LIEC Heav’n !
               </>
             )}
           </h1>
-          <p className="text-[13.5px] text-slate-600 leading-relaxed">
-            Monitor incoming applications, prospect pipeline, candidate files, and cohorts for the 2026–2027 academic sessions.
+          <p className="text-sm sm:text-[14.5px] font-normal text-slate-600 leading-relaxed max-w-2xl">
+            {isEn
+              ? 'Monitor incoming applications, prospect pipeline, candidate files, and cohorts for the 2027–2028 academic sessions.'
+              : 'Suivez les dossiers de candidature, le pipeline de prospects et les cohortes pour les sessions académiques 2027–2028.'}
           </p>
         </div>
 
@@ -925,7 +936,7 @@ export default function OverviewScreen({
             <Inbox className="w-4 h-4 text-[#0c685a]" />
           </div>
           <div className="mt-2">
-            <div className="text-2xl font-extrabold text-[#092342]">{totalDemandesCount}</div>
+            <div className="text-2xl font-bold tracking-tight text-[#092342]">{totalDemandesCount}</div>
             <p className="text-[11px] font-semibold text-[#0c685a] mt-0.5">
               {newDemandesCount} new received
             </p>
@@ -941,7 +952,7 @@ export default function OverviewScreen({
             <Users className="w-4 h-4 text-[#0284c7]" />
           </div>
           <div className="mt-2">
-            <div className="text-2xl font-extrabold text-[#092342]">{prospectsCount}</div>
+            <div className="text-2xl font-bold tracking-tight text-[#092342]">{prospectsCount}</div>
             <p className="text-[11px] font-semibold text-[#0284c7] mt-0.5">
               In active pipeline
             </p>
@@ -957,7 +968,7 @@ export default function OverviewScreen({
             <GraduationCap className="w-4 h-4 text-[#10b981]" />
           </div>
           <div className="mt-2">
-            <div className="text-2xl font-extrabold text-[#092342]">{candidatsCount}</div>
+            <div className="text-2xl font-bold tracking-tight text-[#092342]">{candidatsCount}</div>
             <p className="text-[11px] font-semibold text-[#10b981] mt-0.5">
               CF Tracked files
             </p>
@@ -973,7 +984,7 @@ export default function OverviewScreen({
             <Award className="w-4 h-4 text-[#f4be37]" />
           </div>
           <div className="mt-2">
-            <div className="text-2xl font-extrabold text-[#092342]">{prepaCount}</div>
+            <div className="text-2xl font-bold tracking-tight text-[#092342]">{prepaCount}</div>
             <p className="text-[11px] font-semibold text-[#b45309] mt-0.5">
               Active scholars
             </p>
@@ -989,7 +1000,7 @@ export default function OverviewScreen({
             <DollarSign className="w-4 h-4 text-[#64748b]" />
           </div>
           <div className="mt-2">
-            <div className="text-2xl font-extrabold text-[#092342]">{intakeFilteredAvi.length}</div>
+            <div className="text-2xl font-bold tracking-tight text-[#092342]">{intakeFilteredAvi.length}</div>
             <p className="text-[11px] font-semibold text-slate-600 mt-0.5">
               YIMMILINE files
             </p>
@@ -1005,7 +1016,7 @@ export default function OverviewScreen({
             <CheckCircle2 className="w-4 h-4 text-red-600" />
           </div>
           <div className="mt-2">
-            <div className="text-2xl font-extrabold text-[#092342]">{urgentTasksCount}</div>
+            <div className="text-2xl font-bold tracking-tight text-[#092342]">{urgentTasksCount}</div>
             <p className="text-[11px] font-semibold text-red-600 mt-0.5">
               Pending reviews
             </p>
@@ -1021,7 +1032,7 @@ export default function OverviewScreen({
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-extrabold text-[#092342] leading-snug">
+                  <h2 className="text-lg font-bold text-[#092342] leading-snug">
                     {isEn ? 'Applications & Inquiry Volume' : 'Volume des Demandes & Candidatures'}
                   </h2>
                   <span className="rounded-full bg-[#eefaf6] text-[#0c685a] border border-[#ccece2] px-2 py-0.5 text-[10.5px] font-bold">
@@ -1394,7 +1405,7 @@ export default function OverviewScreen({
           <div>
             <div className="flex items-start justify-between">
               <div>
-                <h2 className="text-lg font-extrabold text-[#092342] leading-snug">
+                <h2 className="text-lg font-bold text-[#092342] leading-snug">
                   Breakdown by
                   <br />
                   Service
@@ -1626,7 +1637,7 @@ export default function OverviewScreen({
         <div className="lg:col-span-8 rounded-2xl border border-[#e6eef6] bg-white p-6 shadow-card space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-extrabold text-[#092342]">
+              <h2 className="text-lg font-bold text-[#092342]">
                 Incoming Student Applications
               </h2>
               <p className="text-xs text-slate-500">
@@ -1687,7 +1698,7 @@ export default function OverviewScreen({
         <div className="lg:col-span-4 rounded-2xl border border-[#e6eef6] bg-white p-6 shadow-card flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h2 className="text-lg font-extrabold text-[#092342]">Priority Tasks</h2>
+              <h2 className="text-lg font-bold text-[#092342]">Priority Tasks</h2>
               <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-bold text-red-700">
                 {urgentTasksCount} Pending
               </span>

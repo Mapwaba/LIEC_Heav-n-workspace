@@ -6,6 +6,23 @@ export interface AcademicIntakeOption {
   isFullSession?: boolean;
 }
 
+/**
+ * Mandatory Academic Intake Years for Student Applications
+ * Format: YYYY–YYYY (supports present and future sessions dynamically)
+ */
+export const ACADEMIC_YEAR_OPTIONS: string[] = [
+  '2025–2026',
+  '2026–2027',
+  '2027–2028',
+  '2028–2029',
+  '2029–2030',
+  '2030–2031',
+  '2031–2032',
+  '2032–2033',
+];
+
+export const DEFAULT_ACADEMIC_YEAR = '2027–2028';
+
 export const ACADEMIC_INTAKE_OPTIONS: AcademicIntakeOption[] = [
   {
     id: 'all',
@@ -63,6 +80,7 @@ export function matchesAcademicIntake(record: any, selectedIntakeId: string): bo
     record.expected_start,
     record.academic_intake,
     record.academic_year,
+    record.application_year,
     record.cohort,
     record.intake,
     record.program,

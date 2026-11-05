@@ -39,10 +39,10 @@ export async function POST(req: NextRequest) {
 
     const db = await getDb();
     const userRes = await db.query(
-      `SELECT u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials,
+      `SELECT u.id, u.name, u.first_name, u.last_name, u.user_id, u.email, u.business_profile, u.role, u.title, u.initials,
               u.active, u.password_hash, u.password_salt, u.must_change_password
        FROM users u
-       WHERE LOWER(u.email) = $1`,
+       WHERE LOWER(u.email) = $1 OR LOWER(COALESCE(u.user_id, '')) = $1`,
       [email]
     );
 
@@ -103,6 +103,9 @@ export async function POST(req: NextRequest) {
     const userPayload = {
       id: user.id,
       name: user.name,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      user_id: user.user_id,
       email: user.email,
       role: user.role,
       business_profile: user.business_profile,

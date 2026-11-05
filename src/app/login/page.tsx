@@ -95,13 +95,22 @@ export default function LoginPage() {
   const OFFLINE_STAFF_CREDENTIALS = [
     {
       role: 'admin' as const,
+      user_id: 'bmapwaba',
       email: 'bmapwabantoro@liecconsulting.com',
       password: 'Admin@LIEC2026!',
       passwords: ['Admin@LIEC2026!', 'ReRxpnn@%9tX5ro#'],
     },
     {
       role: 'admin' as const,
+      user_id: 'admin',
       email: 'admin@liecconsulting.com',
+      password: 'Admin@LIEC2026!',
+      passwords: ['Admin@LIEC2026!', 'ReRxpnn@%9tX5ro#'],
+    },
+    {
+      role: 'secretary' as const,
+      user_id: 'omandeke',
+      email: 'contacts@liecconsulting.com',
       password: 'Admin@LIEC2026!',
       passwords: ['Admin@LIEC2026!', 'ReRxpnn@%9tX5ro#'],
     },
@@ -154,8 +163,10 @@ export default function LoginPage() {
       const matched = OFFLINE_STAFF_CREDENTIALS.find(
         (t) =>
           (t.email.toLowerCase() === lower ||
+            (t as any).user_id?.toLowerCase() === lower ||
             lower === 'bmapwabantoro@liecconsulting.com' ||
-            lower === 'admin@liecconsulting.com' ||
+            lower === 'bmapwaba' ||
+            lower === 'omandeke' ||
             lower === 'admin@liecconsulting.com') &&
           (t.passwords ? t.passwords.includes(pass) : t.password === pass)
       );
@@ -852,12 +863,12 @@ export default function LoginPage() {
 
                 <form onSubmit={handleSubmit}>
                   <div className="field">
-                    <label htmlFor="email">Work email</label>
+                    <label htmlFor="email">Professional email or User ID</label>
                     <input
                       id="email"
                       name="email"
-                      type="email"
-                      placeholder="you@liecconsulting.com"
+                      type="text"
+                      placeholder="you@liecconsulting.com or User ID"
                       autoComplete="username"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
