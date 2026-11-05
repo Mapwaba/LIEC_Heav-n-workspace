@@ -1770,6 +1770,7 @@ export default function LiecWorkspacePage() {
               {activeTab === 'programme_reports' && (
                 <ProgrammeReportsScreen
                   currentUser={currentUser}
+                  lang={lang}
                 />
               )}
 

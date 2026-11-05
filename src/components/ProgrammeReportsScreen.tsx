@@ -23,6 +23,7 @@ import {
   ChevronRight,
   Sparkles,
 } from 'lucide-react';
+import { Lang } from './ServicesAndOtherScreens';
 
 interface CandidateJourney {
   ref: string;
@@ -85,9 +86,13 @@ interface ReportSummary {
 
 export default function ProgrammeReportsScreen({
   currentUser,
+  lang = 'en',
 }: {
   currentUser?: { name: string; email: string; business_profile: string } | null;
+  lang?: Lang;
 }) {
+  const isEn = lang === 'en';
+
   const [intakeYear, setIntakeYear] = useState('2027–2028');
   const [mode, setMode] = useState<'live' | 'finalised'>('live');
   const [cutoffDate, setCutoffDate] = useState('2026-09-30');
@@ -132,7 +137,7 @@ export default function ProgrammeReportsScreen({
       setJourneys(data.studentJourneys || []);
     } catch (err: any) {
       console.error(err);
-      setError(err?.message || 'Error generating report.');
+      setError(err?.message || (isEn ? 'Error generating report.' : 'Erreur lors de la génération du rapport.'));
     } finally {
       setLoading(false);
     }
@@ -180,10 +185,14 @@ export default function ProgrammeReportsScreen({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to save snapshot');
-      setSaveSuccessMsg(`Report successfully archived (Snapshot #${data.snapshot_id})`);
+      setSaveSuccessMsg(
+        isEn
+          ? `Report snapshot #${data.snapshot_id} successfully archived.`
+          : `Instantané de rapport #${data.snapshot_id} archivé avec succès.`
+      );
       fetchSnapshots();
     } catch (err: any) {
-      alert(err.message || 'Error archiving snapshot');
+      alert(err.message || (isEn ? 'Error archiving snapshot' : "Erreur d'archivage"));
     } finally {
       setSavingSnapshot(false);
     }
@@ -192,24 +201,43 @@ export default function ProgrammeReportsScreen({
   // Export to Excel / CSV
   const handleExportCSV = () => {
     if (!journeys.length) return;
-    const headers = [
-      'Ref',
-      'Student Full Name',
-      'Country',
-      'Nationality',
-      'Academic Program',
-      'Target School',
-      'Intake Year',
-      'Qualified At',
-      'Qualification Status',
-      'Admission Status',
-      'Visa Status',
-      'Visa Submission Date',
-      'Visa Decision Date',
-      'Visa Outcome Notes',
-      'Retention Status',
-      'Documents Purged',
-    ];
+    const headers = isEn
+      ? [
+          'Ref',
+          'Student Full Name',
+          'Country',
+          'Nationality',
+          'Academic Program',
+          'Target School',
+          'Intake Year',
+          'Qualified At',
+          'Qualification Status',
+          'Admission Status',
+          'Visa Status',
+          'Visa Submission Date',
+          'Visa Decision Date',
+          'Visa Outcome Notes',
+          'Retention Status',
+          'Documents Purged',
+        ]
+      : [
+          'Référence',
+          'Nom Complet',
+          'Pays',
+          'Nationalité',
+          'Programme Académique',
+          'École Cible',
+          'Session Académique',
+          'Date Qualification',
+          'Statut Qualification',
+          'Statut Admission',
+          'Statut Visa',
+          'Date Dépôt Visa',
+          'Date Décision Visa',
+          'Notes Consulat',
+          'Statut Rétention',
+          'Documents Purgés',
+        ];
 
     const rows = journeys.map((j) => [
       `"${j.ref}"`,
@@ -219,7 +247,7 @@ export default function ProgrammeReportsScreen({
       `"${j.program}"`,
       `"${j.school_name}"`,
       `"${j.application_year}"`,
-      `"${j.qualified_at || 'REQUIRES_REVIEW'}"`,
+      `"${j.qualified_at || (isEn ? 'REQUIRES_REVIEW' : 'AUDIT_REQUIS')}"`,
       `"${j.qualification_status}"`,
       `"${j.admission_status}"`,
       `"${j.visa_status}"`,
@@ -227,7 +255,7 @@ export default function ProgrammeReportsScreen({
       `"${j.visa_decision_date || ''}"`,
       `"${(j.visa_outcome_notes || '').replace(/"/g, '""')}"`,
       `"${j.retention_status}"`,
-      `"${j.documents_purged ? 'YES' : 'NO'}"`,
+      `"${j.documents_purged ? (isEn ? 'YES' : 'OUI') : (isEn ? 'NO' : 'NON')}"`,
     ]);
 
     const csvContent =
@@ -243,6 +271,45 @@ export default function ProgrammeReportsScreen({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Helper translations for localized display
+  const translateAdmissionBadge = (status: string) => {
+    if (!status) return isEn ? 'Under Review' : 'En examen';
+    if (status === 'Admitted') return isEn ? 'Admitted' : 'Admis';
+    if (status === 'Refused') return isEn ? 'Refused' : 'Refusé';
+    return isEn ? 'Pending / In Evaluation' : 'En cours / En attente';
+  };
+
+  const translateVisaStatus = (status: string) => {
+    if (!status) return isEn ? 'Not Applied' : 'Non Initié';
+    if (status === 'Obtained') return isEn ? 'Obtained' : 'Obtenu';
+    if (status === 'Refused') return isEn ? 'Refused' : 'Refusé';
+    if (status === 'Submitted') return isEn ? 'Submitted' : 'Déposé';
+    if (status === 'In Preparation') return isEn ? 'In Preparation' : 'En Préparation';
+    if (status === 'Withdrawn') return isEn ? 'Withdrawn' : 'Abandonné';
+    return isEn ? 'Not Applied' : 'Non Initié';
+  };
+
+  const translateRetentionBadge = (student: CandidateJourney) => {
+    if (student.documents_purged) {
+      return isEn ? 'Purged' : 'Purgé';
+    }
+    if (student.visa_status === 'Obtained') {
+      return isEn ? 'Eligible Early Purge' : 'Éligible Purge Anticipée';
+    }
+    if (student.retention_status.includes('days') || student.retention_status.includes('remaining')) {
+      const match = student.retention_status.match(/\d+/);
+      const days = match ? match[0] : '';
+      return isEn ? `${days} days remaining` : `${days} jours restants`;
+    }
+    if (student.retention_status.includes('Requires Review') || student.retention_status.includes('Review')) {
+      return isEn ? 'Requires Review' : 'Audit Requis';
+    }
+    if (student.retention_status.includes('Due')) {
+      return isEn ? 'Due for Deletion' : 'À Purger';
+    }
+    return student.retention_status;
   };
 
   // Filtered Journeys
@@ -276,13 +343,15 @@ export default function ProgrammeReportsScreen({
             </div>
             <div>
               <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-                Academic Intake Programme Reports
+                <span>{isEn ? 'Academic Intake Programme Reports' : 'Rapports de Promotion Académique'}</span>
                 <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 uppercase tracking-wider">
-                  Admissions & Visas
+                  {isEn ? 'Admissions & Visas' : 'Admissions & Visas'}
                 </span>
               </h1>
               <p className="text-sm text-slate-500">
-                Official institutional reporting on academic recruitment, qualification, admissions, and visa outcomes.
+                {isEn
+                  ? 'Official institutional reporting on academic recruitment, qualification, admissions, and visa outcomes.'
+                  : 'Rapports institutionnels officiels sur le recrutement académique, la qualification, les admissions et les résultats de visa.'}
               </p>
             </div>
           </div>
@@ -293,18 +362,18 @@ export default function ProgrammeReportsScreen({
           <button
             onClick={() => window.print()}
             className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-sm transition"
-            title="Executive PDF Print View"
+            title={isEn ? 'Executive PDF Print View' : 'Vue Impression / PDF Institutionnelle'}
           >
             <Printer className="w-4 h-4 text-slate-600" />
-            Print / PDF
+            <span>{isEn ? 'Print / PDF' : 'Imprimer / PDF'}</span>
           </button>
           <button
             onClick={handleExportCSV}
             className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-sm transition"
-            title="Download full candidate dataset as CSV/Excel"
+            title={isEn ? 'Download full candidate dataset as CSV/Excel' : 'Télécharger les données complètes au format Excel (.csv)'}
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-            Export Excel (.csv)
+            <span>{isEn ? 'Export Excel (.csv)' : 'Exporter Excel (.csv)'}</span>
           </button>
           {archivedSnapshots.length > 0 && (
             <button
@@ -312,13 +381,13 @@ export default function ProgrammeReportsScreen({
               className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-sm transition"
             >
               <Archive className="w-4 h-4 text-purple-600" />
-              Snapshots ({archivedSnapshots.length})
+              <span>{isEn ? `Snapshots (${archivedSnapshots.length})` : `Instantanés (${archivedSnapshots.length})`}</span>
             </button>
           )}
           <button
             onClick={fetchReport}
             className="p-2 text-slate-600 hover:text-blue-900 hover:bg-slate-100 rounded-lg border border-slate-200 transition"
-            title="Refresh"
+            title={isEn ? 'Refresh' : 'Actualiser'}
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -330,17 +399,17 @@ export default function ProgrammeReportsScreen({
         {/* Intake Selector */}
         <div className="flex items-center gap-3">
           <label className="text-xs font-semibold uppercase text-slate-500 tracking-wider">
-            Academic Intake:
+            {isEn ? 'Academic Intake:' : 'Promotion Académique :'}
           </label>
           <select
             value={intakeYear}
             onChange={(e) => setIntakeYear(e.target.value)}
             className="text-sm font-semibold text-blue-950 bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-600 focus:outline-none"
           >
-            <option value="2027–2028">Intake 2027–2028 (Active Academic Year)</option>
-            <option value="2026–2027">Intake 2026–2027</option>
-            <option value="2025–2026">Intake 2025–2026</option>
-            <option value="ALL">All Recorded Intakes</option>
+            <option value="2027–2028">{isEn ? 'Intake 2027–2028 (Active Academic Year)' : 'Promotion 2027–2028 (Session Active)'}</option>
+            <option value="2026–2027">{isEn ? 'Intake 2026–2027' : 'Promotion 2026–2027'}</option>
+            <option value="2025–2026">{isEn ? 'Intake 2025–2026' : 'Promotion 2025–2026'}</option>
+            <option value="ALL">{isEn ? 'All Recorded Intakes' : 'Toutes les Promotions'}</option>
           </select>
         </div>
 
@@ -356,7 +425,7 @@ export default function ProgrammeReportsScreen({
               }`}
             >
               <TrendingUp className="w-3.5 h-3.5 text-blue-700" />
-              Live Progress Monitoring
+              <span>{isEn ? 'Live Progress Monitoring' : 'Suivi en Direct'}</span>
             </button>
             <button
               onClick={() => setMode('finalised')}
@@ -367,13 +436,13 @@ export default function ProgrammeReportsScreen({
               }`}
             >
               <Calendar className="w-3.5 h-3.5 text-amber-700" />
-              Finalised Cutoff Report
+              <span>{isEn ? 'Finalised Cutoff Report' : 'Rapport à Date Butoir'}</span>
             </button>
           </div>
 
           {mode === 'finalised' && (
             <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">Cutoff:</span>
+              <span className="text-xs text-slate-500">{isEn ? 'Cutoff:' : 'Date butoir :'}</span>
               <input
                 type="date"
                 value={cutoffDate}
@@ -385,7 +454,7 @@ export default function ProgrammeReportsScreen({
                 disabled={savingSnapshot}
                 className="text-xs font-medium px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-md shadow-sm transition disabled:opacity-50"
               >
-                {savingSnapshot ? 'Archiving...' : 'Archive Snapshot'}
+                {savingSnapshot ? (isEn ? 'Archiving...' : 'Archivage...') : (isEn ? 'Archive Snapshot' : "Archiver l'Instantané")}
               </button>
             </div>
           )}
@@ -402,7 +471,7 @@ export default function ProgrammeReportsScreen({
             onClick={() => setSaveSuccessMsg(null)}
             className="text-xs font-semibold text-emerald-700 hover:underline"
           >
-            Dismiss
+            {isEn ? 'Dismiss' : 'Fermer'}
           </button>
         </div>
       )}
@@ -412,14 +481,22 @@ export default function ProgrammeReportsScreen({
         <div className="p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl text-xs text-blue-900 flex items-start gap-2.5">
           <Sparkles className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
           <div>
-            <span className="font-semibold">Live Progress Mode Active:</span> Provides continuous, on-demand intake tracking throughout the academic recruitment campaign. Pending visa submissions are actively monitored as in-flight cases, rather than treated as premature negative outcomes.
+            <span className="font-semibold">{isEn ? 'Live Progress Mode Active:' : 'Mode Suivi en Direct Actif :'}</span>{' '}
+            {isEn
+              ? 'Provides continuous, on-demand intake tracking throughout the academic recruitment campaign. Pending visa submissions are actively monitored as in-flight cases, rather than treated as premature negative outcomes.'
+              : 'Offre un suivi continu et à la demande tout au long de la campagne de recrutement. Les demandes de visa déposées sont suivies comme des dossiers en cours, évitant tout échec prématuré dans les indicateurs.'}
           </div>
         </div>
       ) : (
         <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl text-xs text-amber-950 flex items-start gap-2.5">
           <Calendar className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
           <div>
-            <span className="font-semibold">Finalised Cutoff Mode Active:</span> Locks candidate procedure milestones and visa outcomes strictly as of <span className="font-bold">{cutoffDate}</span>. Archiving stores an immutable audit-backed snapshot for annual regulatory compliance and institutional records.
+            <span className="font-semibold">{isEn ? 'Finalised Cutoff Mode Active:' : 'Mode Date Butoir Actif :'}</span>{' '}
+            {isEn ? 'Locks candidate procedure milestones and visa outcomes strictly as of ' : "Fige l'état des jalons et les décisions de visa strictement à la date du "}
+            <span className="font-bold">{cutoffDate}</span>.{' '}
+            {isEn
+              ? 'Archiving stores an immutable audit-backed snapshot for annual regulatory compliance and institutional records.'
+              : "L'archivage enregistre un instantané immuable et audité pour les rapports annuels institutionnels."}
           </div>
         </div>
       )}
@@ -431,7 +508,7 @@ export default function ProgrammeReportsScreen({
           <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold uppercase text-slate-500 tracking-wider">
-                Total Intake Cohort
+                {isEn ? 'Total Intake Cohort' : 'Effectif de la Promotion'}
               </span>
               <UserCheck className="w-5 h-5 text-blue-600" />
             </div>
@@ -439,17 +516,20 @@ export default function ProgrammeReportsScreen({
               <span className="text-3xl font-extrabold text-slate-900">
                 {summary.total_candidates}
               </span>
-              <span className="text-xs text-slate-500">students</span>
+              <span className="text-xs text-slate-500">{isEn ? 'students' : 'étudiants'}</span>
             </div>
             <div className="mt-2 text-xs text-slate-600 flex flex-col gap-1 border-t border-slate-100 pt-2">
               <div className="flex justify-between">
-                <span>Qualified Students:</span>
+                <span>{isEn ? 'Qualified Students:' : 'Étudiants Qualifiés :'}</span>
                 <span className="font-semibold text-emerald-700">{summary.qualified_count}</span>
               </div>
               {summary.requires_review_count > 0 && (
-                <div className="flex justify-between text-amber-700" title="Historical records requiring qualification audit">
+                <div
+                  className="flex justify-between text-amber-700"
+                  title={isEn ? 'Historical records requiring qualification audit' : 'Dossiers historiques nécessitant un audit de qualification'}
+                >
                   <span className="flex items-center gap-1">
-                    <AlertTriangle className="w-3 h-3" /> Requires Review:
+                    <AlertTriangle className="w-3 h-3" /> {isEn ? 'Requires Review:' : 'Audit Requis :'}
                   </span>
                   <span className="font-semibold">{summary.requires_review_count}</span>
                 </div>
@@ -461,7 +541,7 @@ export default function ProgrammeReportsScreen({
           <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold uppercase text-slate-500 tracking-wider">
-                School Admissions
+                {isEn ? 'School Admissions' : 'Admissions Écoles Partenaires'}
               </span>
               <GraduationCap className="w-5 h-5 text-indigo-600" />
             </div>
@@ -470,16 +550,16 @@ export default function ProgrammeReportsScreen({
                 {summary.admissions_admitted}
               </span>
               <span className="text-xs text-slate-500">
-                / {summary.admissions_admitted + summary.admissions_pending + summary.admissions_refused} evaluated
+                / {summary.admissions_admitted + summary.admissions_pending + summary.admissions_refused} {isEn ? 'evaluated' : 'évalués'}
               </span>
             </div>
             <div className="mt-2 text-xs text-slate-600 flex flex-col gap-1 border-t border-slate-100 pt-2">
               <div className="flex justify-between">
-                <span>Admission Rate:</span>
+                <span>{isEn ? 'Admission Rate:' : "Taux d'Admission :"}</span>
                 <span className="font-semibold text-indigo-700">{summary.admission_rate_pct}%</span>
               </div>
               <div className="flex justify-between text-slate-500">
-                <span>In Evaluation / Pending:</span>
+                <span>{isEn ? 'In Evaluation / Pending:' : 'En Évaluation / En Attente :'}</span>
                 <span>{summary.admissions_pending}</span>
               </div>
             </div>
@@ -489,7 +569,7 @@ export default function ProgrammeReportsScreen({
           <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold uppercase text-slate-500 tracking-wider">
-                Consular Visa Decisions
+                {isEn ? 'Consular Visa Decisions' : 'Décisions Visas Consulaires'}
               </span>
               <ShieldCheck className="w-5 h-5 text-emerald-600" />
             </div>
@@ -497,15 +577,15 @@ export default function ProgrammeReportsScreen({
               <span className="text-3xl font-extrabold text-emerald-700">
                 {summary.visa_obtained}
               </span>
-              <span className="text-xs text-slate-500">visas granted</span>
+              <span className="text-xs text-slate-500">{isEn ? 'visas granted' : 'visas accordés'}</span>
             </div>
             <div className="mt-2 text-xs text-slate-600 flex flex-col gap-1 border-t border-slate-100 pt-2">
               <div className="flex justify-between">
-                <span>Refused:</span>
+                <span>{isEn ? 'Refused:' : 'Refusés :'}</span>
                 <span className="font-semibold text-red-600">{summary.visa_refused}</span>
               </div>
               <div className="flex justify-between text-amber-700">
-                <span>Submitted (Pending):</span>
+                <span>{isEn ? 'Submitted (Pending):' : 'Déposés (En Attente) :'}</span>
                 <span className="font-semibold">{summary.visa_submitted_pending}</span>
               </div>
             </div>
@@ -515,7 +595,7 @@ export default function ProgrammeReportsScreen({
           <div className="bg-gradient-to-br from-blue-900 to-slate-900 rounded-xl p-5 text-white shadow-md relative overflow-hidden">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold uppercase text-blue-200 tracking-wider">
-                Visa Success Rate
+                {isEn ? 'Visa Success Rate' : 'Taux de Réussite Visa'}
               </span>
               <TrendingUp className="w-5 h-5 text-emerald-400" />
             </div>
@@ -526,12 +606,16 @@ export default function ProgrammeReportsScreen({
             </div>
             <div className="mt-2 text-[11px] text-blue-200 border-t border-blue-800/80 pt-2">
               <div className="font-mono text-[10px] text-blue-300">
-                Obtained / (Obtained + Refused)
+                {isEn ? 'Obtained / (Obtained + Refused)' : 'Obtenus / (Obtenus + Refusés)'}
               </div>
               <div className="mt-0.5 text-slate-300">
                 {summary.visa_decided_count > 0
-                  ? `${summary.visa_obtained} of ${summary.visa_decided_count} decided cases (${summary.visa_submitted_pending} in-flight pending)`
-                  : `0 decided applications (${summary.visa_submitted_pending} in-flight pending)`}
+                  ? isEn
+                    ? `${summary.visa_obtained} of ${summary.visa_decided_count} decided cases (${summary.visa_submitted_pending} in-flight pending)`
+                    : `${summary.visa_obtained} sur ${summary.visa_decided_count} dossiers tranchés (${summary.visa_submitted_pending} en cours d'instruction)`
+                  : isEn
+                  ? `0 decided applications (${summary.visa_submitted_pending} in-flight pending)`
+                  : `0 demande tranchée (${summary.visa_submitted_pending} en cours d'instruction)`}
               </div>
             </div>
           </div>
@@ -541,38 +625,61 @@ export default function ProgrammeReportsScreen({
       {/* Funnel Progress Steps */}
       <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
         <h3 className="text-xs font-semibold uppercase text-slate-500 tracking-wider mb-4">
-          Cohort Milestones Pipeline
+          {isEn ? 'Cohort Milestones Pipeline' : 'Entonnoir des Jalons de la Promotion'}
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Milestone 1 */}
           <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-            <div className="text-[11px] font-semibold text-slate-500 uppercase">Jalon 1</div>
-            <div className="text-sm font-bold text-slate-900 mt-1">Orientation & Dossier</div>
+            <div className="text-[11px] font-semibold text-slate-500 uppercase">
+              {isEn ? 'Milestone 1' : 'Jalon 1'}
+            </div>
+            <div className="text-sm font-bold text-slate-900 mt-1">
+              {isEn ? 'Orientation & Targeting' : 'Orientation & Dossier'}
+            </div>
             <div className="text-xs text-slate-600 mt-2 flex justify-between">
-              <span>Completed / In Progress:</span>
+              <span>{isEn ? 'Enrolled / In Progress:' : 'Inscrits / En Cours :'}</span>
               <span className="font-semibold text-blue-900">{summary?.total_candidates || 0}</span>
             </div>
           </div>
+
+          {/* Milestone 2 */}
           <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-            <div className="text-[11px] font-semibold text-slate-500 uppercase">Jalon 2</div>
-            <div className="text-sm font-bold text-slate-900 mt-1">Pièces & TCF</div>
+            <div className="text-[11px] font-semibold text-slate-500 uppercase">
+              {isEn ? 'Milestone 2' : 'Jalon 2'}
+            </div>
+            <div className="text-sm font-bold text-slate-900 mt-1">
+              {isEn ? 'Academic Documents & TCF' : 'Pièces Académiques & TCF'}
+            </div>
             <div className="text-xs text-slate-600 mt-2 flex justify-between">
-              <span>Verified Documents:</span>
+              <span>{isEn ? 'Verified Dossiers:' : 'Dossiers Vérifiés :'}</span>
               <span className="font-semibold text-indigo-900">{summary?.qualified_count || 0}</span>
             </div>
           </div>
+
+          {/* Milestone 3 */}
           <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-            <div className="text-[11px] font-semibold text-slate-500 uppercase">Jalon 3</div>
-            <div className="text-sm font-bold text-slate-900 mt-1">Campus France & Écoles</div>
+            <div className="text-[11px] font-semibold text-slate-500 uppercase">
+              {isEn ? 'Milestone 3' : 'Jalon 3'}
+            </div>
+            <div className="text-sm font-bold text-slate-900 mt-1">
+              {isEn ? 'Official Submission & Schools' : 'Campus France & Écoles'}
+            </div>
             <div className="text-xs text-slate-600 mt-2 flex justify-between">
-              <span>Admissions Received:</span>
+              <span>{isEn ? 'Admissions Confirmed:' : 'Admissions Reçues :'}</span>
               <span className="font-semibold text-emerald-700">{summary?.admissions_admitted || 0}</span>
             </div>
           </div>
+
+          {/* Milestone 4 */}
           <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-            <div className="text-[11px] font-semibold text-slate-500 uppercase">Jalon 4</div>
-            <div className="text-sm font-bold text-slate-900 mt-1">Visa & Hébergement</div>
+            <div className="text-[11px] font-semibold text-slate-500 uppercase">
+              {isEn ? 'Milestone 4' : 'Jalon 4'}
+            </div>
+            <div className="text-sm font-bold text-slate-900 mt-1">
+              {isEn ? 'Visa & Accommodation' : 'Visa & Hébergement'}
+            </div>
             <div className="text-xs text-slate-600 mt-2 flex justify-between">
-              <span>Visas Obtained:</span>
+              <span>{isEn ? 'Visas Granted:' : 'Visas Accordés :'}</span>
               <span className="font-semibold text-emerald-700">{summary?.visa_obtained || 0}</span>
             </div>
           </div>
@@ -588,7 +695,7 @@ export default function ProgrammeReportsScreen({
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <input
                 type="text"
-                placeholder="Search student name, ref, program..."
+                placeholder={isEn ? 'Search student name, ref, program...' : 'Rechercher nom étudiant, réf, programme...'}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full text-xs pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
@@ -599,18 +706,18 @@ export default function ProgrammeReportsScreen({
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5 text-xs text-slate-500">
               <Filter className="w-3.5 h-3.5" />
-              <span>Visa Outcome:</span>
+              <span>{isEn ? 'Visa Outcome:' : 'Résultat Visa :'}</span>
             </div>
             <select
               value={visaFilter}
               onChange={(e) => setVisaFilter(e.target.value)}
               className="text-xs font-medium border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
             >
-              <option value="ALL">All Outcomes</option>
-              <option value="OBTAINED">Visa Obtained</option>
-              <option value="REFUSED">Visa Refused</option>
-              <option value="PENDING">Pending Consular Decision</option>
-              <option value="NOT_APPLIED">Not Applied</option>
+              <option value="ALL">{isEn ? 'All Outcomes' : 'Tous les Résultats'}</option>
+              <option value="OBTAINED">{isEn ? 'Visa Obtained' : 'Visa Obtenu'}</option>
+              <option value="REFUSED">{isEn ? 'Visa Refused' : 'Visa Refusé'}</option>
+              <option value="PENDING">{isEn ? 'Pending Consular Decision' : 'En Attente Décision Consulaire'}</option>
+              <option value="NOT_APPLIED">{isEn ? 'Not Applied' : 'Non Initié'}</option>
             </select>
           </div>
         </div>
@@ -620,21 +727,21 @@ export default function ProgrammeReportsScreen({
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-100/70 text-slate-600 uppercase font-semibold text-[11px] border-b border-slate-200">
               <tr>
-                <th className="py-3 px-4">Student</th>
-                <th className="py-3 px-4">Program & School</th>
-                <th className="py-3 px-4">Qualified At</th>
-                <th className="py-3 px-4">Admission</th>
-                <th className="py-3 px-4">Visa Status</th>
-                <th className="py-3 px-4">Decision Date</th>
-                <th className="py-3 px-4">Document Retention</th>
-                <th className="py-3 px-4 text-right">Actions</th>
+                <th className="py-3 px-4">{isEn ? 'Student' : 'Étudiant'}</th>
+                <th className="py-3 px-4">{isEn ? 'Program & School' : 'Programme & École Partenaire'}</th>
+                <th className="py-3 px-4">{isEn ? 'Qualified At' : 'Qualifié le'}</th>
+                <th className="py-3 px-4">{isEn ? 'Admission' : 'Admission'}</th>
+                <th className="py-3 px-4">{isEn ? 'Visa Status' : 'Statut Visa'}</th>
+                <th className="py-3 px-4">{isEn ? 'Decision Date' : 'Date Décision'}</th>
+                <th className="py-3 px-4">{isEn ? 'Document Retention' : 'Rétention Documents'}</th>
+                <th className="py-3 px-4 text-right">{isEn ? 'Actions' : 'Actions'}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {filteredJourneys.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-8 text-center text-slate-400">
-                    No student records found matching current criteria.
+                    {isEn ? 'No student records found matching current criteria.' : 'Aucun dossier étudiant trouvé selon les critères sélectionnés.'}
                   </td>
                 </tr>
               ) : (
@@ -666,16 +773,16 @@ export default function ProgrammeReportsScreen({
                         {student.qualified_at ? (
                           <div>
                             <div className="font-medium text-slate-800">
-                              {new Date(student.qualified_at).toLocaleDateString()}
+                              {new Date(student.qualified_at).toLocaleDateString(isEn ? 'en-GB' : 'fr-FR')}
                             </div>
                             <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded font-semibold">
-                              Verified
+                              {isEn ? 'Verified' : 'Vérifié'}
                             </span>
                           </div>
                         ) : (
                           <div>
                             <span className="text-[10px] text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded font-semibold">
-                              Requires Review
+                              {isEn ? 'Requires Review' : 'Audit Requis'}
                             </span>
                           </div>
                         )}
@@ -692,7 +799,7 @@ export default function ProgrammeReportsScreen({
                               : 'bg-blue-100 text-blue-800'
                           }`}
                         >
-                          {student.admission_status}
+                          {translateAdmissionBadge(student.admission_status)}
                         </span>
                       </td>
 
@@ -712,7 +819,7 @@ export default function ProgrammeReportsScreen({
                           {student.visa_status === 'Obtained' && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
                           {student.visa_status === 'Refused' && <XCircle className="w-3 h-3 text-red-600" />}
                           {student.visa_status === 'Submitted' && <Clock className="w-3 h-3 text-amber-600" />}
-                          {student.visa_status}
+                          <span>{translateVisaStatus(student.visa_status)}</span>
                         </span>
                       </td>
 
@@ -726,19 +833,15 @@ export default function ProgrammeReportsScreen({
                         {student.documents_purged ? (
                           <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full font-medium">
                             <ShieldCheck className="w-3 h-3 text-slate-400" />
-                            Purged
+                            {isEn ? 'Purged' : 'Purgé'}
                           </span>
                         ) : student.visa_status === 'Obtained' ? (
                           <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full font-medium">
-                            Eligible Early Purge
-                          </span>
-                        ) : student.retention_status.includes('days') ? (
-                          <span className="text-[10px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full font-medium">
-                            {student.retention_status}
+                            {isEn ? 'Eligible Early Purge' : 'Éligible Purge Anticipée'}
                           </span>
                         ) : (
-                          <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full font-medium">
-                            {student.retention_status}
+                          <span className="text-[10px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full font-medium">
+                            {translateRetentionBadge(student)}
                           </span>
                         )}
                       </td>
@@ -750,7 +853,7 @@ export default function ProgrammeReportsScreen({
                           className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-blue-900 bg-blue-50 hover:bg-blue-100 rounded-md transition"
                         >
                           <Eye className="w-3.5 h-3.5 text-blue-700" />
-                          View Journey
+                          <span>{isEn ? 'View Journey' : 'Voir Parcours'}</span>
                         </button>
                       </td>
                     </tr>
@@ -770,7 +873,7 @@ export default function ProgrammeReportsScreen({
             <div className="p-5 bg-gradient-to-r from-blue-950 to-slate-900 text-white flex items-center justify-between">
               <div>
                 <span className="text-xs uppercase tracking-wider text-blue-300 font-semibold">
-                  Chronological Student Journey
+                  {isEn ? 'Chronological Student Journey' : "Parcours Chronologique de l'Étudiant"}
                 </span>
                 <h3 className="text-xl font-bold mt-0.5">{selectedStudent.full_name}</h3>
                 <div className="text-xs text-blue-200 font-mono mt-0.5">
@@ -790,13 +893,17 @@ export default function ProgrammeReportsScreen({
               {/* Summary Cards */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                  <div className="text-[11px] font-semibold text-slate-500 uppercase">Academic Program</div>
+                  <div className="text-[11px] font-semibold text-slate-500 uppercase">
+                    {isEn ? 'Academic Program' : 'Programme Académique'}
+                  </div>
                   <div className="font-semibold text-slate-900 mt-0.5">{selectedStudent.school_name}</div>
                   <div className="text-xs text-slate-600 truncate">{selectedStudent.program}</div>
                 </div>
 
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                  <div className="text-[11px] font-semibold text-slate-500 uppercase">Visa Outcome</div>
+                  <div className="text-[11px] font-semibold text-slate-500 uppercase">
+                    {isEn ? 'Visa Outcome' : 'Décision Visa'}
+                  </div>
                   <div className="flex items-center gap-2 mt-0.5">
                     <span
                       className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold ${
@@ -807,12 +914,12 @@ export default function ProgrammeReportsScreen({
                           : 'bg-amber-100 text-amber-800'
                       }`}
                     >
-                      {selectedStudent.visa_status}
+                      {translateVisaStatus(selectedStudent.visa_status)}
                     </span>
                   </div>
                   {selectedStudent.visa_decision_date && (
                     <div className="text-xs text-slate-500 mt-1">
-                      Decision: {selectedStudent.visa_decision_date}
+                      {isEn ? 'Decision:' : 'Décision :'} {selectedStudent.visa_decision_date}
                     </div>
                   )}
                 </div>
@@ -821,26 +928,34 @@ export default function ProgrammeReportsScreen({
               {/* Document Retention & Qualification Box */}
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
                 <div className="text-xs font-bold text-slate-700 uppercase flex items-center justify-between">
-                  <span>Document Retention Compliance</span>
+                  <span>{isEn ? 'Document Retention Compliance' : 'Conformité Rétention Documents Sensibles'}</span>
                   <ShieldCheck className="w-4 h-4 text-emerald-600" />
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div>
-                    <span className="text-slate-500">Qualification Date: </span>
+                    <span className="text-slate-500">{isEn ? 'Qualification Date: ' : 'Date de Qualification : '}</span>
                     <span className="font-semibold text-slate-800">
-                      {selectedStudent.qualified_at ? new Date(selectedStudent.qualified_at).toLocaleDateString() : 'Unverified (Review Required)'}
+                      {selectedStudent.qualified_at
+                        ? new Date(selectedStudent.qualified_at).toLocaleDateString(isEn ? 'en-GB' : 'fr-FR')
+                        : isEn ? 'Unverified (Review Required)' : 'Non vérifié (Audit Requis)'}
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-500">Purge Status: </span>
+                    <span className="text-slate-500">{isEn ? 'Purge Status: ' : 'Statut de Purge : '}</span>
                     <span className="font-semibold text-slate-800">
-                      {selectedStudent.documents_purged ? 'Permanently Purged' : 'Active / Retention Period'}
+                      {selectedStudent.documents_purged
+                        ? isEn ? 'Permanently Purged' : 'Définitivement Purgé'
+                        : isEn ? 'Active / Retention Period' : 'Actif / Période de Rétention'}
                     </span>
                   </div>
                 </div>
                 {selectedStudent.retention_deadline && !selectedStudent.documents_purged && (
                   <div className="text-xs text-slate-600 pt-1 border-t border-slate-200">
-                    11-Month Deadline: <span className="font-semibold">{new Date(selectedStudent.retention_deadline).toLocaleDateString()}</span> ({selectedStudent.retention_status})
+                    {isEn ? '11-Month Deadline: ' : 'Échéance 11 Mois : '}{' '}
+                    <span className="font-semibold">
+                      {new Date(selectedStudent.retention_deadline).toLocaleDateString(isEn ? 'en-GB' : 'fr-FR')}
+                    </span>{' '}
+                    ({translateRetentionBadge(selectedStudent)})
                   </div>
                 )}
               </div>
@@ -848,11 +963,13 @@ export default function ProgrammeReportsScreen({
               {/* Chronological Timeline */}
               <div>
                 <h4 className="text-xs font-bold uppercase text-slate-500 tracking-wider mb-3">
-                  Chronological Event Stream
+                  {isEn ? 'Chronological Event Stream' : 'Flux Chronologique des Événements'}
                 </h4>
                 <div className="border-l-2 border-slate-200 ml-3 space-y-4">
                   {selectedStudent.timeline.length === 0 ? (
-                    <div className="text-xs text-slate-400 pl-4 py-2">No historical events recorded.</div>
+                    <div className="text-xs text-slate-400 pl-4 py-2">
+                      {isEn ? 'No historical events recorded.' : 'Aucun événement historique enregistré.'}
+                    </div>
                   ) : (
                     selectedStudent.timeline.map((event, idx) => (
                       <div key={idx} className="relative pl-5">
@@ -862,7 +979,9 @@ export default function ProgrammeReportsScreen({
                           <span className="text-[11px] text-slate-400">{event.timestamp}</span>
                         </div>
                         <p className="text-xs text-slate-600 mt-0.5">{event.details}</p>
-                        <div className="text-[10px] text-slate-400 mt-0.5">Author: {event.author}</div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">
+                          {isEn ? 'Author:' : 'Auteur :'} {event.author}
+                        </div>
                       </div>
                     ))
                   )}
@@ -876,7 +995,7 @@ export default function ProgrammeReportsScreen({
                 onClick={() => setSelectedStudent(null)}
                 className="px-4 py-2 text-xs font-medium bg-slate-900 hover:bg-slate-800 text-white rounded-lg transition"
               >
-                Close Journey
+                {isEn ? 'Close Journey' : 'Fermer le Parcours'}
               </button>
             </div>
           </div>
@@ -889,8 +1008,14 @@ export default function ProgrammeReportsScreen({
           <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden border border-slate-200">
             <div className="p-5 bg-gradient-to-r from-purple-950 to-slate-900 text-white flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-bold">Archived Programme Report Snapshots</h3>
-                <p className="text-xs text-purple-200">Permanent, immutable report snapshots archived by LIEC Administration.</p>
+                <h3 className="text-lg font-bold">
+                  {isEn ? 'Archived Programme Report Snapshots' : 'Instantanés de Rapports de Promotion Archivés'}
+                </h3>
+                <p className="text-xs text-purple-200">
+                  {isEn
+                    ? 'Permanent, immutable report snapshots archived by LIEC Administration.'
+                    : 'Instantanés permanents et immuables archivés par l’Administration LIEC.'}
+                </p>
               </div>
               <button
                 onClick={() => setShowSnapshotsModal(false)}
@@ -905,16 +1030,16 @@ export default function ProgrammeReportsScreen({
                   <div>
                     <div className="font-bold text-slate-900 text-sm">{snap.report_title}</div>
                     <div className="text-xs text-slate-500 mt-0.5">
-                      Intake: {snap.intake_year} • Cutoff: {snap.cutoff_date || 'N/A'} • Finalised: {new Date(snap.finalised_at).toLocaleString()}
+                      {isEn ? 'Intake:' : 'Promotion :'} {snap.intake_year} • {isEn ? 'Cutoff:' : 'Date butoir :'} {snap.cutoff_date || 'N/A'} • {isEn ? 'Finalised:' : 'Finalisé le :'} {new Date(snap.finalised_at).toLocaleString(isEn ? 'en-GB' : 'fr-FR')}
                     </div>
                     <div className="text-xs text-slate-600 mt-1 flex items-center gap-3">
-                      <span>Students: {snap.total_candidates}</span>
-                      <span>Visas: {snap.visa_obtained} granted / {snap.visa_refused} refused</span>
-                      <span className="font-semibold text-emerald-700">Success Rate: {snap.visa_success_rate_pct}%</span>
+                      <span>{isEn ? 'Students:' : 'Étudiants :'} {snap.total_candidates}</span>
+                      <span>{isEn ? 'Visas:' : 'Visas :'} {snap.visa_obtained} {isEn ? 'granted' : 'accordés'} / {snap.visa_refused} {isEn ? 'refused' : 'refusés'}</span>
+                      <span className="font-semibold text-emerald-700">{isEn ? 'Success Rate:' : 'Taux de Réussite :'} {snap.visa_success_rate_pct}%</span>
                     </div>
                   </div>
                   <span className="text-[10px] font-semibold text-purple-700 bg-purple-50 px-2.5 py-1 rounded-full border border-purple-200">
-                    Archived
+                    {isEn ? 'Archived' : 'Archivé'}
                   </span>
                 </div>
               ))}
@@ -924,7 +1049,7 @@ export default function ProgrammeReportsScreen({
                 onClick={() => setShowSnapshotsModal(false)}
                 className="px-4 py-2 text-xs font-medium bg-slate-900 text-white rounded-lg"
               >
-                Close
+                {isEn ? 'Close' : 'Fermer'}
               </button>
             </div>
           </div>
