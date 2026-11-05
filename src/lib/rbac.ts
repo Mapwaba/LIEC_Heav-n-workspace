@@ -149,7 +149,9 @@ export type SecuredModule =
   | 'accommodation'
   | 'audit'
   | 'users_roles_config'
-  | 'reports';
+  | 'reports'
+  | 'programme_reports'
+  | 'document_retention';
 
 export interface PermissionEvaluation {
   allowed: boolean;
@@ -199,6 +201,18 @@ export function evaluateModuleAccess(
           scope: 'relevant_avi_only',
           reason: 'Access limited to AVI and parent-financing relevant records and financial fields.',
         };
+      case 'programme_reports':
+        return {
+          allowed: false,
+          scope: 'denied',
+          reason: 'Access denied: Finance Officer has no automatic access to confidential academic programme reporting.',
+        };
+      case 'document_retention':
+        return {
+          allowed: false,
+          scope: 'denied',
+          reason: 'Access denied: Finance Officer cannot manage student document retention.',
+        };
       case 'prospects':
       case 'prepa':
       case 'audit':
@@ -223,6 +237,8 @@ export function evaluateModuleAccess(
       case 'reports':
       case 'avi':
       case 'accommodation':
+      case 'programme_reports':
+      case 'document_retention':
         return { allowed: true, scope: 'intake_administrative' };
       case 'yimmiline':
       case 'finance':
@@ -310,6 +326,52 @@ export function canPerformManualStatusOverride(user: any): boolean {
     userRole === 'admin' ||
     roles.includes('admin') ||
     roles.includes('lh_security_admin')
+  );
+}
+
+/**
+ * Checks if user is authorized to view academic programme reports.
+ * Authorized: Admin and Secretary. Blocked: Finance Officer.
+ */
+export function canAccessProgrammeReports(user: any): boolean {
+  const actualUser = user?.user || user;
+  if (!actualUser || actualUser.active === false) return false;
+  const profile = actualUser.business_profile;
+  const userRole = actualUser.role;
+  const roles = actualUser.technical_roles || [];
+
+  return (
+    profile === 'Admin' ||
+    userRole === 'admin' ||
+    roles.includes('admin') ||
+    roles.includes('lh_security_admin') ||
+    profile === 'Secretary' ||
+    userRole === 'secretary' ||
+    roles.includes('lh_internal') ||
+    roles.includes('ITIL')
+  );
+}
+
+/**
+ * Checks if user is authorized to trigger sensitive document retention purge.
+ * Authorized: Admin and Secretary (for visa confirmed early deletion / retention processing).
+ */
+export function canManageDocumentRetention(user: any): boolean {
+  const actualUser = user?.user || user;
+  if (!actualUser || actualUser.active === false) return false;
+  const profile = actualUser.business_profile;
+  const userRole = actualUser.role;
+  const roles = actualUser.technical_roles || [];
+
+  return (
+    profile === 'Admin' ||
+    userRole === 'admin' ||
+    roles.includes('admin') ||
+    roles.includes('lh_security_admin') ||
+    profile === 'Secretary' ||
+    userRole === 'secretary' ||
+    roles.includes('lh_internal') ||
+    roles.includes('ITIL')
   );
 }
 

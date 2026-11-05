@@ -226,6 +226,15 @@ export default function CandidatsScreen({
   const [formDescription, setFormDescription] = useState('');
   const [formNewComment, setFormNewComment] = useState('');
 
+  // Structured Visa Status & Retention States
+  const [formVisaStatus, setFormVisaStatus] = useState<'Not Applied' | 'In Preparation' | 'Submitted' | 'Obtained' | 'Refused' | 'Withdrawn'>('Not Applied');
+  const [formVisaSubmissionDate, setFormVisaSubmissionDate] = useState('');
+  const [formVisaDecisionDate, setFormVisaDecisionDate] = useState('');
+  const [formVisaOutcomeNotes, setFormVisaOutcomeNotes] = useState('');
+  const [formApplicationYear, setFormApplicationYear] = useState('2027–2028');
+  const [purgingDocuments, setPurgingDocuments] = useState(false);
+  const [showPurgeConfirmModal, setShowPurgeConfirmModal] = useState(false);
+
   // New Candidat Form
   const [newCandName, setNewCandName] = useState('');
   const [newCandCountry, setNewCandCountry] = useState('RDC (Kinshasa)');
@@ -288,6 +297,11 @@ export default function CandidatsScreen({
         selectedCandidat.description ||
           `${selectedCandidat.full_name} is pursuing higher education admission at partner campuses in Lyon. Academic profile verified with verified diplomas.`
       );
+      setFormVisaStatus(selectedCandidat.visa_status || 'Not Applied');
+      setFormVisaSubmissionDate(selectedCandidat.visa_submission_date || '');
+      setFormVisaDecisionDate(selectedCandidat.visa_decision_date || '');
+      setFormVisaOutcomeNotes(selectedCandidat.visa_outcome_notes || '');
+      setFormApplicationYear(selectedCandidat.application_year || '2027–2028');
       setFormNewComment('');
     }
   }, [selectedCandidat?.ref]);
@@ -358,6 +372,11 @@ export default function CandidatsScreen({
           parent_email: formParentEmail.trim(),
           description: formDescription.trim(),
           new_comment: formNewComment.trim(),
+          visa_status: formVisaStatus,
+          visa_submission_date: formVisaSubmissionDate || null,
+          visa_decision_date: formVisaDecisionDate || null,
+          visa_outcome_notes: formVisaOutcomeNotes || null,
+          application_year: formApplicationYear || '2027–2028',
         }),
       });
 
@@ -377,6 +396,43 @@ export default function CandidatsScreen({
       onNotify(`Error: ${err.message}`);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Handle Early or Deadline Sensitive Document Purge
+  const handlePurgeDocuments = async () => {
+    if (!selectedCandidat) return;
+    setPurgingDocuments(true);
+    try {
+      const res = await fetch('/api/retention', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-email': currentUser?.email || 'bmapwabantoro@liecconsulting.com',
+        },
+        body: JSON.stringify({
+          student_ref: selectedCandidat.ref,
+          action: selectedCandidat.visa_status === 'Obtained' ? 'early_purge_visa' : 'deadline_purge',
+          notes: 'Sensitive documents deleted under LIEC retention policy following confirmed visa / retention deadline.',
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to execute document retention purge.');
+      }
+
+      setShowPurgeConfirmModal(false);
+      onNotify(
+        isEn
+          ? `Sensitive documents permanently deleted for ${selectedCandidat.full_name}. Student profile & history preserved intact.`
+          : `Documents sensibles purgés avec succès pour ${selectedCandidat.full_name}. Dossier étudiant préservé.`
+      );
+      if (onRefresh) await onRefresh();
+    } catch (err: any) {
+      alert(`Document Retention Error: ${err.message}`);
+    } finally {
+      setPurgingDocuments(false);
     }
   };
 
@@ -758,6 +814,24 @@ export default function CandidatsScreen({
                 </button>
               )}
 
+              {/* Purge Sensitive Documents Action */}
+              {selectedCandidat.documents_purged ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-white/10 text-emerald-300 border border-emerald-500/30">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{isEn ? 'Docs Purged' : 'Documents Purgés'}</span>
+                </span>
+              ) : selectedCandidat.visa_status === 'Obtained' && isAuthorizedToEdit ? (
+                <button
+                  type="button"
+                  onClick={() => setShowPurgeConfirmModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-sm transition"
+                  title="Initiate early sensitive document deletion following confirmed visa"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>{isEn ? 'Purge Sensitive Docs' : 'Purger Docs Sensibles'}</span>
+                </button>
+              ) : null}
+
               {/* Save / Update Action */}
               {isAuthorizedToEdit && (
                 <button
@@ -1049,7 +1123,154 @@ export default function CandidatsScreen({
                 </div>
               </div>
 
-              {/* SECTION C: DESCRIPTION */}
+              {/* SECTION C: ACADEMIC INTAKE & CONSULAR VISA OUTCOME */}
+              <div className="bg-slate-50/70 p-5 rounded-xl border border-slate-200/80 space-y-4">
+                <div className="flex items-center gap-2 pb-2 border-b border-slate-200 text-indigo-950 font-bold text-xs uppercase tracking-wider">
+                  <Plane className="w-4 h-4 text-blue-600" />
+                  <span>{isEn ? 'C. Academic Intake & Consular Visa' : 'C. Session Académique & Visa Consulaire'}</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      {isEn ? 'Academic Intake Year' : 'Session Académique'}
+                    </label>
+                    <select
+                      value={formApplicationYear}
+                      onChange={(e) => setFormApplicationYear(e.target.value)}
+                      className="w-full py-2 px-3 rounded-lg border border-slate-300 bg-white text-slate-900 font-semibold"
+                    >
+                      <option value="2027–2028">2027–2028</option>
+                      <option value="2026–2027">2026–2027</option>
+                      <option value="2025–2026">2025–2026</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      {isEn ? 'Consular Visa Status *' : 'Statut Visa Consulaire *'}
+                    </label>
+                    <select
+                      value={formVisaStatus}
+                      onChange={(e) => setFormVisaStatus(e.target.value as any)}
+                      className={`w-full py-2 px-3 rounded-lg border font-bold ${
+                        formVisaStatus === 'Obtained'
+                          ? 'border-emerald-500 bg-emerald-50 text-emerald-900'
+                          : formVisaStatus === 'Refused'
+                          ? 'border-red-500 bg-red-50 text-red-900'
+                          : formVisaStatus === 'Submitted'
+                          ? 'border-amber-500 bg-amber-50 text-amber-900'
+                          : 'border-slate-300 bg-white text-slate-900'
+                      }`}
+                    >
+                      <option value="Not Applied">{isEn ? 'Not Applied' : 'Non Initié'}</option>
+                      <option value="In Preparation">{isEn ? 'In Preparation' : 'En Préparation'}</option>
+                      <option value="Submitted">{isEn ? 'Submitted (Pending Consular Decision)' : 'Déposé (En Attente Décision)'}</option>
+                      <option value="Obtained">{isEn ? 'Obtained (Visa Accordé)' : 'Obtenu (Visa Accordé)'}</option>
+                      <option value="Refused">{isEn ? 'Refused (Visa Refusé)' : 'Refusé (Visa Refusé)'}</option>
+                      <option value="Withdrawn">{isEn ? 'Withdrawn' : 'Annulé / Abandonné'}</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      {isEn ? 'Consular Decision Date' : 'Date de Décision Consulaire'}
+                    </label>
+                    <input
+                      type="date"
+                      value={formVisaDecisionDate}
+                      onChange={(e) => setFormVisaDecisionDate(e.target.value)}
+                      className="w-full py-2 px-3 rounded-lg border border-slate-300 bg-white text-slate-900"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      {isEn ? 'Visa Application Submission Date' : 'Date de Dépôt du Visa'}
+                    </label>
+                    <input
+                      type="date"
+                      value={formVisaSubmissionDate}
+                      onChange={(e) => setFormVisaSubmissionDate(e.target.value)}
+                      className="w-full py-2 px-3 rounded-lg border border-slate-300 bg-white text-slate-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      {isEn ? 'Consular Decision Notes / References' : 'Notes / Références Consulat'}
+                    </label>
+                    <input
+                      type="text"
+                      value={formVisaOutcomeNotes}
+                      onChange={(e) => setFormVisaOutcomeNotes(e.target.value)}
+                      placeholder="e.g. Visa VLS-TS validé Ambassade France Kinshasa"
+                      className="w-full py-2 px-3 rounded-lg border border-slate-300 bg-white text-slate-900"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION D: DOCUMENT RETENTION POLICY & SAFEGUARDS */}
+              <div className="bg-slate-50/70 p-5 rounded-xl border border-slate-200/80 space-y-3 text-xs">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200 text-indigo-950 font-bold uppercase tracking-wider">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    <span>{isEn ? 'D. Sensitive Document Retention Compliance' : 'D. Conformité Rétention Documents Sensibles'}</span>
+                  </div>
+                  <span className="text-[10.5px] px-2.5 py-0.5 rounded-full font-bold bg-blue-100 text-blue-900">
+                    11-Month Policy
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-3 bg-white rounded-lg border border-slate-200">
+                    <div className="text-[10px] uppercase font-bold text-slate-500">Qualification Timestamp</div>
+                    <div className="font-semibold text-slate-900 mt-1">
+                      {selectedCandidat.qualified_at
+                        ? new Date(selectedCandidat.qualified_at).toLocaleString()
+                        : isEn ? 'Unverified (Requires Review)' : 'Non vérifié (Audit Requis)'}
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-white rounded-lg border border-slate-200">
+                    <div className="text-[10px] uppercase font-bold text-slate-500">Purge Status</div>
+                    <div className="font-semibold mt-1">
+                      {selectedCandidat.documents_purged ? (
+                        <span className="text-emerald-700 flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Purged (Compliant)
+                        </span>
+                      ) : selectedCandidat.visa_status === 'Obtained' ? (
+                        <span className="text-amber-700 flex items-center gap-1">
+                          <AlertTriangle className="w-3.5 h-3.5" /> Eligible for Early Purge
+                        </span>
+                      ) : (
+                        <span className="text-blue-700">Retention Period Active</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-white rounded-lg border border-slate-200 flex flex-col justify-between">
+                    <div className="text-[10px] uppercase font-bold text-slate-500">Early Deletion Action</div>
+                    {selectedCandidat.documents_purged ? (
+                      <div className="text-[11px] text-slate-500 italic mt-1">
+                        {isEn ? 'All sensitive files permanently deleted.' : 'Pièces sensibles supprimées.'}
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setShowPurgeConfirmModal(true)}
+                        className="mt-1 px-2.5 py-1 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-md transition shadow-sm"
+                      >
+                        {isEn ? 'Purge Sensitive Documents' : 'Purger Documents'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION E: DESCRIPTION */}
               <div className="bg-slate-50/70 p-5 rounded-xl border border-slate-200/80 space-y-2 text-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-slate-200 text-indigo-950 font-bold text-xs uppercase tracking-wider">
                   <FileText className="w-4 h-4 text-indigo-600" />
@@ -2227,6 +2448,59 @@ export default function CandidatsScreen({
           </div>
         </div>
       )}
-</div>
+      {/* Purge Sensitive Documents Confirmation Modal */}
+      {showPurgeConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden border border-slate-200">
+            <div className="p-5 bg-gradient-to-r from-amber-600 to-amber-700 text-white flex items-center gap-3">
+              <AlertTriangle className="w-6 h-6 shrink-0" />
+              <div>
+                <h3 className="text-base font-bold">
+                  {isEn ? 'Confirm Sensitive Document Deletion' : 'Confirmer la Purge des Documents Sensibles'}
+                </h3>
+                <p className="text-xs text-amber-100">
+                  {isEn ? 'LIEC 11-Month Document Retention Policy' : 'Politique de Rétention 11 Mois LIEC'}
+                </p>
+              </div>
+            </div>
+            <div className="p-5 space-y-3 text-xs text-slate-700">
+              <p>
+                {isEn
+                  ? `You are about to permanently delete all sensitive supporting documents (passports, financial statements, partner accommodation uploads) for ${selectedCandidat.full_name} (${selectedCandidat.ref}).`
+                  : `Vous allez supprimer définitivement les pièces justificatives sensibles (passeports, relevés, documents hébergement) pour ${selectedCandidat.full_name} (${selectedCandidat.ref}).`}
+              </p>
+              <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-amber-900 space-y-1">
+                <div className="font-bold">{isEn ? 'Safeguards Preserved:' : 'Données Préservées :'}</div>
+                <ul className="list-disc list-inside space-y-0.5 text-[11px]">
+                  <li>{isEn ? 'Student profile, program choice, and contacts preserved' : 'Profil, choix de programme et contacts préservés'}</li>
+                  <li>{isEn ? 'Academic intake reporting metrics preserved' : 'Statistiques et rapports de session préservés'}</li>
+                  <li>{isEn ? 'Partner accommodation tokens revoked immediately' : 'Tokens partenaires logement révoqués immédiatement'}</li>
+                  <li>{isEn ? 'S3-compatible storage objects permanently deleted' : 'Objets S3 supprimés définitivement'}</li>
+                </ul>
+              </div>
+            </div>
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowPurgeConfirmModal(false)}
+                disabled={purgingDocuments}
+                className="px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200 rounded-lg transition"
+              >
+                {isEn ? 'Cancel' : 'Annuler'}
+              </button>
+              <button
+                type="button"
+                onClick={handlePurgeDocuments}
+                disabled={purgingDocuments}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition shadow-sm disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {purgingDocuments ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                <span>{purgingDocuments ? (isEn ? 'Purging...' : 'Purge en cours...') : (isEn ? 'Confirm Permanent Deletion' : 'Confirmer la Suppression')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

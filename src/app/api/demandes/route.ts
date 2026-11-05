@@ -913,9 +913,12 @@ export async function PATCH(req: NextRequest) {
              stage_badge = 'En cours (Jalon 1)',
              procedure_status = 'En cours (Jalon 1)',
              progress_pct = 25,
-             status_right = 'Qualifié'
+             status_right = 'Qualifié',
+             qualified_at = COALESCE(qualified_at, CURRENT_TIMESTAMP),
+             qualification_status = 'QUALIFIED',
+             application_year = COALESCE(application_year, $2)
            WHERE ref = $1`,
-          [existingRef]
+          [existingRef, dem.application_year || '2027–2028']
         );
         return NextResponse.json({ ok: true, candidatRef: existingRef });
       }
@@ -1027,14 +1030,25 @@ export async function PATCH(req: NextRequest) {
         { name: `Lettre de motivation ${schoolName}`, meta: 'En cours', status: 'pending' },
       ];
 
+      const qualificationTimestamp = new Date().toISOString();
+      const qualificationHistory = [
+        {
+          timestamp: qualificationTimestamp.replace('T', ' ').substring(0, 19),
+          author: dem.adviser || 'Barthelemy MAPWABA NTORO',
+          activity_type: 'CANDIDATE_QUALIFIED',
+          details: `Prospect qualified and officially converted to Candidate (#${canRef}) from Demande #${dem.ref}. Retention period starts.`,
+        },
+      ];
+
       await db.query(
         `INSERT INTO candidats (
           ref, initials, full_name, avatar_url, program, cities, adviser,
           stage_badge, stage_badge_tone, progress_pct, status_left, status_right,
           email, phone, parent_full_name, parent_phone, graduation_year, current_activity, final_year_university,
           country, nationality, current_diploma, tcf_score,
-          garant_info, interview_date, jalons_json, voeux_json, notes_json, pieces_json, sexe
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)`,
+          garant_info, interview_date, jalons_json, voeux_json, notes_json, pieces_json, sexe,
+          application_year, qualified_at, qualification_status, documents_purged, history_json
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)`,
         [
           canRef,
           dem.initials,
@@ -1066,6 +1080,11 @@ export async function PATCH(req: NextRequest) {
           JSON.stringify(defaultNotes),
           JSON.stringify(defaultPieces),
           dem.sexe || 'Male',
+          dem.application_year || '2027–2028',
+          qualificationTimestamp,
+          'QUALIFIED',
+          false,
+          JSON.stringify(qualificationHistory),
         ]
       );
 

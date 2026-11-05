@@ -402,6 +402,15 @@ export async function PUT(req: NextRequest) {
     const description = body.description !== undefined ? body.description : cand.description;
     const newComment = (body.new_comment || body.comments || '').trim();
 
+    // Student Retention & Academic Intake Programme Reporting fields
+    const applicationYear = body.application_year !== undefined ? body.application_year.trim() : cand.application_year;
+    const visaStatus = body.visa_status !== undefined ? body.visa_status.trim() : cand.visa_status;
+    const visaSubmissionDate = body.visa_submission_date !== undefined ? body.visa_submission_date : cand.visa_submission_date;
+    const visaDecisionDate = body.visa_decision_date !== undefined ? body.visa_decision_date : cand.visa_decision_date;
+    const visaOutcomeNotes = body.visa_outcome_notes !== undefined ? body.visa_outcome_notes : cand.visa_outcome_notes;
+    const qualificationStatus = body.qualification_status !== undefined ? body.qualification_status : cand.qualification_status;
+    const qualifiedAt = body.qualified_at !== undefined ? body.qualified_at : cand.qualified_at;
+
     const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
     const history = JSON.parse(cand.history_json || '[]');
     const changeDetails: string[] = [];
@@ -414,6 +423,15 @@ export async function PUT(req: NextRequest) {
     if (body.procedure_status && body.procedure_status !== cand.procedure_status) {
       changeDetails.push(`Procedure status: '${body.procedure_status}'`);
     }
+    if (body.visa_status && body.visa_status !== cand.visa_status) {
+      changeDetails.push(`Visa status: '${body.visa_status}'`);
+    }
+    if (body.application_year && body.application_year !== cand.application_year) {
+      changeDetails.push(`Application intake year: '${body.application_year}'`);
+    }
+    if (body.qualification_status && body.qualification_status !== cand.qualification_status) {
+      changeDetails.push(`Qualification status: '${body.qualification_status}'`);
+    }
     if (newComment) {
       changeDetails.push(`New communication/comment added`);
     }
@@ -425,7 +443,7 @@ export async function PUT(req: NextRequest) {
     history.unshift({
       timestamp,
       author: `${user.name} (${user.business_profile})`,
-      activity_type: 'RECORD_UPDATED',
+      activity_type: body.visa_status && body.visa_status !== cand.visa_status ? 'VISA_STATUS_CHANGED' : 'RECORD_UPDATED',
       details: changeDetails.join('; '),
     });
 
@@ -456,8 +474,15 @@ export async function PUT(req: NextRequest) {
         notes_json = $13,
         history_json = $14,
         sexe = $15,
-        program = $16
-       WHERE ref = $17`,
+        program = $16,
+        application_year = $17,
+        visa_status = $18,
+        visa_submission_date = $19,
+        visa_decision_date = $20,
+        visa_outcome_notes = $21,
+        qualification_status = $22,
+        qualified_at = $23
+       WHERE ref = $24`,
       [
         fullName,
         email,
@@ -475,6 +500,13 @@ export async function PUT(req: NextRequest) {
         JSON.stringify(history),
         sexe,
         program,
+        applicationYear || '2027–2028',
+        visaStatus || 'Not Applied',
+        visaSubmissionDate || null,
+        visaDecisionDate || null,
+        visaOutcomeNotes || null,
+        qualificationStatus || 'REQUIRES_REVIEW',
+        qualifiedAt || null,
         ref,
       ]
     );

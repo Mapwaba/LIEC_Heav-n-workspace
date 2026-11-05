@@ -137,6 +137,90 @@ export async function uploadDocument(
 }
 
 /**
+ * Permanently delete a document from private S3 object storage using SigV4 DELETE request.
+ */
+export async function deleteDocument(
+  fileKey: string
+): Promise<{ success: boolean; key: string; error?: string }> {
+  const config = getStorageConfig();
+  if (!config) {
+    return {
+      success: false,
+      key: fileKey,
+      error: 'Object storage environment variables are not configured.',
+    };
+  }
+
+  try {
+    const cleanKey = fileKey.replace(/^\//, '');
+    const url = `${config.endpoint}/${config.bucket}/${cleanKey}`;
+
+    const date = new Date();
+    const amzDate = date.toISOString().replace(/[:-]|\.\d{3}/g, '');
+    const dateStamp = amzDate.slice(0, 8);
+    const host = new URL(config.endpoint).host;
+    const emptyPayloadHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+
+    const headers: Record<string, string> = {
+      'host': host,
+      'x-amz-date': amzDate,
+      'x-amz-content-sha256': emptyPayloadHash,
+    };
+
+    const canonicalHeaders = Object.keys(headers)
+      .sort()
+      .map((k) => `${k.toLowerCase()}:${headers[k].trim()}\n`)
+      .join('');
+    const signedHeaders = Object.keys(headers).sort().map((k) => k.toLowerCase()).join(';');
+
+    const canonicalRequest = [
+      'DELETE',
+      `/${config.bucket}/${cleanKey}`,
+      '',
+      canonicalHeaders,
+      signedHeaders,
+      emptyPayloadHash,
+    ].join('\n');
+
+    const credentialScope = `${dateStamp}/${config.region}/s3/aws4_request`;
+    const stringToSign = [
+      'AWS4-HMAC-SHA256',
+      amzDate,
+      credentialScope,
+      crypto.createHash('sha256').update(canonicalRequest).digest('hex'),
+    ].join('\n');
+
+    const kDate = crypto.createHmac('sha256', `AWS4${config.secretAccessKey}`).update(dateStamp).digest();
+    const kRegion = crypto.createHmac('sha256', kDate).update(config.region).digest();
+    const kService = crypto.createHmac('sha256', kRegion).update('s3').digest();
+    const kSigning = crypto.createHmac('sha256', kService).update('aws4_request').digest();
+    const signature = crypto.createHmac('sha256', kSigning).update(stringToSign).digest('hex');
+
+    const authorizationHeader = `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+    const res = await fetch(url, {
+      method: 'DELETE',
+      headers: {
+        ...headers,
+        Authorization: authorizationHeader,
+      },
+    });
+
+    if (!res.ok && res.status !== 204 && res.status !== 404) {
+      const errText = await res.text().catch(() => '');
+      return { success: false, key: cleanKey, error: `S3 returned status ${res.status}: ${errText}` };
+    }
+
+    return {
+      success: true,
+      key: cleanKey,
+    };
+  } catch (err: any) {
+    return { success: false, key: fileKey, error: err.message };
+  }
+}
+
+/**
  * Generates an S3 SigV4 pre-signed GET download URL with a short expiration.
  * Default expiration is 300 seconds (5 minutes).
  */

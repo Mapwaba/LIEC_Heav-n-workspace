@@ -31,6 +31,7 @@ import {
   Check,
   CheckCheck,
   AlertTriangle,
+  TrendingUp,
 } from 'lucide-react';
 
 import OverviewScreen from '@/components/OverviewScreen';
@@ -38,6 +39,7 @@ import DemandesScreen from '@/components/DemandesScreen';
 import ProspectsScreen from '@/components/ProspectsScreen';
 import CandidatsScreen from '@/components/CandidatsScreen';
 import AccommodationScreen from '@/components/AccommodationScreen';
+import ProgrammeReportsScreen from '@/components/ProgrammeReportsScreen';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import {
   PrepaScreen,
@@ -59,6 +61,7 @@ type NavTab =
   | 'prepa'
   | 'services'
   | 'accommodation'
+  | 'programme_reports'
   | 'contenus'
   | 'rapports'
   | 'notifications'
@@ -73,6 +76,7 @@ const TAB_LABELS_EN: Record<NavTab, string> = {
   prepa: 'PREPA Enrollments',
   services: 'AVI Financing Desk',
   accommodation: 'Accommodation Reservations',
+  programme_reports: 'Programme Reports (Intake)',
   contenus: 'Public Portal Intake',
   rapports: 'Finance & Analytics',
   notifications: 'Notifications',
@@ -88,8 +92,9 @@ const TAB_LABELS_FR: Record<NavTab, string> = {
   prepa: 'Inscriptions PREPA',
   services: 'Guichet Financement AVI',
   accommodation: 'Réservations Logement',
+  programme_reports: 'Rapports de Promotion Académique',
   contenus: 'Contenus du site',
-  rapports: 'Rapports & stats',
+  rapports: 'Rapports Financiers & Stats',
   notifications: 'Notifications',
   parametres: 'Paramètres & sécurité',
   aide: 'Aide, Support & Base de Connaissances',
@@ -195,6 +200,7 @@ export default function LiecWorkspacePage() {
           'prepa',
           'services',
           'accommodation',
+          'programme_reports',
           'contenus',
           'notifications',
           'aide',
@@ -1219,6 +1225,7 @@ export default function LiecWorkspacePage() {
     },
     { id: 'services', label: tabLabels.services, icon: Share2 },
     { id: 'accommodation', label: tabLabels.accommodation, icon: Home },
+    { id: 'programme_reports', label: tabLabels.programme_reports, icon: TrendingUp },
     { id: 'contenus', label: tabLabels.contenus, icon: FileText },
     { id: 'rapports', label: tabLabels.rapports, icon: BarChart3 },
   ];
@@ -1757,6 +1764,12 @@ export default function LiecWorkspacePage() {
                   }}
                   onNotify={showToast}
                   lang={lang}
+                />
+              )}
+
+              {activeTab === 'programme_reports' && (
+                <ProgrammeReportsScreen
+                  currentUser={currentUser}
                 />
               )}
 
