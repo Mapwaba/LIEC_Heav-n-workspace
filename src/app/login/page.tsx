@@ -33,7 +33,7 @@ function getRedirectTarget(): string {
 
 export default function LoginPage() {
   const router = useRouter();
-  const [step, setStep] = useState<'credentials' | '2fa' | 'first_login_password_change'>('credentials');
+  const [step, setStep] = useState<'credentials' | '2fa' | 'first_login_password_change' | 'invitation_setup'>('credentials');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
@@ -44,6 +44,9 @@ export default function LoginPage() {
   const [twoFaData, setTwoFaData] = useState<TwoFaSetupData | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
   const [sessionTimeoutNotice, setSessionTimeoutNotice] = useState<string | null>(null);
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const [inviteUserData, setInviteUserData] = useState<{ email: string; name: string; businessProfile: string; userId?: string } | null>(null);
+  const [verifyingInvite, setVerifyingInvite] = useState(false);
 
   React.useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -58,6 +61,31 @@ export default function LoginPage() {
       } catch {}
 
       const params = new URLSearchParams(window.location.search);
+      const tokenParam = params.get('invite_token');
+      if (tokenParam) {
+        setInviteToken(tokenParam);
+        setVerifyingInvite(true);
+        fetch(`/api/auth/invitation?token=${encodeURIComponent(tokenParam)}`)
+          .then(async (res) => {
+            const data = await res.json();
+            if (res.ok && data.valid && data.user) {
+              setInviteUserData(data.user);
+              setStep('invitation_setup');
+              setError(null);
+            } else {
+              setError(data.error || 'Invitation link is invalid or has expired. Please contact your administrator.');
+              setStep('credentials');
+            }
+          })
+          .catch(() => {
+            setError('Unable to verify invitation link. Please check your connection or contact your administrator.');
+            setStep('credentials');
+          })
+          .finally(() => {
+            setVerifyingInvite(false);
+          });
+      }
+
       if (params.get('reason') === 'session_timeout') {
         const timeout = params.get('timeout') || '15';
         const langParam = params.get('lang');
@@ -285,6 +313,44 @@ export default function LoginPage() {
     navigator.clipboard.writeText(twoFaData.secret);
     setCopiedKey(true);
     setTimeout(() => setCopiedKey(false), 3000);
+  };
+
+  const handleInvitationPasswordSetup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteToken) return;
+    setLoading(true);
+    setError(null);
+
+    if (newPassword !== confirmPassword) {
+      setError('New password and confirmation do not match.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/auth/invitation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: inviteToken,
+          newPassword,
+          confirmPassword,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success && data.user) {
+        localStorage.setItem('liec_user', JSON.stringify(data.user));
+        localStorage.setItem('liec_role', data.user.role);
+        document.cookie = `liec_user_email=${encodeURIComponent(data.user.email)}; path=/; max-age=604800; SameSite=Lax`;
+        window.location.replace(getRedirectTarget());
+      } else {
+        setError(data.error || 'Failed to activate account. The invitation link may have expired.');
+      }
+    } catch {
+      setError('Network error while activating account. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -925,6 +991,133 @@ export default function LoginPage() {
                     <span>{loading ? 'Authenticating...' : 'Sign in'}</span>
                     <span aria-hidden="true">→</span>
                   </button>
+                </form>
+              </>
+            ) : step === 'invitation_setup' ? (
+              <>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#d8f6ea', color: '#0c685a', padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
+                  <span>✉️ SECURE ACCOUNT ACTIVATION</span>
+                </div>
+                <h2>Activate Your LIEC Account</h2>
+                <p className="sub">
+                  Welcome to LIEC Heav’n{inviteUserData?.name ? `, ${inviteUserData.name}` : ''}! Set your private password below to activate your account and access your workspace.
+                </p>
+
+                {inviteUserData && (
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '12px', marginBottom: '16px', fontSize: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span style={{ color: '#64748b' }}>Account:</span>
+                      <strong style={{ color: '#092342' }}>{inviteUserData.email}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#64748b' }}>Role:</span>
+                      <strong style={{ color: '#0c685a' }}>{inviteUserData.businessProfile}</strong>
+                    </div>
+                  </div>
+                )}
+
+                {error && <div className="error">{error}</div>}
+
+                <form onSubmit={handleInvitationPasswordSetup}>
+                  <div className="field">
+                    <label htmlFor="inviteNewPassword">New Password</label>
+                    <div className="password-wrap">
+                      <input
+                        id="inviteNewPassword"
+                        name="newPassword"
+                        type={showNewPassword ? 'text' : 'password'}
+                        placeholder="Choose a strong private password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        required
+                        autoFocus
+                      />
+                      <button
+                        className="show-pass"
+                        type="button"
+                        onClick={() => setShowNewPassword(!showNewPassword)}
+                      >
+                        {showNewPassword ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <label htmlFor="inviteConfirmPassword">Confirm Password</label>
+                    <div className="password-wrap">
+                      <input
+                        id="inviteConfirmPassword"
+                        name="confirmPassword"
+                        type={showConfirmPassword ? 'text' : 'password'}
+                        placeholder="Re-enter your password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        required
+                      />
+                      <button
+                        className="show-pass"
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      >
+                        {showConfirmPassword ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Password Security Policy Checklist */}
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '12px', margin: '14px 0', fontSize: '11px' }}>
+                    <div style={{ fontWeight: 800, color: '#092342', marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Password Security Requirements</span>
+                      <span style={{ color: newPassword.length >= 10 && /[A-Z]/.test(newPassword) && /[a-z]/.test(newPassword) && /[0-9]/.test(newPassword) && /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(newPassword) ? '#16a34a' : '#64748b' }}>
+                        {newPassword.length >= 10 && /[A-Z]/.test(newPassword) && /[a-z]/.test(newPassword) && /[0-9]/.test(newPassword) && /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(newPassword) ? '✓ Compliant' : 'Requirements pending'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                      <div style={{ color: newPassword.length >= 10 ? '#16a34a' : '#94a3b8', fontWeight: 600 }}>
+                        {newPassword.length >= 10 ? '✓' : '○'} 10+ characters
+                      </div>
+                      <div style={{ color: /[A-Z]/.test(newPassword) ? '#16a34a' : '#94a3b8', fontWeight: 600 }}>
+                        {/[A-Z]/.test(newPassword) ? '✓' : '○'} Uppercase letter
+                      </div>
+                      <div style={{ color: /[a-z]/.test(newPassword) ? '#16a34a' : '#94a3b8', fontWeight: 600 }}>
+                        {/[a-z]/.test(newPassword) ? '✓' : '○'} Lowercase letter
+                      </div>
+                      <div style={{ color: /[0-9]/.test(newPassword) ? '#16a34a' : '#94a3b8', fontWeight: 600 }}>
+                        {/[0-9]/.test(newPassword) ? '✓' : '○'} Number (0-9)
+                      </div>
+                      <div style={{ color: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(newPassword) ? '#16a34a' : '#94a3b8', fontWeight: 600 }}>
+                        {/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(newPassword) ? '✓' : '○'} Special symbol (!@#$%)
+                      </div>
+                      <div style={{ color: confirmPassword.length > 0 && newPassword === confirmPassword ? '#16a34a' : '#94a3b8', fontWeight: 600 }}>
+                        {confirmPassword.length > 0 && newPassword === confirmPassword ? '✓' : '○'} Passwords match
+                      </div>
+                    </div>
+                  </div>
+
+                  <button className="submit" type="submit" disabled={loading}>
+                    <span>{loading ? 'Activating account...' : 'Set Password & Enter Workspace'}</span>
+                    <span aria-hidden="true">→</span>
+                  </button>
+
+                  <div style={{ textAlign: 'center', marginTop: '14px' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStep('credentials');
+                        setError(null);
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#64748b',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ← Return to Sign in
+                    </button>
+                  </div>
                 </form>
               </>
             ) : step === 'first_login_password_change' ? (
