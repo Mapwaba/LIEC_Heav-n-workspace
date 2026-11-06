@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { authenticateServerRequest, canAssignAdvisor, canPerformManualStatusOverride } from '@/lib/rbac';
+import { authenticateServerRequest, canAssignAdvisor, canPerformManualStatusOverride, canVerifyFinancialPayments, canManageProspects } from '@/lib/rbac';
 import { sendAdvisorAssignmentEmail } from '@/lib/emailService';
+import { verifyFirstInstalmentPayment } from '@/lib/paymentVerification';
 
 const COUNTRY_FLAGS: Record<string, string> = {
   RDC: '🇨🇩',
@@ -355,11 +356,263 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ ok: true, count: overriddenIds.length, overriddenIds });
     }
 
+    if (action === 'record_first_contact') {
+      const pId = Number(id);
+      if (!pId) return NextResponse.json({ error: 'Valid prospect ID is required.' }, { status: 400 });
+
+      const method = (body.contact_method || 'telephone').trim();
+      const outcome = (body.contact_outcome || 'Reachable / Interested').trim();
+      const notes = (body.notes || '').trim();
+      const contactDate = body.contact_date || new Date().toISOString();
+      const author = body.actor || 'Barthelemy MAPWABA NTORO';
+
+      const updateRes = await db.query(
+        `UPDATE prospects SET
+          stage = 'premier_contact',
+          first_contact_date = $1,
+          first_contact_method = $2,
+          first_contact_outcome = $3,
+          first_contact_notes = $4,
+          badge_text = 'Contact Établi',
+          badge_tone = 'amber',
+          meta_right = 'Éligibilité à évaluer',
+          meta_right_tone = 'amber'
+         WHERE id = $5
+         RETURNING *`,
+        [contactDate, method, outcome, notes, pId]
+      );
+
+      const p = updateRes.rows[0];
+      if (!p) return NextResponse.json({ error: 'Prospect not found.' }, { status: 404 });
+
+      // Record note in prospect_notes table
+      const logNote = `[PREMIER CONTACT] Méthode: ${method}. Résultat: ${outcome}.${notes ? ` Notes: ${notes}` : ''}`;
+      await db.query(
+        `INSERT INTO prospect_notes (prospect_id, author, content) VALUES ($1, $2, $3)`,
+        [pId, author, logNote]
+      );
+
+      await db.query(
+        `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+         VALUES ($1, 'Enregistrement Premier Contact', $2, 'Succès', $3)`,
+        [author, `PROSPECT-${pId}`, `Contact via ${method} - ${outcome}`]
+      );
+
+      return NextResponse.json({ ok: true, prospect: p, message: 'First contact recorded successfully.' });
+    }
+
+    if (action === 'record_eligibility') {
+      const pId = Number(id);
+      if (!pId) return NextResponse.json({ error: 'Valid prospect ID is required.' }, { status: 400 });
+
+      const eligibilityStatus = (body.eligibility_status || 'Pending Review').trim();
+      const notes = (body.notes || '').trim();
+      const assessedBy = (body.assessed_by || 'Barthelemy MAPWABA NTORO').trim();
+
+      const badgeTone = eligibilityStatus === 'Eligible' ? 'mint' : eligibilityStatus === 'Not Eligible' ? 'urgent' : 'amber';
+      const badgeText = eligibilityStatus === 'Eligible' ? 'Éligible LIEC' : eligibilityStatus === 'Not Eligible' ? 'Non Éligible' : 'Éligibilité en cours';
+
+      const updateRes = await db.query(
+        `UPDATE prospects SET
+          stage = 'diagnostic',
+          eligibility_status = $1,
+          eligibility_date = CURRENT_TIMESTAMP,
+          eligibility_assessed_by = $2,
+          eligibility_notes = $3,
+          badge_text = $4,
+          badge_tone = $5,
+          meta_right = $6,
+          meta_right_tone = $7
+         WHERE id = $8
+         RETURNING *`,
+        [
+          eligibilityStatus,
+          assessedBy,
+          notes,
+          badgeText,
+          badgeTone,
+          eligibilityStatus === 'Eligible' ? 'Prêt Inscription' : 'Dossier Bloqué',
+          badgeTone === 'mint' ? 'teal' : 'neutral',
+          pId,
+        ]
+      );
+
+      const p = updateRes.rows[0];
+      if (!p) return NextResponse.json({ error: 'Prospect not found.' }, { status: 404 });
+
+      const logNote = `[BILAN ÉLIGIBILITÉ] Statut: ${eligibilityStatus}. Évaluateur: ${assessedBy}.${notes ? ` Justification: ${notes}` : ''}`;
+      await db.query(
+        `INSERT INTO prospect_notes (prospect_id, author, content) VALUES ($1, $2, $3)`,
+        [pId, assessedBy, logNote]
+      );
+
+      await db.query(
+        `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+         VALUES ($1, 'Évaluation Éligibilité Prospect', $2, 'Succès', $3)`,
+        [assessedBy, `PROSPECT-${pId}`, `Statut: ${eligibilityStatus}`]
+      );
+
+      return NextResponse.json({ ok: true, prospect: p, message: 'Eligibility assessment recorded successfully.' });
+    }
+
+    if (action === 'complete_registration') {
+      const pId = Number(id);
+      if (!pId) return NextResponse.json({ error: 'Valid prospect ID is required.' }, { status: 400 });
+
+      const updateRes = await db.query(
+        `UPDATE prospects SET
+          registration_completed = TRUE,
+          registration_date = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING *`,
+        [pId]
+      );
+      return NextResponse.json({ ok: true, prospect: updateRes.rows[0], message: 'Registration marked completed.' });
+    }
+
+    if (action === 'verify_first_instalment') {
+      const authResult = await authenticateServerRequest(req, db);
+      if (authResult.authenticated && !canVerifyFinancialPayments(authResult.user)) {
+        return NextResponse.json(
+          { error: 'Forbidden: Only Finance Officers or Administrators can manually verify first-instalment payments.' },
+          { status: 403 }
+        );
+      }
+
+      const pId = Number(id);
+      if (!pId) return NextResponse.json({ error: 'Valid prospect ID is required.' }, { status: 400 });
+
+      const pRes = await db.query(`SELECT full_name, first_instalment_ref FROM prospects WHERE id = $1`, [pId]);
+      const p = pRes.rows[0];
+      if (!p) return NextResponse.json({ error: 'Prospect not found.' }, { status: 404 });
+
+      let amount = Number(body.amount) || 1800;
+      let paymentRef = (body.payment_ref || body.ref || `INST1-P${pId}`).trim();
+
+      // Check authoritative payment verification
+      const paymentOutcome = await verifyFirstInstalmentPayment(db, {
+        fullName: p.full_name,
+        knownPaymentRef: body.payment_ref || p.first_instalment_ref,
+      });
+
+      if (paymentOutcome.verified) {
+        paymentRef = paymentOutcome.paymentRef || paymentRef;
+        amount = paymentOutcome.amount || amount;
+      }
+
+      const updateRes = await db.query(
+        `UPDATE prospects SET
+          first_instalment_paid = TRUE,
+          first_instalment_amount = $1,
+          first_instalment_ref = $2,
+          first_instalment_date = CURRENT_TIMESTAMP
+         WHERE id = $3
+         RETURNING *`,
+        [amount, paymentRef, pId]
+      );
+
+      return NextResponse.json({
+        ok: true,
+        prospect: updateRes.rows[0],
+        first_instalment_paid: true,
+        amount,
+        paymentRef,
+        message: 'First instalment verified and recorded.',
+      });
+    }
+
     if (!id || !stage) {
       return NextResponse.json({ error: 'ID et stade requis' }, { status: 400 });
     }
 
-    await db.query(`UPDATE prospects SET stage = $1 WHERE id = $2`, [stage, id]);
+    const pId = Number(id);
+    const currProspectRes = await db.query(`SELECT * FROM prospects WHERE id = $1`, [pId]);
+    const currProspect = currProspectRes.rows[0];
+    if (!currProspect) {
+      return NextResponse.json({ error: 'Prospect not found.' }, { status: 404 });
+    }
+
+    // STRICT BUSINESS RULE: Stage 4 (Qualified) requires all 3 conditions:
+    if (stage === 'qualifie') {
+      const authResult = await authenticateServerRequest(req, db);
+      if (authResult.authenticated && !canManageProspects(authResult.user)) {
+        return NextResponse.json(
+          { error: 'Forbidden: Insufficient privileges to qualify prospects.' },
+          { status: 403 }
+        );
+      }
+
+      let eligibilityPassed = currProspect.eligibility_status === 'Eligible';
+      let registrationCompleted = !!currProspect.registration_completed;
+      let firstInstalmentPaid = !!currProspect.first_instalment_paid;
+
+      // Authoritative verification via verifyFirstInstalmentPayment
+      const paymentOutcome = await verifyFirstInstalmentPayment(db, {
+        studentRef: currProspect.converted_candidate_ref,
+        fullName: currProspect.full_name,
+        knownPaymentRef: currProspect.first_instalment_ref,
+      });
+
+      if (paymentOutcome.status === 'AMBIGUOUS_REQUIRES_FINANCE') {
+        return NextResponse.json(
+          {
+            error: `Qualification rejected: First instalment payment verification is ambiguous (${paymentOutcome.reason}). Authoritative manual review by a Finance Officer is required.`,
+            paymentStatus: paymentOutcome.status,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (paymentOutcome.verified) {
+        firstInstalmentPaid = true;
+        await db.query(
+          `UPDATE prospects SET first_instalment_paid = TRUE, first_instalment_ref = $1, first_instalment_amount = $2, first_instalment_date = CURRENT_TIMESTAMP WHERE id = $3`,
+          [paymentOutcome.paymentRef, paymentOutcome.amount || 1800, pId]
+        );
+      }
+
+      const missingConditions: string[] = [];
+      if (!eligibilityPassed) {
+        missingConditions.push('Condition 1 Failed: Prospect must pass eligibility assessment (status is currently: ' + (currProspect.eligibility_status || 'Pending Review') + '). A non-eligible prospect cannot be qualified.');
+      }
+      if (!registrationCompleted) {
+        missingConditions.push('Condition 2 Failed: Prospect registration is not completed.');
+      }
+      if (!firstInstalmentPaid) {
+        missingConditions.push('Condition 3 Failed: First instalment payment is not recorded or verified in authoritative financial records.');
+      }
+
+      if (missingConditions.length > 0) {
+        return NextResponse.json(
+          {
+            error: 'Qualification rejected: A prospect is considered Qualified ONLY when all three business conditions are satisfied.',
+            missingConditions,
+            conditions: {
+              eligibilityPassed,
+              registrationCompleted,
+              firstInstalmentPaid,
+            },
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    await db.query(
+      `UPDATE prospects SET
+        stage = $1,
+        badge_text = $2,
+        badge_tone = $3,
+        qualification_completed = CASE WHEN $1 = 'qualifie' THEN TRUE ELSE qualification_completed END,
+        qualification_date = CASE WHEN $1 = 'qualifie' AND qualification_date IS NULL THEN CURRENT_TIMESTAMP ELSE qualification_date END
+       WHERE id = $4`,
+      [
+        stage,
+        stage === 'qualifie' ? 'Qualifié CRM' : stage === 'diagnostic' ? 'Éligibilité' : stage === 'premier_contact' ? 'Contact Établi' : 'Nouveau Lead',
+        stage === 'qualifie' ? 'gold' : stage === 'diagnostic' ? 'amber' : 'mint',
+        id,
+      ]
+    );
     await db.query(
       `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
        VALUES ('Barthelemy MAPWABA NTORO', $1, $2, 'Succès')`,

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { authenticateServerRequest, canAssignAdvisor, canPerformManualStatusOverride } from '@/lib/rbac';
+import { authenticateServerRequest, canAssignAdvisor, canPerformManualStatusOverride, canVerifyFinancialPayments, canManageProspects } from '@/lib/rbac';
 import { sendAdvisorAssignmentEmail } from '@/lib/emailService';
+import { verifyFirstInstalmentPayment } from '@/lib/paymentVerification';
 
 function corsHeaders() {
   return {
@@ -892,14 +893,272 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ ok: true, status: newStatus });
     }
 
-    if (action === 'convert_to_candidat') {
+    if (action === 'check_qualification_readiness') {
       const demRes = await db.query(`SELECT * FROM demandes WHERE ref = $1`, [ref]);
       const dem = demRes.rows[0];
       if (!dem) {
         return NextResponse.json({ error: 'Demande introuvable' }, { status: 404 });
       }
 
-      await db.query(`UPDATE demandes SET status = 'Convertie' WHERE ref = $1`, [ref]);
+      const isAlreadyConverted = dem.status === 'Convertie' || !!dem.converted_candidate_ref;
+
+      let eligibilityPassed = dem.eligibility_status === 'Eligible';
+      let registrationCompleted = !!dem.registration_completed;
+      let firstInstalmentPaid = !!dem.first_instalment_paid;
+      let paymentRecord: any = null;
+
+      // Authoritative payment verification via verifyFirstInstalmentPayment
+      const paymentOutcome = await verifyFirstInstalmentPayment(db, {
+        demandeRef: dem.ref,
+        studentRef: dem.converted_candidate_ref,
+        fullName: dem.full_name,
+        email: dem.email,
+        knownPaymentRef: dem.first_instalment_ref,
+      });
+
+      if (paymentOutcome.verified) {
+        firstInstalmentPaid = true;
+        paymentRecord = {
+          source: paymentOutcome.source,
+          ref: paymentOutcome.paymentRef,
+          amount: paymentOutcome.amount,
+          date: paymentOutcome.paymentDate,
+        };
+      } else if (dem.first_instalment_paid && dem.first_instalment_ref) {
+        firstInstalmentPaid = true;
+        paymentRecord = {
+          source: 'recorded_payment',
+          ref: dem.first_instalment_ref,
+          amount: dem.first_instalment_amount || 1800,
+        };
+      }
+
+      // Check matching prospect CRM record
+      const prospectMatch = await db.query(
+        `SELECT eligibility_status, registration_completed, first_instalment_paid, first_instalment_amount, first_instalment_ref
+         FROM prospects WHERE LOWER(full_name) = LOWER($1) LIMIT 1`,
+        [dem.full_name]
+      );
+      if (prospectMatch.rows.length > 0) {
+        const pm = prospectMatch.rows[0];
+        if (pm.eligibility_status === 'Eligible') eligibilityPassed = true;
+        if (pm.registration_completed) registrationCompleted = true;
+        if (pm.first_instalment_paid && !firstInstalmentPaid && paymentOutcome.status !== 'AMBIGUOUS_REQUIRES_FINANCE') {
+          firstInstalmentPaid = true;
+          if (!paymentRecord) {
+            paymentRecord = {
+              source: 'prospects_record',
+              ref: pm.first_instalment_ref || 'Verified Wire',
+              amount: pm.first_instalment_amount || 1800,
+            };
+          }
+        }
+      }
+
+      const missingConditions: string[] = [];
+      if (!eligibilityPassed) {
+        missingConditions.push('Eligibility Assessment: Prospect must pass eligibility assessment (status is currently: ' + (dem.eligibility_status || 'Pending Review') + ').');
+      }
+      if (!registrationCompleted) {
+        missingConditions.push('Registration: Required LIEC registration must be completed.');
+      }
+      if (paymentOutcome.status === 'AMBIGUOUS_REQUIRES_FINANCE') {
+        missingConditions.push(`First Instalment Payment: Verification ambiguous (${paymentOutcome.reason}). Requires manual verification by an authorised Finance Officer.`);
+      } else if (!firstInstalmentPaid) {
+        missingConditions.push('First Instalment Payment: First instalment must be paid and verified against authoritative financial records.');
+      }
+
+      return NextResponse.json({
+        ok: true,
+        ref: dem.ref,
+        canQualify: !isAlreadyConverted && missingConditions.length === 0,
+        isAlreadyConverted,
+        convertedCandidateRef: dem.converted_candidate_ref || null,
+        missingConditions,
+        conditions: {
+          eligibilityPassed,
+          registrationCompleted,
+          firstInstalmentPaid: paymentOutcome.status === 'AMBIGUOUS_REQUIRES_FINANCE' ? false : firstInstalmentPaid,
+          eligibilityStatus: dem.eligibility_status || (eligibilityPassed ? 'Eligible' : 'Pending Review'),
+        },
+        paymentRecord,
+        paymentVerificationStatus: paymentOutcome.status,
+      });
+    }
+
+    if (action === 'record_eligibility') {
+      const eligibilityStatus = (body.eligibility_status || 'Pending Review').trim();
+      const notes = (body.notes || '').trim();
+      await db.query(
+        `UPDATE demandes SET eligibility_status = $1 WHERE ref = $2`,
+        [eligibilityStatus, ref]
+      );
+      // Synchronize with prospects table if exists
+      const demRes = await db.query(`SELECT full_name FROM demandes WHERE ref = $1`, [ref]);
+      if (demRes.rows[0]?.full_name) {
+        await db.query(
+          `UPDATE prospects SET eligibility_status = $1, eligibility_notes = $2, eligibility_date = CURRENT_TIMESTAMP WHERE LOWER(full_name) = LOWER($3)`,
+          [eligibilityStatus, notes, demRes.rows[0].full_name]
+        );
+      }
+      return NextResponse.json({ ok: true, eligibility_status: eligibilityStatus });
+    }
+
+    if (action === 'complete_registration') {
+      await db.query(
+        `UPDATE demandes SET registration_completed = TRUE, registration_date = CURRENT_TIMESTAMP WHERE ref = $1`,
+        [ref]
+      );
+      const demRes = await db.query(`SELECT full_name FROM demandes WHERE ref = $1`, [ref]);
+      if (demRes.rows[0]?.full_name) {
+        await db.query(
+          `UPDATE prospects SET registration_completed = TRUE, registration_date = CURRENT_TIMESTAMP WHERE LOWER(full_name) = LOWER($2)`,
+          [demRes.rows[0].full_name]
+        );
+      }
+      return NextResponse.json({ ok: true, registration_completed: true });
+    }
+
+    if (action === 'verify_first_instalment') {
+      const authResult = await authenticateServerRequest(req, db);
+      if (authResult.authenticated && !canVerifyFinancialPayments(authResult.user)) {
+        return NextResponse.json(
+          { error: 'Forbidden: Only Finance Officers or Administrators can manually verify first-instalment payments.' },
+          { status: 403 }
+        );
+      }
+
+      const amount = Number(body.amount) || 1800;
+      const paymentRef = (body.payment_ref || body.ref_trans || `INST-1-${ref}`).trim();
+      await db.query(
+        `UPDATE demandes SET
+           first_instalment_paid = TRUE,
+           first_instalment_amount = $1,
+           first_instalment_ref = $2,
+           first_instalment_date = CURRENT_TIMESTAMP
+         WHERE ref = $3`,
+        [amount, paymentRef, ref]
+      );
+      const demRes = await db.query(`SELECT full_name FROM demandes WHERE ref = $1`, [ref]);
+      if (demRes.rows[0]?.full_name) {
+        await db.query(
+          `UPDATE prospects SET
+             first_instalment_paid = TRUE,
+             first_instalment_amount = $1,
+             first_instalment_ref = $2,
+             first_instalment_date = CURRENT_TIMESTAMP
+           WHERE LOWER(full_name) = LOWER($3)`,
+          [amount, paymentRef, demRes.rows[0].full_name]
+        );
+      }
+      return NextResponse.json({ ok: true, first_instalment_paid: true, amount, paymentRef });
+    }
+
+    if (action === 'convert_to_candidat') {
+      const authResult = await authenticateServerRequest(req, db);
+      if (authResult.authenticated && !canManageProspects(authResult.user)) {
+        return NextResponse.json(
+          { error: 'Forbidden: Insufficient privileges to convert and qualify applicants.' },
+          { status: 403 }
+        );
+      }
+
+      const demRes = await db.query(`SELECT * FROM demandes WHERE ref = $1`, [ref]);
+      const dem = demRes.rows[0];
+      if (!dem) {
+        return NextResponse.json({ error: 'Demande introuvable' }, { status: 404 });
+      }
+
+      // Backend Duplicate Prevention & Idempotency Check
+      if (dem.status === 'Convertie' || dem.converted_candidate_ref) {
+        return NextResponse.json(
+          {
+            error: `This application has already been qualified and converted to Candidate (${dem.converted_candidate_ref || 'existing'}). Duplicate conversion prevented.`,
+            alreadyConverted: true,
+            candidatRef: dem.converted_candidate_ref,
+          },
+          { status: 409 }
+        );
+      }
+
+      // Verify the 3 Mandatory Business Qualification Conditions
+      let eligibilityPassed = dem.eligibility_status === 'Eligible';
+      let registrationCompleted = !!dem.registration_completed;
+      let firstInstalmentPaid = !!dem.first_instalment_paid;
+      let verifiedPaymentRef = dem.first_instalment_ref || null;
+      let verifiedPaymentAmount = dem.first_instalment_amount || 1800;
+
+      // Authoritative verification via verifyFirstInstalmentPayment
+      const paymentOutcome = await verifyFirstInstalmentPayment(db, {
+        demandeRef: dem.ref,
+        studentRef: dem.converted_candidate_ref,
+        fullName: dem.full_name,
+        email: dem.email,
+        knownPaymentRef: dem.first_instalment_ref,
+      });
+
+      if (paymentOutcome.status === 'AMBIGUOUS_REQUIRES_FINANCE') {
+        return NextResponse.json(
+          {
+            error: `Cannot qualify and convert to candidate: First instalment payment verification is ambiguous (${paymentOutcome.reason}). Authoritative manual review by a Finance Officer is required.`,
+            paymentStatus: paymentOutcome.status,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (paymentOutcome.verified) {
+        firstInstalmentPaid = true;
+        verifiedPaymentRef = paymentOutcome.paymentRef;
+        verifiedPaymentAmount = paymentOutcome.amount || verifiedPaymentAmount;
+      }
+
+      // Check matching prospect CRM record
+      const prospectMatch = await db.query(
+        `SELECT eligibility_status, registration_completed, first_instalment_paid, first_instalment_amount, first_instalment_ref
+         FROM prospects WHERE LOWER(full_name) = LOWER($1) LIMIT 1`,
+        [dem.full_name]
+      );
+      if (prospectMatch.rows.length > 0) {
+        const pm = prospectMatch.rows[0];
+        if (pm.eligibility_status === 'Eligible') eligibilityPassed = true;
+        if (pm.registration_completed) registrationCompleted = true;
+        if (pm.first_instalment_paid && !firstInstalmentPaid) {
+          firstInstalmentPaid = true;
+          if (!verifiedPaymentRef) verifiedPaymentRef = pm.first_instalment_ref || 'Verified Wire';
+          if (!verifiedPaymentAmount) verifiedPaymentAmount = pm.first_instalment_amount || 1800;
+        }
+      }
+
+      // Enforce the 3 conditions strictly:
+      const missingConditions: string[] = [];
+      if (!eligibilityPassed) {
+        missingConditions.push('Eligibility Assessment: Prospect must pass eligibility assessment (status is currently: ' + (dem.eligibility_status || 'Pending Review') + ').');
+      }
+      if (!registrationCompleted) {
+        missingConditions.push('Registration: Required LIEC registration must be completed.');
+      }
+      if (!firstInstalmentPaid) {
+        missingConditions.push('First Instalment Payment: First instalment must be paid and verified against authoritative financial records.');
+      }
+
+      if (missingConditions.length > 0) {
+        return NextResponse.json(
+          {
+            error: 'Cannot qualify and convert to candidate: Mandatory business qualification conditions are not satisfied.',
+            missingConditions,
+            conditions: {
+              eligibilityPassed,
+              registrationCompleted,
+              firstInstalmentPaid,
+            },
+          },
+          { status: 400 }
+        );
+      }
+
+      // Authoritative Canonical Qualification Timestamp
+      const canonicalQualificationTimestamp = new Date().toISOString();
 
       // Check if candidate already exists for this application
       const existingCanRes = await db.query(
@@ -914,13 +1173,34 @@ export async function PATCH(req: NextRequest) {
              procedure_status = 'En cours (Jalon 1)',
              progress_pct = 25,
              status_right = 'Qualifié',
-             qualified_at = COALESCE(qualified_at, CURRENT_TIMESTAMP),
+             qualified_at = COALESCE(qualified_at, $2),
              qualification_status = 'QUALIFIED',
-             application_year = COALESCE(application_year, $2)
+             registration_completed = TRUE,
+             first_instalment_paid = TRUE,
+             first_instalment_amount = $3,
+             first_instalment_ref = $4,
+             application_year = COALESCE(application_year, $5)
            WHERE ref = $1`,
-          [existingRef, dem.application_year || '2027–2028']
+          [existingRef, canonicalQualificationTimestamp, verifiedPaymentAmount, verifiedPaymentRef, dem.application_year || '2027–2028']
         );
-        return NextResponse.json({ ok: true, candidatRef: existingRef });
+        await db.query(
+          `UPDATE demandes SET status = 'Convertie', converted_at = $1, converted_candidate_ref = $2 WHERE ref = $3`,
+          [canonicalQualificationTimestamp, existingRef, ref]
+        );
+        await db.query(
+          `UPDATE prospects SET
+             stage = 'qualifie',
+             qualification_completed = TRUE,
+             qualification_date = COALESCE(qualification_date, $1),
+             converted_candidate_ref = $2,
+             registration_completed = TRUE,
+             first_instalment_paid = TRUE,
+             first_instalment_amount = $3,
+             first_instalment_ref = $4
+           WHERE LOWER(full_name) = LOWER($5)`,
+          [canonicalQualificationTimestamp, existingRef, verifiedPaymentAmount, verifiedPaymentRef, dem.full_name]
+        );
+        return NextResponse.json({ ok: true, candidatRef: existingRef, message: 'Existing candidate updated and qualified.' });
       }
 
       const canCountRes = await db.query<{ count: string | number }>('SELECT COUNT(*) as count FROM candidats');
@@ -1030,10 +1310,9 @@ export async function PATCH(req: NextRequest) {
         { name: `Lettre de motivation ${schoolName}`, meta: 'En cours', status: 'pending' },
       ];
 
-      const qualificationTimestamp = new Date().toISOString();
       const qualificationHistory = [
         {
-          timestamp: qualificationTimestamp.replace('T', ' ').substring(0, 19),
+          timestamp: canonicalQualificationTimestamp.replace('T', ' ').substring(0, 19),
           author: dem.adviser || 'Barthelemy MAPWABA NTORO',
           activity_type: 'CANDIDATE_QUALIFIED',
           details: `Prospect qualified and officially converted to Candidate (#${canRef}) from Demande #${dem.ref}. Retention period starts.`,
@@ -1047,8 +1326,9 @@ export async function PATCH(req: NextRequest) {
           email, phone, parent_full_name, parent_phone, graduation_year, current_activity, final_year_university,
           country, nationality, current_diploma, tcf_score,
           garant_info, interview_date, jalons_json, voeux_json, notes_json, pieces_json, sexe,
-          application_year, qualified_at, qualification_status, documents_purged, history_json
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)`,
+          application_year, qualified_at, qualification_status, documents_purged, history_json,
+          registration_completed, first_instalment_paid, first_instalment_amount, first_instalment_ref
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39)`,
         [
           canRef,
           dem.initials,
@@ -1081,21 +1361,67 @@ export async function PATCH(req: NextRequest) {
           JSON.stringify(defaultPieces),
           dem.sexe || 'Male',
           dem.application_year || '2027–2028',
-          qualificationTimestamp,
+          canonicalQualificationTimestamp,
           'QUALIFIED',
           false,
           JSON.stringify(qualificationHistory),
+          true,
+          true,
+          verifiedPaymentAmount,
+          verifiedPaymentRef,
         ]
       );
 
+      // Lock demande and record conversion link
       await db.query(
-        `INSERT INTO prospects (
-          full_name, stage, badge_text, badge_tone, flag, country_city, program_tag,
-          program_tag_tone, highlight_box, meta_left, meta_right, meta_right_tone,
-          adviser_initials, adviser_name, adviser_color, estimated_value, is_urgent, is_prepa
-        ) VALUES ($1,'qualifie','Qualifié CRM','gold',$2,$3,$4,'mint',NULL,'1 800 € TTC','Converti Candidat','teal','BM','Barthelemy MAPWABA NTORO','navy',1800,FALSE,TRUE)`,
-        [dem.full_name, dem.flag, dem.city, dem.program]
+        `UPDATE demandes SET
+           status = 'Convertie',
+           converted_at = $1,
+           converted_candidate_ref = $2,
+           registration_completed = TRUE,
+           first_instalment_paid = TRUE,
+           first_instalment_amount = $3,
+           first_instalment_ref = $4
+         WHERE ref = $5`,
+        [canonicalQualificationTimestamp, canRef, verifiedPaymentAmount, verifiedPaymentRef, ref]
       );
+
+      // Check if prospect exists and update or create link
+      const existingProspectRes = await db.query(
+        `SELECT id FROM prospects WHERE LOWER(full_name) = LOWER($1) LIMIT 1`,
+        [dem.full_name]
+      );
+
+      if (existingProspectRes.rows && existingProspectRes.rows.length > 0) {
+        await db.query(
+          `UPDATE prospects SET
+             stage = 'qualifie',
+             badge_text = 'Qualifié CRM',
+             badge_tone = 'gold',
+             meta_right = 'Converti Candidat',
+             meta_right_tone = 'teal',
+             qualification_completed = TRUE,
+             qualification_date = $1,
+             converted_candidate_ref = $2,
+             registration_completed = TRUE,
+             first_instalment_paid = TRUE,
+             first_instalment_amount = $3,
+             first_instalment_ref = $4
+           WHERE id = $5`,
+          [canonicalQualificationTimestamp, canRef, verifiedPaymentAmount, verifiedPaymentRef, existingProspectRes.rows[0].id]
+        );
+      } else {
+        await db.query(
+          `INSERT INTO prospects (
+            full_name, stage, badge_text, badge_tone, flag, country_city, program_tag,
+            program_tag_tone, highlight_box, meta_left, meta_right, meta_right_tone,
+            adviser_initials, adviser_name, adviser_color, estimated_value, is_urgent, is_prepa,
+            qualification_completed, qualification_date, converted_candidate_ref,
+            registration_completed, first_instalment_paid, first_instalment_amount, first_instalment_ref
+          ) VALUES ($1,'qualifie','Qualifié CRM','gold',$2,$3,$4,'mint',NULL,'1 800 € TTC','Converti Candidat','teal','BM','Barthelemy MAPWABA NTORO','navy',1800,FALSE,TRUE,TRUE,$5,$6,TRUE,TRUE,$7,$8)`,
+          [dem.full_name, dem.flag, dem.city, dem.program, canonicalQualificationTimestamp, canRef, verifiedPaymentAmount, verifiedPaymentRef]
+        );
+      }
 
       await db.query(
         `INSERT INTO audit_logs (actor, action, entity_ref, outcome)

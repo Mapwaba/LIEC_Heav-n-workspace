@@ -769,8 +769,8 @@ export default function LiecWorkspacePage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ref, action: 'convert_to_candidat' }),
     });
+    const json = await res.json().catch(() => ({}));
     if (res.ok) {
-      const json = await res.json();
       await fetchWorkspace();
       if (json.candidatRef) {
         setSelectedCandidatRef(json.candidatRef);
@@ -781,6 +781,22 @@ export default function LiecWorkspacePage() {
           : `Demande ${ref} qualifiée et convertie en Candidat (${json.candidatRef}) !`
       );
       setActiveTab('candidats');
+    } else {
+      if (res.status === 409) {
+        await fetchWorkspace();
+        if (json.candidateRef) {
+          setSelectedCandidatRef(json.candidateRef);
+          setActiveTab('candidats');
+        }
+        showToast(
+          isEn
+            ? `Already converted to candidate (${json.candidateRef || 'existing'}). Opening candidate file.`
+            : `Déjà convertie en candidat (${json.candidateRef || 'existant'}). Ouverture du dossier.`
+        );
+      } else {
+        const missing = json.missingConditions ? ` Missing requirements: ${json.missingConditions.join(', ')}` : '';
+        showToast((json.error || 'Conversion failed.') + missing);
+      }
     }
   };
 
@@ -924,11 +940,17 @@ export default function LiecWorkspacePage() {
   };
 
   const handleMoveProspect = async (id: number, stage: string) => {
-    await fetch('/api/prospects', {
+    const res = await fetch('/api/prospects', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, stage }),
     });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const missing = json.missingConditions ? ` Missing: ${json.missingConditions.join(', ')}` : '';
+      showToast((json.error || 'Failed to update prospect stage.') + missing);
+      return;
+    }
     await fetchWorkspace();
     showToast(
       isEn

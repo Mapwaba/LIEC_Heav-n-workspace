@@ -94,6 +94,7 @@ export default function DemandesScreen({
   const [noteInput, setNoteInput] = useState('');
   const [submittingNote, setSubmittingNote] = useState(false);
   const [converting, setConverting] = useState(false);
+  const [showConvertConfirmModal, setShowConvertConfirmModal] = useState(false);
   const [page, setPage] = useState(1);
   const [isDrawerOpen, setIsDrawerOpen] = useState(true);
   const [showAssignAdvisorModal, setShowAssignAdvisorModal] = useState(false);
@@ -368,6 +369,26 @@ export default function DemandesScreen({
       await onConvertCandidat(selectedDemande.ref);
     } finally {
       setConverting(false);
+    }
+  };
+
+  const handleUpdateCondition = async (action: string, extra: any = {}) => {
+    if (!selectedDemande) return;
+    try {
+      const res = await fetch('/api/demandes', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ref: selectedDemande.ref, action, ...extra }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        onNotify(data.error || 'Failed to update condition.');
+        return;
+      }
+      onNotify(data.message || 'Qualification condition updated.');
+      if (onRefresh) onRefresh();
+    } catch (e: any) {
+      onNotify('Error updating qualification condition: ' + e?.message);
     }
   };
 
@@ -1421,20 +1442,194 @@ export default function DemandesScreen({
               </form>
             </div>
 
-            {/* Bottom CTAs */}
+            {/* Bottom CTAs: 3-Condition Qualification & Candidate Conversion */}
             <div className="space-y-2.5 pt-1">
-              <button
-                onClick={handleConvert}
-                disabled={converting}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#f4be37] hover:bg-[#e5ae28] py-3 px-4 text-xs font-extrabold text-[#092342] shadow-sm transition disabled:opacity-60"
-              >
-                <ShieldCheck className="w-4 h-4" />
-                <span>
-                  {converting
-                    ? 'Qualifying and converting...'
-                    : 'Qualify and Convert to Candidate'}
-                </span>
-              </button>
+              {(() => {
+                const isConverted =
+                  selectedDemande.status === 'Convertie' ||
+                  selectedDemande.status === 'Converted' ||
+                  Boolean(selectedDemande.converted_candidate_ref);
+                const convertedRef = selectedDemande.converted_candidate_ref || selectedDemande.candidat_ref;
+
+                const isEligible = selectedDemande.eligibility_status === 'Eligible';
+                const isRegistrationDone = Boolean(selectedDemande.registration_completed);
+                const isFirstInstalmentPaid = Boolean(selectedDemande.first_instalment_paid);
+                const isReadyToConvert = isEligible && isRegistrationDone && isFirstInstalmentPaid;
+
+                if (isConverted) {
+                  return (
+                    <div className="rounded-xl border border-emerald-300 bg-emerald-50/90 p-3 space-y-2 shadow-xs">
+                      <div className="flex items-center gap-2 text-xs font-bold text-emerald-800">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                        <span>{isEn ? 'Already Qualified & Converted' : 'Déjà qualifiée et convertie'}</span>
+                      </div>
+                      <p className="text-[11px] text-emerald-700">
+                        {isEn ? 'Candidate Reference:' : 'Dossier Candidat :'} <span className="font-mono font-bold">{convertedRef || '#CAN-REGISTERED'}</span>
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onOpenStudentDossier) {
+                            onOpenStudentDossier(selectedDemande);
+                          } else if (onNotify) {
+                            onNotify(isEn ? `Opening candidate ${convertedRef}...` : `Ouverture du candidat ${convertedRef}...`);
+                          }
+                        }}
+                        className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 py-2 px-3 text-xs font-bold text-white shadow-sm transition cursor-pointer"
+                      >
+                        <UserCheck className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Open Candidate Profile' : 'Ouvrir le dossier candidat'}</span>
+                      </button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2.5 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-extrabold text-[#092342] uppercase tracking-wider flex items-center gap-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5 text-[#0c685a]" />
+                        {isEn ? 'Qualification Readiness' : 'Conditions de Qualification'}
+                      </span>
+                      <span
+                        className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                          isReadyToConvert
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            : 'bg-amber-100 text-amber-800 border border-amber-200'
+                        }`}
+                      >
+                        {isReadyToConvert
+                          ? (isEn ? 'Ready to Convert' : 'Prêt à convertir')
+                          : `${[isEligible, isRegistrationDone, isFirstInstalmentPaid].filter(Boolean).length}/3 Met`}
+                      </span>
+                    </div>
+
+                    {/* 3 Conditions Checklist */}
+                    <div className="space-y-1.5 text-xs">
+                      {/* Condition 1: Eligibility */}
+                      <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100">
+                        <div className="flex items-center gap-2">
+                          {isEligible ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                          ) : (
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                          )}
+                          <span className="text-[11px] font-medium text-slate-700">
+                            {isEn ? '1. Admission Eligibility' : '1. Éligibilité Admission'}
+                          </span>
+                        </div>
+                        {isEligible ? (
+                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                            {isEn ? 'Eligible' : 'Éligible'}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateCondition('record_eligibility', { eligibility_status: 'Eligible' })}
+                            className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                          >
+                            {isEn ? 'Mark Eligible' : 'Valider'}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Condition 2: Registration */}
+                      <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100">
+                        <div className="flex items-center gap-2">
+                          {isRegistrationDone ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                          ) : (
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                          )}
+                          <span className="text-[11px] font-medium text-slate-700">
+                            {isEn ? '2. Administrative Registration' : '2. Inscription Administrative'}
+                          </span>
+                        </div>
+                        {isRegistrationDone ? (
+                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                            {isEn ? 'Completed' : 'Complétée'}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateCondition('complete_registration')}
+                            className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                          >
+                            {isEn ? 'Mark Complete' : 'Compléter'}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Condition 3: First Instalment */}
+                      <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100">
+                        <div className="flex items-center gap-2">
+                          {isFirstInstalmentPaid ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                          ) : (
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                          )}
+                          <span className="text-[11px] font-medium text-slate-700">
+                            {isEn ? '3. 1st Instalment Payment' : '3. 1er Versement Encaissé'}
+                          </span>
+                        </div>
+                        {isFirstInstalmentPaid ? (
+                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                            {isEn ? 'Verified' : 'Vérifié'}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateCondition('verify_first_instalment')}
+                            className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                          >
+                            {isEn ? 'Verify in DB' : 'Vérifier'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Action button */}
+                    <button
+                      onClick={() => {
+                        if (!isReadyToConvert) {
+                          const missing = [];
+                          if (!isEligible) missing.push(isEn ? 'Admission eligibility' : 'Éligibilité admission');
+                          if (!isRegistrationDone) missing.push(isEn ? 'Registration completion' : 'Inscription administrative');
+                          if (!isFirstInstalmentPaid) missing.push(isEn ? '1st instalment payment' : 'Paiement 1er versement');
+                          onNotify(
+                            isEn
+                              ? `Cannot convert: Missing mandatory conditions: ${missing.join(', ')}.`
+                              : `Conversion impossible : Conditions manquantes : ${missing.join(', ')}.`
+                          );
+                          return;
+                        }
+                        setShowConvertConfirmModal(true);
+                      }}
+                      disabled={converting}
+                      className={`w-full inline-flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-xs font-extrabold shadow-sm transition cursor-pointer ${
+                        isReadyToConvert
+                          ? 'bg-[#f4be37] hover:bg-[#e5ae28] text-[#092342]'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-500 border border-slate-200'
+                      }`}
+                    >
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>
+                        {converting
+                          ? isEn
+                            ? 'Qualifying and converting...'
+                            : 'Qualification en cours...'
+                          : isReadyToConvert
+                          ? isEn
+                            ? 'Qualify and Convert to Candidate'
+                            : 'Qualifier et Convertir en Candidat'
+                          : isEn
+                          ? 'Requirements Incomplete — Cannot Convert'
+                          : 'Conditions incomplètes — Conversion bloquée'}
+                      </span>
+                    </button>
+                  </div>
+                );
+              })()}
 
               <div className="grid grid-cols-2 gap-2.5">
                 <button
@@ -1643,6 +1838,93 @@ export default function DemandesScreen({
                 className="rounded-xl bg-[#092342] hover:bg-[#12365a] text-white px-5 py-2 text-xs font-extrabold cursor-pointer"
               >
                 {isEn ? 'Apply Filters' : 'Appliquer les filtres'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Qualification & Candidate Conversion Confirmation */}
+      {showConvertConfirmModal && selectedDemande && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                <h3 className="text-base font-extrabold text-[#092342]">
+                  {isEn ? 'Confirm Candidate Conversion' : 'Confirmer la Conversion en Candidat'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowConvertConfirmModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500">{isEn ? 'Applicant Name:' : 'Nom du candidat :'}</span>
+                <span className="font-bold text-slate-900">{selectedDemande.full_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">{isEn ? 'Application Ref:' : 'Réf. Demande :'}</span>
+                <span className="font-mono font-bold text-slate-700">{selectedDemande.ref}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">{isEn ? 'Academic Intake:' : 'Rentrée Académique :'}</span>
+                <span className="font-bold text-[#0c685a]">{selectedDemande.intake_year || '2026–2027'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">{isEn ? 'Assigned Advisor:' : 'Conseiller :'}</span>
+                <span className="font-bold text-slate-900">{selectedDemande.adviser || 'Assigned Staff'}</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-950 space-y-1.5">
+              <div className="font-bold flex items-center gap-1.5 text-emerald-900">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                {isEn ? 'All 3 Formal Qualification Conditions Verified:' : '3 Conditions Formelles Vérifiées :'}
+              </div>
+              <ul className="list-disc pl-5 text-[11px] space-y-0.5 text-emerald-800">
+                <li>{isEn ? 'Admission & Programme Eligibility: Confirmed Eligible' : 'Éligibilité admission : Confirmée Éligible'}</li>
+                <li>{isEn ? 'Administrative Registration: Completed' : 'Inscription administrative : Complétée'}</li>
+                <li>{isEn ? 'First Instalment Payment: Recorded & Verified in DB' : 'Premier versement : Encaissé et vérifié'}</li>
+              </ul>
+            </div>
+
+            <p className="text-[11px] text-slate-500 italic">
+              {isEn
+                ? 'Converting will create an official Student Record with Qualified status and begin the 11-month document retention compliance period.'
+                : 'La conversion créera un dossier Étudiant officiel avec le statut Qualifié et démarrera la période de conformité de rétention documentaire de 11 mois.'}
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowConvertConfirmModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 cursor-pointer"
+              >
+                {isEn ? 'Cancel' : 'Annuler'}
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setShowConvertConfirmModal(false);
+                  await handleConvert();
+                }}
+                disabled={converting}
+                className="px-4 py-2 text-xs font-bold text-[#092342] bg-[#f4be37] hover:bg-[#e5ae28] rounded-xl shadow-sm cursor-pointer disabled:opacity-50"
+              >
+                {converting
+                  ? isEn
+                    ? 'Converting...'
+                    : 'Conversion...'
+                  : isEn
+                  ? 'Confirm & Create Student Record'
+                  : 'Confirmer et Créer le Dossier'}
               </button>
             </div>
           </div>

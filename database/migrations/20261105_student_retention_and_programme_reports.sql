@@ -7,7 +7,7 @@
 -- 1. Extend candidats table with academic intake, qualification, visa and retention lifecycle fields
 ALTER TABLE candidats ADD COLUMN IF NOT EXISTS application_year VARCHAR(30) DEFAULT '2027–2028';
 ALTER TABLE candidats ADD COLUMN IF NOT EXISTS qualified_at TIMESTAMP WITH TIME ZONE;
-ALTER TABLE candidats ADD COLUMN IF NOT EXISTS qualification_status VARCHAR(50) DEFAULT 'QUALIFIED';
+ALTER TABLE candidats ADD COLUMN IF NOT EXISTS qualification_status VARCHAR(50) DEFAULT 'REQUIRES_REVIEW';
 ALTER TABLE candidats ADD COLUMN IF NOT EXISTS visa_status VARCHAR(40) DEFAULT 'NOT_APPLIED';
 ALTER TABLE candidats ADD COLUMN IF NOT EXISTS visa_submission_date DATE;
 ALTER TABLE candidats ADD COLUMN IF NOT EXISTS visa_decision_date DATE;

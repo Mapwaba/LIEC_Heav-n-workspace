@@ -267,8 +267,9 @@ export function evaluateModuleAccess(
 }
 
 /**
- * Checks if user is permitted to trigger accommodation partner email dispatch.
- * Strictly limited to Admin and Secretary. AVI Officer is prohibited.
+ * Checks if user is permitted to manage accommodation requests (create, dispatch, confirm).
+ * Authorized: Admin, Secretary, and authorized Admissions/Advisor staff.
+ * Prohibited: Finance Officers and AVI Officers.
  */
 export function canSendAccommodationRequest(user: AuthenticatedUserContext): boolean {
   if (!user || !user.active) return false;
@@ -276,14 +277,76 @@ export function canSendAccommodationRequest(user: AuthenticatedUserContext): boo
   const userRole = (user as any).role;
   const roles = user.technical_roles || [];
 
+  if (profile === 'Finance Officer' || roles.includes('lh_finance')) {
+    return false; // Finance Officer has no accommodation permissions
+  }
+
   return (
     profile === 'Admin' ||
     userRole === 'admin' ||
     roles.includes('admin') ||
     roles.includes('lh_security_admin') ||
     profile === 'Secretary' ||
+    (profile as any) === 'Advisor' ||
+    (profile as any) === 'Admissions' ||
+    userRole === 'secretary' ||
+    userRole === 'advisor' ||
     roles.includes('lh_internal') ||
-    roles.includes('ITIL')
+    roles.includes('ITIL') ||
+    roles.includes('advisor' as any) ||
+    roles.includes('admissions' as any)
+  );
+}
+
+/**
+ * Checks if user is authorized to perform manual verification of tuition instalment payments.
+ * Strictly limited to Finance Officers and Platform Administrators.
+ * Advisors and general secretariat users are prohibited from verifying financial transactions.
+ */
+export function canVerifyFinancialPayments(user: any): boolean {
+  const actualUser = user?.user || user;
+  if (!actualUser || actualUser.active === false) return false;
+  const profile = actualUser.business_profile;
+  const userRole = actualUser.role;
+  const roles = actualUser.technical_roles || [];
+
+  return (
+    profile === 'Admin' ||
+    userRole === 'admin' ||
+    roles.includes('admin') ||
+    roles.includes('lh_security_admin') ||
+    profile === 'Finance Officer' ||
+    userRole === 'finance' ||
+    roles.includes('lh_finance')
+  );
+}
+
+/**
+ * Checks if user is authorized to manage and advance prospect progression.
+ * Authorized: Admin, Secretary, and Admissions/Advisors. Blocked: Finance Officer.
+ */
+export function canManageProspects(user: any): boolean {
+  const actualUser = user?.user || user;
+  if (!actualUser || actualUser.active === false) return false;
+  const profile = actualUser.business_profile;
+  const userRole = actualUser.role;
+  const roles = actualUser.technical_roles || [];
+
+  if (profile === 'Finance Officer' || roles.includes('lh_finance')) {
+    return false; // Finance Officer has no academic prospect management access
+  }
+
+  return (
+    profile === 'Admin' ||
+    userRole === 'admin' ||
+    roles.includes('admin') ||
+    profile === 'Secretary' ||
+    (profile as any) === 'Advisor' ||
+    userRole === 'advisor' ||
+    userRole === 'secretary' ||
+    roles.includes('lh_internal') ||
+    roles.includes('ITIL') ||
+    roles.includes('advisor' as any)
   );
 }
 

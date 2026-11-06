@@ -822,3 +822,633 @@ export function ProspectProfileModal({
     </div>
   );
 }
+
+// ============================================================================
+// 5. RECORD FIRST CONTACT MODAL (STAGE 2)
+// ============================================================================
+export function RecordFirstContactModal({
+  prospect,
+  currentUser = 'Barthelemy MAPWABA NTORO',
+  isEn = true,
+  onClose,
+  onSaved,
+}: {
+  prospect: any;
+  currentUser?: string;
+  isEn?: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [method, setMethod] = useState('Telephone');
+  const [outcome, setOutcome] = useState('Connected — Highly Interested');
+  const [contactDate, setContactDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const res = await fetch('/api/prospects', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: prospect.id,
+          action: 'record_first_contact',
+          contact_method: method,
+          contact_outcome: outcome,
+          contact_date: contactDate,
+          notes,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to record first contact');
+      }
+
+      onSaved();
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Error recording contact event');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-100 flex flex-col overflow-hidden">
+        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-[#f1f6fb] to-white">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-[#0c685a] text-white flex items-center justify-center shadow-sm">
+              <Phone className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-extrabold text-[#092342]">
+                {isEn ? 'Record First Contact Event' : 'Enregistrer le Premier Contact'}
+              </h3>
+              <p className="text-xs text-slate-500">{prospect.full_name} ({prospect.country_city})</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition cursor-pointer">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && (
+            <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                {isEn ? 'Contact Method' : 'Canal de contact'}
+              </label>
+              <select
+                value={method}
+                onChange={(e) => setMethod(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#092342]/20"
+              >
+                <option value="Telephone">Telephone / Phone Call</option>
+                <option value="WhatsApp">WhatsApp Message / Call</option>
+                <option value="Email">Email Outreach</option>
+                <option value="In-Person Meeting">In-Person Meeting (Kinshasa Office)</option>
+                <option value="Video Conference">Google Meet / Video</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                {isEn ? 'Contact Date' : 'Date du contact'}
+              </label>
+              <input
+                type="date"
+                value={contactDate}
+                onChange={(e) => setContactDate(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#092342]/20"
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              {isEn ? 'Contact Outcome' : 'Résultat du contact'}
+            </label>
+            <select
+              value={outcome}
+              onChange={(e) => setOutcome(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#092342]/20"
+            >
+              <option value="Connected — Highly Interested">Connected — Highly Interested in Lyon Programmes</option>
+              <option value="Connected — Follow-up Needed">Connected — Follow-up Diagnostic Call Needed</option>
+              <option value="No Answer / Voicemail Left">No Answer / Left Voicemail & WhatsApp Note</option>
+              <option value="Awaiting Documents">Contacted — Awaiting Transcripts / BAC Certificate</option>
+              <option value="Unreachable / Invalid Details">Unreachable / Invalid Contact Details</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              {isEn ? 'Conversation Notes & Summary' : 'Notes et synthèse de l’échange'}
+            </label>
+            <textarea
+              rows={3}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder={isEn ? 'Discussed academic aspirations, proposed schools, requested BAC records...' : 'Projet d’études abordé, orientation vers nos écoles partenaires...'}
+              className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#092342]/20"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+            >
+              {isEn ? 'Cancel' : 'Annuler'}
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="px-4 py-2 text-xs font-bold text-white bg-[#0c685a] hover:bg-[#094f46] rounded-xl shadow-sm transition cursor-pointer disabled:opacity-50"
+            >
+              {submitting ? (isEn ? 'Saving...' : 'Enregistrement...') : (isEn ? 'Save & Advance to First Contact' : 'Enregistrer le contact')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// 6. RECORD ELIGIBILITY DIAGNOSTIC MODAL (STAGE 3)
+// ============================================================================
+export function RecordEligibilityModal({
+  prospect,
+  currentUser = 'Barthelemy MAPWABA NTORO',
+  isEn = true,
+  onClose,
+  onSaved,
+}: {
+  prospect: any;
+  currentUser?: string;
+  isEn?: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [eligibilityStatus, setEligibilityStatus] = useState('Eligible');
+  const [assessedBy, setAssessedBy] = useState(currentUser);
+  const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const res = await fetch('/api/prospects', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: prospect.id,
+          action: 'record_eligibility',
+          eligibility_status: eligibilityStatus,
+          assessed_by: assessedBy,
+          notes,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to record eligibility assessment');
+      }
+
+      onSaved();
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Error recording eligibility');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-100 flex flex-col overflow-hidden">
+        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-[#f1f6fb] to-white">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-[#f59e0b] text-white flex items-center justify-center shadow-sm">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-extrabold text-[#092342]">
+                {isEn ? 'Eligibility Diagnostic Assessment' : 'Diagnostic d’Éligibilité Académique'}
+              </h3>
+              <p className="text-xs text-slate-500">{prospect.full_name} • {prospect.program_tag}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition cursor-pointer">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && (
+            <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              {isEn ? 'Admission & Programme Eligibility Outcome' : 'Décision d’éligibilité'}
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              <label
+                className={`p-3 rounded-xl border text-center cursor-pointer transition ${
+                  eligibilityStatus === 'Eligible'
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-800 font-bold'
+                    : 'border-slate-200 hover:bg-slate-50 text-slate-600'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="eligibility"
+                  value="Eligible"
+                  checked={eligibilityStatus === 'Eligible'}
+                  onChange={() => setEligibilityStatus('Eligible')}
+                  className="sr-only"
+                />
+                <span className="text-xs block">✓ {isEn ? 'Eligible' : 'Éligible'}</span>
+              </label>
+
+              <label
+                className={`p-3 rounded-xl border text-center cursor-pointer transition ${
+                  eligibilityStatus === 'Pending Review'
+                    ? 'border-amber-500 bg-amber-50 text-amber-800 font-bold'
+                    : 'border-slate-200 hover:bg-slate-50 text-slate-600'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="eligibility"
+                  value="Pending Review"
+                  checked={eligibilityStatus === 'Pending Review'}
+                  onChange={() => setEligibilityStatus('Pending Review')}
+                  className="sr-only"
+                />
+                <span className="text-xs block">⚠ {isEn ? 'Pending Review' : 'En examen'}</span>
+              </label>
+
+              <label
+                className={`p-3 rounded-xl border text-center cursor-pointer transition ${
+                  eligibilityStatus === 'Not Eligible'
+                    ? 'border-red-500 bg-red-50 text-red-800 font-bold'
+                    : 'border-slate-200 hover:bg-slate-50 text-slate-600'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="eligibility"
+                  value="Not Eligible"
+                  checked={eligibilityStatus === 'Not Eligible'}
+                  onChange={() => setEligibilityStatus('Not Eligible')}
+                  className="sr-only"
+                />
+                <span className="text-xs block">✗ {isEn ? 'Ineligible' : 'Inéligible'}</span>
+              </label>
+            </div>
+            {eligibilityStatus === 'Not Eligible' && (
+              <p className="mt-1 text-[11px] text-red-600 font-semibold">
+                {isEn
+                  ? 'Note: Marking prospect as Ineligible will prevent progression to Qualification.'
+                  : 'Attention : Un prospect inéligible ne peut pas progresser vers l’étape Qualifié.'}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              {isEn ? 'Assessed By (Admissions Officer)' : 'Évaluateur'}
+            </label>
+            <input
+              type="text"
+              value={assessedBy}
+              onChange={(e) => setAssessedBy(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#092342]/20"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              {isEn ? 'Evaluation Notes & Admission Rationale' : 'Observations & Motivation de la décision'}
+            </label>
+            <textarea
+              rows={3}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder={isEn ? 'Candidate holds UNIKIN Licence Mention TB, TCF score B2 certified, aligns with Bachelor/Master entry criteria...' : 'Relevés académiques conformes, profil linguistique B2 validé...'}
+              className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#092342]/20"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+            >
+              {isEn ? 'Cancel' : 'Annuler'}
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="px-4 py-2 text-xs font-bold text-white bg-[#092342] hover:bg-[#12365a] rounded-xl shadow-sm transition cursor-pointer disabled:opacity-50"
+            >
+              {submitting ? (isEn ? 'Saving...' : 'Enregistrement...') : (isEn ? 'Confirm Diagnostic Evaluation' : 'Valider le diagnostic')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// 7. QUALIFY PROSPECT MODAL (STAGE 4: 3-CONDITION CHECKLIST)
+// ============================================================================
+export function QualifyProspectModal({
+  prospect,
+  currentUser = 'Barthelemy MAPWABA NTORO',
+  isEn = true,
+  onClose,
+  onSaved,
+  onNotify,
+}: {
+  prospect: any;
+  currentUser?: string;
+  isEn?: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+  onNotify: (msg: string) => void;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [verifyingPayment, setVerifyingPayment] = useState(false);
+  const [completingReg, setCompletingReg] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const isEligible = prospect.eligibility_status === 'Eligible';
+  const isRegistered = Boolean(prospect.registration_completed);
+  const isFirstInstalmentPaid = Boolean(prospect.first_instalment_paid);
+  const isReady = isEligible && isRegistered && isFirstInstalmentPaid;
+
+  const handleCompleteRegistration = async () => {
+    setCompletingReg(true);
+    try {
+      const res = await fetch('/api/prospects', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: prospect.id, action: 'complete_registration' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to complete registration');
+      onNotify(isEn ? 'Registration marked as completed.' : 'Inscription marquée comme complétée.');
+      onSaved();
+    } catch (err: any) {
+      setError(err?.message);
+    } finally {
+      setCompletingReg(false);
+    }
+  };
+
+  const handleVerifyPayment = async () => {
+    setVerifyingPayment(true);
+    try {
+      const res = await fetch('/api/prospects', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: prospect.id, action: 'verify_first_instalment' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to verify payment');
+      onNotify(data.message || (isEn ? 'First instalment verified.' : 'Premier versement vérifié.'));
+      onSaved();
+    } catch (err: any) {
+      setError(err?.message);
+    } finally {
+      setVerifyingPayment(false);
+    }
+  };
+
+  const handleConfirmQualify = async () => {
+    if (!isReady) {
+      setError(isEn ? 'All 3 conditions must be satisfied before qualification.' : 'Les 3 conditions doivent être remplies.');
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const res = await fetch('/api/prospects', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: prospect.id, stage: 'qualifie' }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to advance prospect to Qualified');
+      }
+
+      onNotify(
+        isEn
+          ? `Prospect ${prospect.full_name} officially qualified and candidate record linked!`
+          : `Prospect ${prospect.full_name} qualifié avec succès et lié au dossier étudiant !`
+      );
+      onSaved();
+      onClose();
+    } catch (err: any) {
+      setError(err?.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-100 flex flex-col overflow-hidden">
+        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-[#f1f6fb] to-white">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-[#092342] text-white flex items-center justify-center shadow-sm">
+              <ShieldCheck className="w-5 h-5 text-[#f4be37]" />
+            </div>
+            <div>
+              <h3 className="text-base font-extrabold text-[#092342]">
+                {isEn ? 'Prospect Qualification Milestone' : 'Jalon de Qualification Prospect'}
+              </h3>
+              <p className="text-xs text-slate-500">{prospect.full_name} • {prospect.country_city}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition cursor-pointer">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4 text-xs">
+          {error && (
+            <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <p className="text-slate-600">
+            {isEn
+              ? 'Qualification is a formal milestone that starts the 11-month sensitive document retention timeline. All 3 conditions must be verified before proceeding:'
+              : 'La qualification est un jalon officiel déclenchant la période de conformité de rétention de 11 mois. Les 3 conditions doivent être validées :'}
+          </p>
+
+          <div className="space-y-2.5">
+            {/* Condition 1 */}
+            <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                {isEligible ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                )}
+                <div>
+                  <span className="font-bold text-slate-800 block">
+                    {isEn ? '1. Admission & Programme Eligibility' : '1. Éligibilité Admission'}
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    {isEn ? 'Status:' : 'Statut :'} <strong>{prospect.eligibility_status || 'Pending Review'}</strong>
+                  </span>
+                </div>
+              </div>
+              {isEligible ? (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                  {isEn ? 'Eligible' : 'Éligible'}
+                </span>
+              ) : (
+                <span className="text-[11px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                  {isEn ? 'Pending Review' : 'En examen'}
+                </span>
+              )}
+            </div>
+
+            {/* Condition 2 */}
+            <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                {isRegistered ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                )}
+                <div>
+                  <span className="font-bold text-slate-800 block">
+                    {isEn ? '2. Administrative Registration File' : '2. Inscription Administrative'}
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    {isRegistered ? (isEn ? 'Registration file completed' : 'Dossier d’inscription complété') : (isEn ? 'Not completed' : 'Non complété')}
+                  </span>
+                </div>
+              </div>
+              {isRegistered ? (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                  {isEn ? 'Completed' : 'Complétée'}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleCompleteRegistration}
+                  disabled={completingReg}
+                  className="px-2.5 py-1 text-[11px] font-bold text-white bg-[#092342] hover:bg-[#12365a] rounded-lg cursor-pointer disabled:opacity-50"
+                >
+                  {completingReg ? '...' : (isEn ? 'Mark Completed' : 'Valider')}
+                </button>
+              )}
+            </div>
+
+            {/* Condition 3 */}
+            <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                {isFirstInstalmentPaid ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                )}
+                <div>
+                  <span className="font-bold text-slate-800 block">
+                    {isEn ? '3. First Instalment Payment' : '3. Premier Versement Encaissé'}
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    {isFirstInstalmentPaid
+                      ? (isEn ? 'Payment verified in financial ledger' : 'Paiement vérifié en comptabilité')
+                      : (isEn ? 'Awaiting payment verification' : 'En attente d’encaissement')}
+                  </span>
+                </div>
+              </div>
+              {isFirstInstalmentPaid ? (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                  {isEn ? 'Verified' : 'Vérifié'}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleVerifyPayment}
+                  disabled={verifyingPayment}
+                  className="px-2.5 py-1 text-[11px] font-bold text-white bg-[#0c685a] hover:bg-[#094f46] rounded-lg cursor-pointer disabled:opacity-50"
+                >
+                  {verifyingPayment ? '...' : (isEn ? 'Verify in DB' : 'Vérifier')}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+            >
+              {isEn ? 'Cancel' : 'Annuler'}
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmQualify}
+              disabled={!isReady || submitting}
+              className={`px-4 py-2 text-xs font-bold rounded-xl shadow-sm transition cursor-pointer ${
+                isReady
+                  ? 'bg-[#f4be37] hover:bg-[#e5ae28] text-[#092342]'
+                  : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+              }`}
+            >
+              {submitting
+                ? (isEn ? 'Qualifying...' : 'Qualification...')
+                : isReady
+                ? (isEn ? 'Confirm Qualification & Convert' : 'Confirmer la Qualification')
+                : (isEn ? 'Complete 3 Requirements to Qualify' : '3 Conditions Requises')}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

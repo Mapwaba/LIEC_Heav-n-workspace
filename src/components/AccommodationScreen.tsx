@@ -138,6 +138,18 @@ export default function AccommodationScreen({
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Manual Confirmation, Decline & Cancellation State
+  const [showConfirmGrantedModal, setShowConfirmGrantedModal] = useState(false);
+  const [showDeclineModal, setShowDeclineModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [confirmDate, setConfirmDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [confirmPartnerRef, setConfirmPartnerRef] = useState('');
+  const [confirmNotes, setConfirmNotes] = useState('');
+  const [confirmDocName, setConfirmDocName] = useState('');
+  const [declineReason, setDeclineReason] = useState('');
+  const [cancellationReason, setCancellationReason] = useState('');
+  const [isActionSubmitting, setIsActionSubmitting] = useState(false);
+
   // File Attachment Validation & Handling
   const handleAddFiles = (newFiles: FileList | File[]) => {
     setFileUploadError(null);
@@ -222,17 +234,32 @@ export default function AccommodationScreen({
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'Sent':
+      case 'Pending Partner Response':
         return {
-          bg: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800',
-          dot: 'bg-emerald-500',
-          label: isEn ? 'Dispatched (Sent)' : 'Envoyé au partenaire',
+          bg: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800',
+          dot: 'bg-amber-500',
+          label: isEn ? 'Pending Partner Response' : 'En attente retour partenaire',
         };
+      case 'Reservation Granted':
       case 'Partner Confirmed':
       case 'Reserved':
         return {
-          bg: 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/40 dark:text-teal-400 dark:border-teal-800',
-          dot: 'bg-teal-500',
-          label: isEn ? 'Partner Confirmed' : 'Confirmé partenaire',
+          bg: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800',
+          dot: 'bg-emerald-500',
+          label: isEn ? 'Reservation Granted' : 'Réservation accordée',
+        };
+      case 'Reservation Declined':
+      case 'Rejected':
+        return {
+          bg: 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800',
+          dot: 'bg-rose-500',
+          label: isEn ? 'Reservation Declined' : 'Réservation refusée',
+        };
+      case 'Cancelled':
+        return {
+          bg: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
+          dot: 'bg-slate-400',
+          label: isEn ? 'Cancelled' : 'Annulée',
         };
       case 'Failed':
         return {
@@ -248,8 +275,8 @@ export default function AccommodationScreen({
         };
       case 'Draft':
         return {
-          bg: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800',
-          dot: 'bg-amber-500',
+          bg: 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700',
+          dot: 'bg-slate-400',
           label: isEn ? 'Draft' : 'Brouillon',
         };
       case 'In Progress':
@@ -264,6 +291,114 @@ export default function AccommodationScreen({
           dot: 'bg-slate-400',
           label: status,
         };
+    }
+  };
+
+  // Action handlers: Manual Confirmation, Decline, and Cancellation
+  const handleConfirmReservationGranted = async () => {
+    if (!selectedRequest) return;
+    setIsActionSubmitting(true);
+    try {
+      const res = await fetch('/api/accommodation', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ref: selectedRequest.ref,
+          action: 'confirm_reservation_granted',
+          confirmation_date: confirmDate,
+          confirmation_reference: confirmPartnerRef,
+          confirmation_notes: confirmNotes,
+          confirmation_doc_name: confirmDocName,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to confirm reservation granted');
+      }
+      onNotify(
+        isEn
+          ? `Accommodation reservation granted confirmed for ${selectedRequest.student_name}.`
+          : `Réservation de logement accordée confirmée pour ${selectedRequest.student_name}.`
+      );
+      setShowConfirmGrantedModal(false);
+      setShowDetailModal(false);
+      onRefresh();
+    } catch (err: any) {
+      onNotify('Error: ' + err?.message);
+    } finally {
+      setIsActionSubmitting(false);
+    }
+  };
+
+  const handleConfirmReservationDeclined = async () => {
+    if (!selectedRequest) return;
+    if (!declineReason.trim()) {
+      onNotify(isEn ? 'Please provide a mandatory reason for declining.' : 'Veuillez renseigner le motif du refus.');
+      return;
+    }
+    setIsActionSubmitting(true);
+    try {
+      const res = await fetch('/api/accommodation', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ref: selectedRequest.ref,
+          action: 'confirm_reservation_declined',
+          decline_reason: declineReason,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to record reservation decline');
+      }
+      onNotify(
+        isEn
+          ? `Reservation declined recorded for ${selectedRequest.student_name}.`
+          : `Refus de réservation enregistré pour ${selectedRequest.student_name}.`
+      );
+      setShowDeclineModal(false);
+      setShowDetailModal(false);
+      onRefresh();
+    } catch (err: any) {
+      onNotify('Error: ' + err?.message);
+    } finally {
+      setIsActionSubmitting(false);
+    }
+  };
+
+  const handleCancelReservation = async () => {
+    if (!selectedRequest) return;
+    if (!cancellationReason.trim()) {
+      onNotify(isEn ? 'Please provide a mandatory reason for cancellation.' : 'Veuillez renseigner le motif d’annulation.');
+      return;
+    }
+    setIsActionSubmitting(true);
+    try {
+      const res = await fetch('/api/accommodation', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ref: selectedRequest.ref,
+          action: 'cancel_reservation',
+          cancellation_reason: cancellationReason,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to cancel reservation');
+      }
+      onNotify(
+        isEn
+          ? `Reservation request ${selectedRequest.ref} cancelled.`
+          : `Demande de réservation ${selectedRequest.ref} annulée.`
+      );
+      setShowCancelModal(false);
+      setShowDetailModal(false);
+      onRefresh();
+    } catch (err: any) {
+      onNotify('Error: ' + err?.message);
+    } finally {
+      setIsActionSubmitting(false);
     }
   };
 
@@ -665,6 +800,20 @@ export default function AccommodationScreen({
 
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                          {isAuthorizedToSend && (req.status === 'Sent' || req.status === 'Pending Partner Response') && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedRequest(req);
+                                setShowConfirmGrantedModal(true);
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-white bg-emerald-600 rounded-md hover:bg-emerald-700 transition-colors shadow-xs cursor-pointer"
+                              title="Confirm reservation granted by partner"
+                            >
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>{isEn ? 'Confirm' : 'Confirmer'}</span>
+                            </button>
+                          )}
                           {isAuthorizedToSend && (
                             <button
                               type="button"
@@ -750,10 +899,19 @@ export default function AccommodationScreen({
               </div>
 
               <div className="flex items-center gap-2">
+                {isAuthorizedToSend && (selectedRequest.status === 'Sent' || selectedRequest.status === 'Pending Partner Response') && (
+                  <button
+                    onClick={() => setShowConfirmGrantedModal(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-colors cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Confirm Granted' : 'Confirmer accordée'}</span>
+                  </button>
+                )}
                 {isAuthorizedToSend && (
                   <button
                     onClick={() => openSendModal(selectedRequest)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors cursor-pointer"
                   >
                     <Send className="w-3.5 h-3.5" />
                     {selectedRequest.status === 'Sent'
@@ -767,7 +925,7 @@ export default function AccommodationScreen({
                 )}
                 <button
                   onClick={() => setShowDetailModal(false)}
-                  className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg"
+                  className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -776,6 +934,70 @@ export default function AccommodationScreen({
 
             {/* Content Body */}
             <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
+              {/* Status Specific Highlights */}
+              {selectedRequest.status === 'Reservation Granted' && (
+                <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-900 dark:text-emerald-200 space-y-2">
+                  <div className="font-bold flex items-center gap-2 text-emerald-800 dark:text-emerald-300">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+                    <span className="text-sm">{isEn ? 'Official Accommodation Reservation Granted' : 'Réservation de Logement Officiellement Accordée'}</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[11px]">
+                    <div>
+                      <span className="text-slate-500 dark:text-slate-400 block">{isEn ? 'Confirmation Date:' : 'Date de confirmation :'}</span>
+                      <strong>{selectedRequest.confirmation_date ? new Date(selectedRequest.confirmation_date).toLocaleDateString() : 'Confirmed'}</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 dark:text-slate-400 block">{isEn ? 'Partner Ref / Lease:' : 'Réf. Partenaire / Bail :'}</span>
+                      <strong className="font-mono">{selectedRequest.confirmation_reference || 'N/A'}</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 dark:text-slate-400 block">{isEn ? 'Confirmed By:' : 'Confirmé par :'}</span>
+                      <strong>{selectedRequest.confirmation_agent || 'Authorized Staff'}</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 dark:text-slate-400 block">{isEn ? 'Partner Name:' : 'Partenaire :'}</span>
+                      <strong>{selectedRequest.partner_name || 'Partner'}</strong>
+                    </div>
+                  </div>
+                  {selectedRequest.confirmation_notes && (
+                    <div className="pt-1.5 text-[11px] border-t border-emerald-200 dark:border-emerald-800">
+                      <span className="text-slate-500 dark:text-slate-400">{isEn ? 'Partner Notes:' : 'Notes partenaire :'}</span> {selectedRequest.confirmation_notes}
+                    </div>
+                  )}
+                  {selectedRequest.confirmation_doc_name && (
+                    <div className="text-[11px]">
+                      <span className="text-slate-500 dark:text-slate-400">{isEn ? 'Confirmation Doc:' : 'Document justificatif :'}</span>{' '}
+                      <span className="font-mono font-bold">{selectedRequest.confirmation_doc_name}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {selectedRequest.status === 'Reservation Declined' && (
+                <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-900 dark:text-rose-200 space-y-1">
+                  <div className="font-bold flex items-center gap-2 text-rose-800 dark:text-rose-300">
+                    <X className="w-4 h-4 text-rose-600 dark:text-rose-400 flex-shrink-0" />
+                    <span>{isEn ? 'Accommodation Reservation Declined by Partner' : 'Réservation Refusée par le Partenaire'}</span>
+                  </div>
+                  <p className="text-[11px]">
+                    <strong className="text-slate-600 dark:text-slate-400">{isEn ? 'Documented Reason:' : 'Motif enregistré :'}</strong>{' '}
+                    {selectedRequest.decline_reason || 'No availability for requested semester.'}
+                  </p>
+                </div>
+              )}
+
+              {selectedRequest.status === 'Cancelled' && (
+                <div className="p-4 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 space-y-1">
+                  <div className="font-bold flex items-center gap-2 text-slate-800 dark:text-slate-200">
+                    <X className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                    <span>{isEn ? 'Accommodation Request Cancelled' : 'Demande de Logement Annulée'}</span>
+                  </div>
+                  <p className="text-[11px]">
+                    <strong className="text-slate-500">{isEn ? 'Cancellation Reason:' : 'Motif d’annulation :'}</strong>{' '}
+                    {selectedRequest.cancellation_reason || 'Cancelled by LIEC staff / student.'}
+                  </p>
+                </div>
+              )}
               {/* Email Delivery Banner if Sent or Failed */}
               {selectedRequest.email_sent_at && (
                 <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300 flex items-start gap-2.5">
@@ -998,20 +1220,50 @@ export default function AccommodationScreen({
                 {isEn ? 'Assigned to:' : 'Assigné à :'} <strong>{selectedRequest.assigned_agent}</strong>
               </span>
               <div className="flex items-center gap-2">
-                {selectedRequest.status === 'Sent' && isAuthorizedToSend && (
+                {isAuthorizedToSend && (selectedRequest.status === 'Sent' || selectedRequest.status === 'Pending Partner Response') && (
+                  <>
+                    <button
+                      onClick={() => setShowConfirmGrantedModal(true)}
+                      className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-colors cursor-pointer"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Confirm Granted' : 'Confirmer accordée'}</span>
+                    </button>
+                    <button
+                      onClick={() => setShowDeclineModal(true)}
+                      className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Record Declined' : 'Enregistrer refus'}</span>
+                    </button>
+                    <button
+                      onClick={() => setShowCancelModal(true)}
+                      className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <span>{isEn ? 'Cancel Request' : 'Annuler'}</span>
+                    </button>
+                    <button
+                      onClick={handleRevokeAccess}
+                      disabled={isRevoking}
+                      className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:text-white hover:bg-rose-600 border border-rose-300 dark:border-rose-800 rounded-lg transition-colors disabled:opacity-50"
+                      title={isEn ? 'Immediately revoke partner access to uploaded documents' : 'Révoquer immédiatement l’accès du partenaire aux documents'}
+                    >
+                      <ShieldOff className="w-3.5 h-3.5" />
+                      <span>{isRevoking ? (isEn ? 'Revoking...' : 'Révocation...') : (isEn ? 'Revoke Partner Access' : 'Révoquer l’accès partenaire')}</span>
+                    </button>
+                  </>
+                )}
+                {isAuthorizedToSend && selectedRequest.status === 'Draft' && (
                   <button
-                    onClick={handleRevokeAccess}
-                    disabled={isRevoking}
-                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:text-white hover:bg-rose-600 border border-rose-300 dark:border-rose-800 rounded-lg transition-colors disabled:opacity-50"
-                    title={isEn ? 'Immediately revoke partner access to uploaded documents' : 'Révoquer immédiatement l’accès du partenaire aux documents'}
+                    onClick={() => setShowCancelModal(true)}
+                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
                   >
-                    <ShieldOff className="w-3.5 h-3.5" />
-                    <span>{isRevoking ? (isEn ? 'Revoking...' : 'Révocation...') : (isEn ? 'Revoke Partner Access' : 'Révoquer l’accès partenaire')}</span>
+                    <span>{isEn ? 'Cancel Request' : 'Annuler'}</span>
                   </button>
                 )}
                 <button
                   onClick={() => setShowDetailModal(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50"
+                  className="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 cursor-pointer"
                 >
                   {isEn ? 'Close' : 'Fermer'}
                 </button>
@@ -1492,6 +1744,268 @@ export default function AccommodationScreen({
                       {isEn ? 'Create Request' : 'Créer la demande'}
                     </>
                   )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRM RESERVATION GRANTED MODAL */}
+      {showConfirmGrantedModal && selectedRequest && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4 my-8">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 flex items-center justify-center">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                    {isEn ? 'Confirm Reservation Granted' : 'Confirmer la Réservation Accordée'}
+                  </h3>
+                  <p className="text-xs text-slate-500">{selectedRequest.ref} • {selectedRequest.student_name}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowConfirmGrantedModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-slate-500">{isEn ? 'Student:' : 'Étudiant :'}</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">{selectedRequest.student_name} ({selectedRequest.student_ref})</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">{isEn ? 'Accommodation Partner:' : 'Partenaire Logement :'}</span>
+                <span className="font-bold text-indigo-600 dark:text-indigo-400">{selectedRequest.partner_name || 'Selected Partner'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">{isEn ? 'Accommodation Details:' : 'Détails du logement :'}</span>
+                <span className="font-semibold text-slate-700 dark:text-slate-300">{selectedRequest.accommodation_type} • {selectedRequest.preferred_location}</span>
+              </div>
+              {selectedRequest.email_sent_at && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">{isEn ? 'Request Sent Date:' : 'Date d’envoi de la demande :'}</span>
+                  <span className="text-slate-600 dark:text-slate-400">{new Date(selectedRequest.email_sent_at).toLocaleDateString()}</span>
+                </div>
+              )}
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleConfirmReservationGranted();
+              }}
+              className="space-y-3.5 text-xs"
+            >
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                    {isEn ? 'Confirmation Date *' : 'Date de confirmation *'}
+                  </label>
+                  <input
+                    type="date"
+                    value={confirmDate}
+                    onChange={(e) => setConfirmDate(e.target.value)}
+                    required
+                    className="w-full py-2 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                    {isEn ? 'Partner Ref / Lease #' : 'Réf. Partenaire / N° Bail'}
+                  </label>
+                  <input
+                    type="text"
+                    value={confirmPartnerRef}
+                    onChange={(e) => setConfirmPartnerRef(e.target.value)}
+                    placeholder="e.g. DAN-2026-STUDIO-14"
+                    className="w-full py-2 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                  {isEn ? 'Confirmation Document Name (Optional)' : 'Nom du document justificatif (optionnel)'}
+                </label>
+                <input
+                  type="text"
+                  value={confirmDocName}
+                  onChange={(e) => setConfirmDocName(e.target.value)}
+                  placeholder="e.g. Attestation_Hebergement_Danova_2026.pdf"
+                  className="w-full py-2 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                  {isEn ? 'Partner Notes & Observations' : 'Notes et observations du partenaire'}
+                </label>
+                <textarea
+                  rows={2}
+                  value={confirmNotes}
+                  onChange={(e) => setConfirmNotes(e.target.value)}
+                  placeholder={isEn ? 'Studio confirmed. Security deposit and lease agreement received...' : 'Studio confirmé, bail et caution validés par le bailleur...'}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmGrantedModal(false)}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl hover:bg-slate-50 cursor-pointer"
+                >
+                  {isEn ? 'Cancel' : 'Annuler'}
+                </button>
+                <button
+                  type="submit"
+                  disabled={isActionSubmitting}
+                  className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow cursor-pointer disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{isActionSubmitting ? (isEn ? 'Confirming...' : 'Confirmation...') : (isEn ? 'Confirm Reservation Granted' : 'Confirmer réservation accordée')}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* RECORD RESERVATION DECLINED MODAL */}
+      {showDeclineModal && selectedRequest && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4 my-8">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 flex items-center justify-center">
+                  <X className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                    {isEn ? 'Record Reservation Declined' : 'Enregistrer le Refus du Partenaire'}
+                  </h3>
+                  <p className="text-xs text-slate-500">{selectedRequest.ref} • {selectedRequest.student_name}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDeclineModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleConfirmReservationDeclined();
+              }}
+              className="space-y-3.5 text-xs"
+            >
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                  {isEn ? 'Mandatory Decline Reason *' : 'Motif obligatoire du refus *'}
+                </label>
+                <textarea
+                  rows={3}
+                  value={declineReason}
+                  onChange={(e) => setDeclineReason(e.target.value)}
+                  placeholder={isEn ? 'e.g. No studios available for requested arrival date, budget insufficient for residence...' : 'ex : Aucun logement disponible pour la période demandée...'}
+                  required
+                  className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowDeclineModal(false)}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl hover:bg-slate-50 cursor-pointer"
+                >
+                  {isEn ? 'Cancel' : 'Annuler'}
+                </button>
+                <button
+                  type="submit"
+                  disabled={isActionSubmitting}
+                  className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow cursor-pointer disabled:opacity-50"
+                >
+                  <span>{isActionSubmitting ? (isEn ? 'Saving...' : 'Enregistrement...') : (isEn ? 'Record Reservation Declined' : 'Enregistrer le refus')}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CANCEL RESERVATION MODAL */}
+      {showCancelModal && selectedRequest && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4 my-8">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center">
+                  <X className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                    {isEn ? 'Cancel Accommodation Request' : 'Annuler la Demande de Logement'}
+                  </h3>
+                  <p className="text-xs text-slate-500">{selectedRequest.ref} • {selectedRequest.student_name}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCancelModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleCancelReservation();
+              }}
+              className="space-y-3.5 text-xs"
+            >
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                  {isEn ? 'Mandatory Cancellation Reason *' : 'Motif obligatoire d’annulation *'}
+                </label>
+                <textarea
+                  rows={3}
+                  value={cancellationReason}
+                  onChange={(e) => setCancellationReason(e.target.value)}
+                  placeholder={isEn ? 'e.g. Student secured private accommodation, university residence assigned, procedure aborted...' : 'ex : L’étudiant a trouvé une solution d’hébergement chez un garant...'}
+                  required
+                  className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowCancelModal(false)}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl hover:bg-slate-50 cursor-pointer"
+                >
+                  {isEn ? 'Close' : 'Fermer'}
+                </button>
+                <button
+                  type="submit"
+                  disabled={isActionSubmitting}
+                  className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-slate-700 hover:bg-slate-800 rounded-xl shadow cursor-pointer disabled:opacity-50"
+                >
+                  <span>{isActionSubmitting ? (isEn ? 'Cancelling...' : 'Annulation...') : (isEn ? 'Confirm Cancellation' : 'Confirmer l’annulation')}</span>
                 </button>
               </div>
             </form>

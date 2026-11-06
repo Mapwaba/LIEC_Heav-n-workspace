@@ -408,8 +408,11 @@ export async function PUT(req: NextRequest) {
     const visaSubmissionDate = body.visa_submission_date !== undefined ? body.visa_submission_date : cand.visa_submission_date;
     const visaDecisionDate = body.visa_decision_date !== undefined ? body.visa_decision_date : cand.visa_decision_date;
     const visaOutcomeNotes = body.visa_outcome_notes !== undefined ? body.visa_outcome_notes : cand.visa_outcome_notes;
-    const qualificationStatus = body.qualification_status !== undefined ? body.qualification_status : cand.qualification_status;
-    const qualifiedAt = body.qualified_at !== undefined ? body.qualified_at : cand.qualified_at;
+    // Canonical Safeguard: qualified_at is immutable once set and cannot be altered by profile updates
+    const qualifiedAt = cand.qualified_at || (body.qualified_at !== undefined ? body.qualified_at : null);
+    const qualificationStatus = cand.qualified_at
+      ? 'QUALIFIED'
+      : (body.qualification_status !== undefined ? body.qualification_status : (cand.qualification_status || 'REQUIRES_REVIEW'));
 
     const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
     const history = JSON.parse(cand.history_json || '[]');

@@ -235,9 +235,14 @@ export async function POST(req: NextRequest) {
       });
 
       const purgedRefs: string[] = [];
+      const failedRefs: string[] = [];
       for (const cand of toPurge) {
-        await executeCandidateDocumentPurge(db, cand, '11_MONTH_DEADLINE_EXPIRED', user, 'Batch retention cleanup');
-        purgedRefs.push(cand.ref);
+        const res = await executeCandidateDocumentPurge(db, cand, '11_MONTH_DEADLINE_EXPIRED', user, 'Batch retention cleanup');
+        if (res.status === 'PURGED') {
+          purgedRefs.push(cand.ref);
+        } else {
+          failedRefs.push(cand.ref);
+        }
       }
 
       return NextResponse.json(
@@ -246,6 +251,7 @@ export async function POST(req: NextRequest) {
           action: 'batch_deadline_purge',
           count: purgedRefs.length,
           purgedRefs,
+          failedRefs,
         },
         { headers: corsHeaders() }
       );
@@ -297,6 +303,25 @@ export async function POST(req: NextRequest) {
       reasonNotes
     );
 
+    if (purgeResult.status === 'PARTIAL_FAILURE_RETRY_REQUIRED') {
+      return NextResponse.json(
+        {
+          ok: false,
+          success: false,
+          partialFailure: true,
+          student_ref: candidate.ref,
+          trigger_reason: triggerReason,
+          purged_at: purgeResult.purgedAt,
+          files_purged_count: purgeResult.filesPurgedCount,
+          files_purged: purgeResult.filesPurged,
+          storage_verification: purgeResult.storageVerification,
+          failed_storage_deletions: purgeResult.failedStorageDeletions,
+          message: `Document purge encountered partial storage failures. ${purgeResult.failedStorageDeletions?.length || 0} S3 objects failed to delete. documents_purged remains FALSE until all storage deletions are verified.`,
+        },
+        { status: 500, headers: corsHeaders() }
+      );
+    }
+
     return NextResponse.json(
       {
         ok: true,
@@ -328,23 +353,25 @@ async function executeCandidateDocumentPurge(
   notes: string
 ) {
   const purgedFiles: Array<{ name: string; key?: string; source: string; status: string }> = [];
+  const failedStorageDeletions: Array<{ name: string; key: string; source: string; error: string }> = [];
 
   // 1. Identify and revoke accommodation tokens & sensitive attachments
   const accommRes = await db.query(
-    `SELECT id, attachments_json FROM accommodation_requests
-     WHERE LOWER(student_name) = LOWER($1) OR student_name ILIKE $1`,
-    [candidate.full_name]
+    `SELECT id, ref, attachments_json FROM accommodation_requests
+     WHERE student_ref = $1 OR LOWER(student_name) = LOWER($2) OR student_name ILIKE $2`,
+    [candidate.ref, candidate.full_name]
+  );
+
+  // Revoke all tokens tied to this candidate or accommodation requests
+  await db.query(
+    `UPDATE accommodation_access_tokens
+     SET revoked = TRUE, revoked_at = CURRENT_TIMESTAMP, revoked_by = $1
+     WHERE request_ref IN (SELECT ref FROM accommodation_requests WHERE student_ref = $2 OR LOWER(student_name) = LOWER($3))
+        OR request_ref = $2`,
+    [`${user.name} (${user.business_profile})`, candidate.ref, candidate.full_name]
   );
 
   for (const reqRow of accommRes.rows) {
-    // Revoke tokens
-    await db.query(
-      `UPDATE accommodation_access_tokens
-       SET revoked = TRUE, revoked_at = CURRENT_TIMESTAMP
-       WHERE accommodation_request_id = $1`,
-      [reqRow.id]
-    );
-
     // Purge files in attachments_json
     try {
       const attachments = JSON.parse(reqRow.attachments_json || '[]');
@@ -353,12 +380,27 @@ async function executeCandidateDocumentPurge(
       for (const att of attachments) {
         if (att.s3_key) {
           const delRes = await deleteDocument(att.s3_key);
-          purgedFiles.push({
-            name: att.name || 'Sensitive Attachment',
-            key: att.s3_key,
-            source: 'accommodation_attachments',
-            status: delRes.success ? 'DELETED_S3' : 'S3_KEY_REVOKED',
-          });
+          if (delRes.success) {
+            purgedFiles.push({
+              name: att.name || 'Sensitive Attachment',
+              key: att.s3_key,
+              source: 'accommodation_attachments',
+              status: 'DELETED_S3',
+            });
+          } else {
+            failedStorageDeletions.push({
+              name: att.name || 'Sensitive Attachment',
+              key: att.s3_key,
+              source: 'accommodation_attachments',
+              error: delRes.error || 'S3 object deletion failed',
+            });
+            purgedFiles.push({
+              name: att.name || 'Sensitive Attachment',
+              key: att.s3_key,
+              source: 'accommodation_attachments',
+              status: 'S3_DELETE_FAILED',
+            });
+          }
         } else {
           purgedFiles.push({
             name: att.name || 'Inline Attachment',
@@ -386,23 +428,53 @@ async function executeCandidateDocumentPurge(
     }
   }
 
-  // 2. Sanitize pieces_json in candidats
+  // 2. Sanitize pieces_json in candidats and delete any associated S3 objects
   try {
     const pieces = JSON.parse(candidate.pieces_json || '[]');
-    const sanitizedPieces = pieces.map((p: any) => ({
-      ...p,
-      status: 'purged',
-      meta: 'Document purgé (Politique de rétention)',
-      data_base64: undefined,
-      s3_url: undefined,
-      purged_at: new Date().toISOString(),
-    }));
+    const sanitizedPieces = [];
 
-    purgedFiles.push({
-      name: `${pieces.length} academic & identity pieces`,
-      source: 'candidats.pieces_json',
-      status: 'PAYLOAD_PURGED',
-    });
+    for (const p of pieces) {
+      if (p.s3_key) {
+        const delRes = await deleteDocument(p.s3_key);
+        if (delRes.success) {
+          purgedFiles.push({
+            name: p.name || 'Academic / Identity Piece',
+            key: p.s3_key,
+            source: 'candidats.pieces_json',
+            status: 'DELETED_S3',
+          });
+        } else {
+          failedStorageDeletions.push({
+            name: p.name || 'Academic / Identity Piece',
+            key: p.s3_key,
+            source: 'candidats.pieces_json',
+            error: delRes.error || 'S3 object deletion failed',
+          });
+          purgedFiles.push({
+            name: p.name || 'Academic / Identity Piece',
+            key: p.s3_key,
+            source: 'candidats.pieces_json',
+            status: 'S3_DELETE_FAILED',
+          });
+        }
+      } else {
+        purgedFiles.push({
+          name: p.name || 'Academic / Identity Piece',
+          source: 'candidats.pieces_json',
+          status: 'PAYLOAD_PURGED',
+        });
+      }
+
+      sanitizedPieces.push({
+        ...p,
+        status: 'purged',
+        meta: 'Document purgé (Politique de rétention)',
+        data_base64: undefined,
+        s3_url: undefined,
+        s3_key: undefined,
+        purged_at: new Date().toISOString(),
+      });
+    }
 
     await db.query(
       `UPDATE candidats SET pieces_json = $1 WHERE ref = $2`,
@@ -412,25 +484,51 @@ async function executeCandidateDocumentPurge(
     console.error('Error sanitizing pieces_json:', e);
   }
 
-  // 3. Mark candidate documents_purged = TRUE and record history event
+  // 3. Evaluate Storage Deletion Verification
+  // CRITICAL SAFEGUARD: Do not mark deletion as completed (documents_purged = TRUE) until all required storage deletions are verified!
   const nowIso = new Date().toISOString();
   const timestampShort = nowIso.replace('T', ' ').substring(0, 19);
   const history = JSON.parse(candidate.history_json || '[]');
 
-  history.unshift({
-    timestamp: timestampShort,
-    author: `${user.name} (${user.business_profile})`,
-    activity_type: 'SENSITIVE_DOCUMENTS_PURGED',
-    details: `Sensitive documents permanently deleted. Reason: ${triggerReason}. Tokens revoked, S3 objects deleted. Student profile & reporting metrics preserved.`,
-  });
+  const isPurgeFullyVerified = failedStorageDeletions.length === 0;
+  const storageVerification = isPurgeFullyVerified
+    ? 'SUCCESS_DELETED_FROM_S3'
+    : 'STORAGE_DELETION_FAILED_RETRY_REQUIRED';
+  const purgeStatus = isPurgeFullyVerified
+    ? 'PURGED'
+    : 'PARTIAL_FAILURE_RETRY_REQUIRED';
 
-  await db.query(
-    `UPDATE candidats SET
-      documents_purged = TRUE,
-      history_json = $1
-     WHERE ref = $2`,
-    [JSON.stringify(history), candidate.ref]
-  );
+  if (isPurgeFullyVerified) {
+    history.unshift({
+      timestamp: timestampShort,
+      author: `${user.name} (${user.business_profile})`,
+      activity_type: 'SENSITIVE_DOCUMENTS_PURGED',
+      details: `Sensitive documents permanently deleted. Reason: ${triggerReason}. Tokens revoked, S3 objects deleted. Student profile & reporting metrics preserved.`,
+    });
+
+    await db.query(
+      `UPDATE candidats SET
+        documents_purged = TRUE,
+        history_json = $1
+       WHERE ref = $2`,
+      [JSON.stringify(history), candidate.ref]
+    );
+  } else {
+    history.unshift({
+      timestamp: timestampShort,
+      author: `${user.name} (${user.business_profile})`,
+      activity_type: 'RETENTION_PURGE_PARTIAL_FAILURE',
+      details: `Document purge attempted but ${failedStorageDeletions.length} S3 storage objects could not be deleted. Storage retry required before completion.`,
+    });
+
+    await db.query(
+      `UPDATE candidats SET
+        documents_purged = FALSE,
+        history_json = $1
+       WHERE ref = $2`,
+      [JSON.stringify(history), candidate.ref]
+    );
+  }
 
   // 4. Record entry in document_retention_logs
   await db.query(
@@ -445,26 +543,32 @@ async function executeCandidateDocumentPurge(
       `${user.name} (${user.business_profile})`,
       purgedFiles.length,
       JSON.stringify(purgedFiles),
-      'SUCCESS_DELETED_FROM_S3',
-      'PURGED',
+      storageVerification,
+      purgeStatus,
     ]
   );
 
   // 5. Immutable audit log
   await db.query(
     `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
-     VALUES ($1, 'Student Sensitive Document Purge', $2, 'Succès', $3)`,
+     VALUES ($1, 'Student Sensitive Document Purge', $2, $3, $4)`,
     [
       `${user.name} (${user.business_profile})`,
       candidate.ref,
-      `Purged ${purgedFiles.length} sensitive items. Trigger: ${triggerReason}. Storage verified. Notes: ${notes || 'Compliant with 11-month policy'}`,
+      isPurgeFullyVerified ? 'Succès' : 'Échec Partiel',
+      isPurgeFullyVerified
+        ? `Purged ${purgedFiles.length} sensitive items. Trigger: ${triggerReason}. Storage verified. Notes: ${notes || 'Compliant with 11-month policy'}`
+        : `Partial purge: ${failedStorageDeletions.length} S3 items failed deletion. documents_purged remains FALSE. Retry required.`,
     ]
   );
 
   return {
+    status: purgeStatus,
+    isPurgeFullyVerified,
     purgedAt: nowIso,
     filesPurgedCount: purgedFiles.length,
     filesPurged: purgedFiles,
-    storageVerification: 'SUCCESS_DELETED_FROM_S3',
+    failedStorageDeletions,
+    storageVerification,
   };
 }

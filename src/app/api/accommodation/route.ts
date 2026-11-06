@@ -247,6 +247,255 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: `Request ${ref} not found.` }, { status: 404 });
     }
     const existing = existingRes.rows[0];
+    const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const history = JSON.parse(existing.history_json || '[]');
+
+    // =========================================================================
+    // ACTION: CONFIRM RESERVATION GRANTED
+    // =========================================================================
+    if (body.action === 'confirm_reservation_granted') {
+      const confirmDate = body.confirmation_date || new Date().toISOString();
+      const confirmRef = (body.confirmation_reference || body.partner_ref || '').trim();
+      const confirmNotes = (body.confirmation_notes || body.notes || '').trim();
+      const confirmDocName = (body.confirmation_doc_name || '').trim();
+      const partnerName = existing.partner_name || body.partner_name || 'Accommodation Partner';
+
+      history.unshift({
+        timestamp,
+        author: `${user.name} (${user.business_profile})`,
+        action: 'RESERVATION_GRANTED',
+        partner_ref: confirmRef || undefined,
+        partner_name: partnerName,
+        details: `Official reservation confirmed as GRANTED by partner ${partnerName}.${confirmRef ? ` Partner Ref: ${confirmRef}.` : ''}${confirmNotes ? ` Notes: ${confirmNotes}` : ''}${confirmDocName ? ` Document: ${confirmDocName}` : ''}`,
+        status: 'Reservation Granted',
+      });
+
+      await db.query(
+        `UPDATE accommodation_requests SET
+          status = 'Reservation Granted',
+          confirmation_date = $1,
+          confirmation_reference = $2,
+          confirmation_agent = $3,
+          confirmation_notes = $4,
+          confirmation_doc_name = $5,
+          history_json = $6,
+          updated_at = CURRENT_TIMESTAMP
+         WHERE ref = $7`,
+        [
+          confirmDate,
+          confirmRef || null,
+          `${user.name} (${user.business_profile})`,
+          confirmNotes || null,
+          confirmDocName || null,
+          JSON.stringify(history),
+          existing.ref,
+        ]
+      );
+
+      // Append to linked candidate history
+      if (existing.student_ref) {
+        try {
+          const candRes = await db.query('SELECT history_json FROM candidats WHERE ref = $1', [existing.student_ref]);
+          if (candRes.rows && candRes.rows.length > 0) {
+            const candHistory = JSON.parse(candRes.rows[0].history_json || '[]');
+            candHistory.unshift({
+              timestamp,
+              author: `${user.name} (${user.business_profile})`,
+              activity_type: 'ACCOMMODATION_GRANTED',
+              details: `Accommodation reservation confirmed as GRANTED by ${partnerName} for request ${existing.ref}.${confirmRef ? ` Partner ref: ${confirmRef}.` : ''}`,
+            });
+            await db.query('UPDATE candidats SET history_json = $1 WHERE ref = $2', [
+              JSON.stringify(candHistory),
+              existing.student_ref,
+            ]);
+          }
+        } catch (e) {
+          console.warn('Could not update candidate history on accommodation confirmation:', e);
+        }
+      }
+
+      await db.query(
+        `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+         VALUES ($1, 'Confirm Reservation Granted', $2, 'Success', $3)`,
+        [
+          `${user.name} (${user.business_profile})`,
+          existing.ref,
+          `Reservation granted by ${partnerName} for student ${existing.student_name} (${existing.student_ref}).`,
+        ]
+      );
+
+      const updatedRes = await db.query('SELECT * FROM accommodation_requests WHERE ref = $1', [existing.ref]);
+      return NextResponse.json({
+        success: true,
+        message: 'Reservation granted confirmed successfully.',
+        accommodationRequest: {
+          ...updatedRes.rows[0],
+          history,
+        },
+      });
+    }
+
+    // =========================================================================
+    // ACTION: CONFIRM RESERVATION DECLINED
+    // =========================================================================
+    if (body.action === 'confirm_reservation_declined') {
+      const declineReason = (body.decline_reason || body.reason || '').trim();
+      if (!declineReason) {
+        return NextResponse.json(
+          { error: 'A mandatory reason is required when recording a declined reservation.' },
+          { status: 400 }
+        );
+      }
+      const partnerName = existing.partner_name || 'Accommodation Partner';
+
+      history.unshift({
+        timestamp,
+        author: `${user.name} (${user.business_profile})`,
+        action: 'RESERVATION_DECLINED',
+        partner_name: partnerName,
+        details: `Reservation marked as DECLINED by partner ${partnerName}. Reason: ${declineReason}`,
+        status: 'Reservation Declined',
+      });
+
+      await db.query(
+        `UPDATE accommodation_requests SET
+          status = 'Reservation Declined',
+          decline_reason = $1,
+          confirmation_date = CURRENT_TIMESTAMP,
+          confirmation_agent = $2,
+          history_json = $3,
+          updated_at = CURRENT_TIMESTAMP
+         WHERE ref = $4`,
+        [
+          declineReason,
+          `${user.name} (${user.business_profile})`,
+          JSON.stringify(history),
+          existing.ref,
+        ]
+      );
+
+      // Append to linked candidate history
+      if (existing.student_ref) {
+        try {
+          const candRes = await db.query('SELECT history_json FROM candidats WHERE ref = $1', [existing.student_ref]);
+          if (candRes.rows && candRes.rows.length > 0) {
+            const candHistory = JSON.parse(candRes.rows[0].history_json || '[]');
+            candHistory.unshift({
+              timestamp,
+              author: `${user.name} (${user.business_profile})`,
+              activity_type: 'ACCOMMODATION_DECLINED',
+              details: `Accommodation request ${existing.ref} was declined by ${partnerName}. Reason: ${declineReason}`,
+            });
+            await db.query('UPDATE candidats SET history_json = $1 WHERE ref = $2', [
+              JSON.stringify(candHistory),
+              existing.student_ref,
+            ]);
+          }
+        } catch (e) {
+          console.warn('Could not update candidate history on accommodation decline:', e);
+        }
+      }
+
+      await db.query(
+        `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+         VALUES ($1, 'Record Reservation Declined', $2, 'Success', $3)`,
+        [
+          `${user.name} (${user.business_profile})`,
+          existing.ref,
+          `Reservation declined by ${partnerName}. Reason: ${declineReason}`,
+        ]
+      );
+
+      const updatedRes = await db.query('SELECT * FROM accommodation_requests WHERE ref = $1', [existing.ref]);
+      return NextResponse.json({
+        success: true,
+        message: 'Reservation declined recorded successfully.',
+        accommodationRequest: {
+          ...updatedRes.rows[0],
+          history,
+        },
+      });
+    }
+
+    // =========================================================================
+    // ACTION: CANCEL RESERVATION
+    // =========================================================================
+    if (body.action === 'cancel_reservation') {
+      const cancellationReason = (body.cancellation_reason || body.reason || '').trim();
+      if (!cancellationReason) {
+        return NextResponse.json(
+          { error: 'A mandatory reason is required when cancelling an accommodation request.' },
+          { status: 400 }
+        );
+      }
+
+      history.unshift({
+        timestamp,
+        author: `${user.name} (${user.business_profile})`,
+        action: 'RESERVATION_CANCELLED',
+        details: `Accommodation request cancelled. Reason: ${cancellationReason}`,
+        status: 'Cancelled',
+      });
+
+      await db.query(
+        `UPDATE accommodation_requests SET
+          status = 'Cancelled',
+          cancellation_reason = $1,
+          confirmation_date = CURRENT_TIMESTAMP,
+          confirmation_agent = $2,
+          history_json = $3,
+          updated_at = CURRENT_TIMESTAMP
+         WHERE ref = $4`,
+        [
+          cancellationReason,
+          `${user.name} (${user.business_profile})`,
+          JSON.stringify(history),
+          existing.ref,
+        ]
+      );
+
+      // Append to linked candidate history
+      if (existing.student_ref) {
+        try {
+          const candRes = await db.query('SELECT history_json FROM candidats WHERE ref = $1', [existing.student_ref]);
+          if (candRes.rows && candRes.rows.length > 0) {
+            const candHistory = JSON.parse(candRes.rows[0].history_json || '[]');
+            candHistory.unshift({
+              timestamp,
+              author: `${user.name} (${user.business_profile})`,
+              activity_type: 'ACCOMMODATION_CANCELLED',
+              details: `Accommodation request ${existing.ref} was cancelled. Reason: ${cancellationReason}`,
+            });
+            await db.query('UPDATE candidats SET history_json = $1 WHERE ref = $2', [
+              JSON.stringify(candHistory),
+              existing.student_ref,
+            ]);
+          }
+        } catch (e) {
+          console.warn('Could not update candidate history on accommodation cancellation:', e);
+        }
+      }
+
+      await db.query(
+        `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+         VALUES ($1, 'Cancel Accommodation Request', $2, 'Success', $3)`,
+        [
+          `${user.name} (${user.business_profile})`,
+          existing.ref,
+          `Accommodation request ${existing.ref} cancelled. Reason: ${cancellationReason}`,
+        ]
+      );
+
+      const updatedRes = await db.query('SELECT * FROM accommodation_requests WHERE ref = $1', [existing.ref]);
+      return NextResponse.json({
+        success: true,
+        message: 'Accommodation request cancelled successfully.',
+        accommodationRequest: {
+          ...updatedRes.rows[0],
+          history,
+        },
+      });
+    }
 
     const preferredLocation = body.preferred_location !== undefined ? body.preferred_location : existing.preferred_location;
     const accommodationType = body.accommodation_type !== undefined ? body.accommodation_type : existing.accommodation_type;
@@ -259,8 +508,6 @@ export async function PUT(req: NextRequest) {
     const assignedAgent = body.assigned_agent !== undefined ? body.assigned_agent : existing.assigned_agent;
     const notes = body.notes !== undefined ? body.notes : existing.notes;
 
-    const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
-    const history = JSON.parse(existing.history_json || '[]');
     const changeDetails: string[] = [];
 
     if (body.status && body.status !== existing.status) {

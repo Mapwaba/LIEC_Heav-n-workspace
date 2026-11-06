@@ -40,6 +40,9 @@ import {
   EditProspectModal,
   ProspectCommentsModal,
   ProspectProfileModal,
+  RecordFirstContactModal,
+  RecordEligibilityModal,
+  QualifyProspectModal,
   ProspectItem,
 } from './ProspectCardModals';
 
@@ -141,8 +144,26 @@ export default function ProspectsScreen({
     useState<ProspectItem | null>(null);
   const [selectedProspectForComments, setSelectedProspectForComments] =
     useState<ProspectItem | null>(null);
+  const [selectedProspectForContact, setSelectedProspectForContact] =
+    useState<any | null>(null);
+  const [selectedProspectForEligibility, setSelectedProspectForEligibility] =
+    useState<any | null>(null);
+  const [selectedProspectForQualify, setSelectedProspectForQualify] =
+    useState<any | null>(null);
   const [checkedIds, setCheckedIds] = useState<number[]>([]);
   const [isRefreshingPipeline, setIsRefreshingPipeline] = useState(false);
+
+  const handleAdvanceCard = (card: any) => {
+    if (card.stage === 'nouveau') {
+      setSelectedProspectForContact(card);
+    } else if (card.stage === 'premier_contact') {
+      setSelectedProspectForEligibility(card);
+    } else if (card.stage === 'diagnostic') {
+      setSelectedProspectForQualify(card);
+    } else {
+      onNotify(isEn ? 'Prospect is already qualified!' : 'Prospect déjà qualifié !');
+    }
+  };
 
   const handleRefreshPipeline = async () => {
     if (isRefreshingPipeline) return;
@@ -789,17 +810,31 @@ export default function ProspectsScreen({
                                 <MessageSquare className="w-3.5 h-3.5 text-slate-600" />
                               </button>
 
-                              {/* Advance Stage Icon */}
+                              {/* Advance Stage / Milestone Action Icon */}
                               <button
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  onMoveProspect(card.id, getNextStage(card.stage));
+                                  handleAdvanceCard(card);
                                 }}
-                                title="Advance to next stage"
+                                title={
+                                  card.stage === 'nouveau'
+                                    ? (isEn ? 'Record First Contact Event' : 'Enregistrer le premier contact')
+                                    : card.stage === 'premier_contact'
+                                    ? (isEn ? 'Record Diagnostic Eligibility' : 'Enregistrer le diagnostic d’éligibilité')
+                                    : card.stage === 'diagnostic'
+                                    ? (isEn ? 'Verify 3 Conditions & Qualify' : 'Vérifier 3 conditions & Qualifier')
+                                    : (isEn ? 'Qualified Candidate' : 'Candidat qualifié')
+                                }
                                 className="p-1 rounded hover:bg-slate-100 hover:text-[#092342] transition cursor-pointer"
                               >
-                                <MoreVertical className="w-3.5 h-3.5" />
+                                {card.stage === 'qualifie' ? (
+                                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                                ) : card.stage === 'diagnostic' ? (
+                                  <ShieldCheck className="w-3.5 h-3.5 text-amber-500" />
+                                ) : (
+                                  <MoreVertical className="w-3.5 h-3.5" />
+                                )}
                               </button>
                             </div>
                           </div>
@@ -989,10 +1024,10 @@ export default function ProspectsScreen({
                           <Edit3 className="w-3.5 h-3.5" />
                         </button>
                         <button
-                          onClick={() => onMoveProspect(p.id, getNextStage(p.stage))}
+                          onClick={() => handleAdvanceCard(p)}
                           className="rounded-lg bg-[#092342] text-white px-2.5 py-1 text-[11px] font-bold hover:bg-[#12365a] cursor-pointer"
                         >
-                          Advance →
+                          {p.stage === 'diagnostic' ? (isEn ? 'Qualify (3/3) →' : 'Qualifier (3/3) →') : isEn ? 'Advance →' : 'Avancer →'}
                         </button>
                       </div>
                     </td>
@@ -1193,12 +1228,60 @@ export default function ProspectsScreen({
           onEdit={() => setSelectedProspectForEdit(selectedProspectForProfile)}
           onOpenComments={() => setSelectedProspectForComments(selectedProspectForProfile)}
           onAdvanceStage={() => {
-            onMoveProspect(
-              selectedProspectForProfile.id,
-              getNextStage(selectedProspectForProfile.stage)
-            );
+            const target = selectedProspectForProfile;
             setSelectedProspectForProfile(null);
+            handleAdvanceCard(target);
           }}
+        />
+      )}
+
+      {/* Stage 2 Modal: Record First Contact */}
+      {selectedProspectForContact && (
+        <RecordFirstContactModal
+          prospect={selectedProspectForContact}
+          currentUser={currentUserName}
+          isEn={isEn}
+          onClose={() => setSelectedProspectForContact(null)}
+          onSaved={() => {
+            onRefresh();
+            onNotify(
+              isEn
+                ? `First contact recorded for ${selectedProspectForContact.full_name}. Moved to First Contact.`
+                : `Premier contact enregistré pour ${selectedProspectForContact.full_name}. Étape mise à jour.`
+            );
+          }}
+        />
+      )}
+
+      {/* Stage 3 Modal: Record Eligibility Diagnostic */}
+      {selectedProspectForEligibility && (
+        <RecordEligibilityModal
+          prospect={selectedProspectForEligibility}
+          currentUser={currentUserName}
+          isEn={isEn}
+          onClose={() => setSelectedProspectForEligibility(null)}
+          onSaved={() => {
+            onRefresh();
+            onNotify(
+              isEn
+                ? `Eligibility diagnostic assessment saved for ${selectedProspectForEligibility.full_name}.`
+                : `Diagnostic d'éligibilité enregistré pour ${selectedProspectForEligibility.full_name}.`
+            );
+          }}
+        />
+      )}
+
+      {/* Stage 4 Modal: 3-Condition Qualification Milestone */}
+      {selectedProspectForQualify && (
+        <QualifyProspectModal
+          prospect={selectedProspectForQualify}
+          currentUser={currentUserName}
+          isEn={isEn}
+          onClose={() => setSelectedProspectForQualify(null)}
+          onSaved={() => {
+            onRefresh();
+          }}
+          onNotify={onNotify}
         />
       )}
     </div>
