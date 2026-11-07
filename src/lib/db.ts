@@ -95,18 +95,8 @@ export const PARTNER_SCHOOLS_LYON = [
   },
 ];
 
-async function initSchemaAndSeed(client: DBClient) {
-  const schemaPath = path.join(process.cwd(), 'database', 'schema.sql');
-  if (fs.existsSync(schemaPath)) {
-    try {
-      const schemaSql = fs.readFileSync(schemaPath, 'utf-8');
-      await client.exec(schemaSql);
-    } catch (e) {
-      console.warn('Notice: Could not execute database/schema.sql file:', e);
-    }
-  }
-
-  // Ensure all base tables exist (vital for serverless deployments like Vercel/Lambda)
+export async function initSchemaDDL(client: DBClient): Promise<void> {
+  // Ensure all base tables, constraints and indexes exist (pure DDL)
   await client.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
@@ -458,52 +448,7 @@ async function initSchemaAndSeed(client: DBClient) {
     ALTER TABLE demande_notes ADD COLUMN IF NOT EXISTS timestamp_label VARCHAR(60) DEFAULT 'Today';
     ALTER TABLE demandes ADD COLUMN IF NOT EXISTS application_year VARCHAR(20);
 
-    -- Seed Technical Roles from RBAC Specification if empty
-    INSERT INTO roles (role_id, role_name, business_profile, description, safeguards, active) VALUES
-      ('admin', 'Platform Administrator', 'Admin', 'Highest privilege. Assign only to trusted administrators.', 'Assign only to trusted administrators; log assignments and removals.', TRUE),
-      ('lh_security_admin', 'Security Administrator', 'Admin', 'Security administration. Limit access to security configuration and sensitive controls.', 'Limit access to security configuration and sensitive controls.', TRUE),
-      ('ITIL', 'ITIL Workflow Operator', 'Secretary', 'Secretary workflows (as configured). Applicant intake and administrative tracking.', 'Do not assume this role means full administrator access. Verify permissions and inherited access.', TRUE),
-      ('lh_internal', 'Internal Application Access', 'Secretary', 'Internal application access. Restrict to applicant intake, assigned records, comments and history.', 'Restrict to applicant intake, assigned records, comments and history.', TRUE),
-      ('lh_finance', 'Finance & AVI Officer', 'Finance Officer', 'AVI and parent-financing operations, YIMMILINE desk calculations and loan requests.', 'Restrict to AVI-related functions and records; do not grant unrelated finance or system configuration access.', TRUE),
-      ('secretary', 'Secretary (Intake & Admissions)', 'Secretary', 'Intake officer and applicant management operations.', 'Limit to applicant registration and admissions tracking.', TRUE),
-      ('avi', 'Finance Officer (Blocked Account / AVI)', 'Finance Officer', 'Guichet AVI and loan verification operator.', 'Restrict to AVI desk operations.', TRUE)
-    ON CONFLICT (role_id) DO NOTHING;
-
-    -- Seed Default Role Session Timeouts (Enforces 10 to 30 min Range)
-    INSERT INTO role_session_timeouts (role_id, role_name, business_profile, timeout_minutes, updated_by) VALUES
-      ('admin', 'Platform Administrator (Admin / Self)', 'Admin', 15, 'System Initializer'),
-      ('lh_security_admin', 'Security Administrator', 'Admin', 15, 'System Initializer'),
-      ('secretary', 'Secretary (Admissions & Intake)', 'Secretary', 20, 'System Initializer'),
-      ('ITIL', 'ITIL Workflow Operator', 'Secretary', 20, 'System Initializer'),
-      ('lh_internal', 'Internal Application Access', 'Secretary', 20, 'System Initializer'),
-      ('avi', 'Finance Officer (Blocked Account / AVI)', 'Finance Officer', 15, 'System Initializer'),
-      ('lh_finance', 'Finance & AVI Officer', 'Finance Officer', 15, 'System Initializer')
-    ON CONFLICT (role_id) DO NOTHING;
-
-    -- Ensure Admin user exists with default credentials
-    INSERT INTO users (id, name, first_name, last_name, user_id, email, business_profile, role, title, initials, active)
-    VALUES (1, 'Barthelemy MAPWABA NTORO', 'Barthelemy', 'MAPWABA NTORO', 'bmapwaba', 'bmapwabantoro@liecconsulting.com', 'Admin', 'admin', 'Platform Administrator & Managing Director', 'BM', TRUE)
-    ON CONFLICT (email) DO UPDATE SET
-      name = 'Barthelemy MAPWABA NTORO',
-      first_name = COALESCE(users.first_name, 'Barthelemy'),
-      last_name = COALESCE(users.last_name, 'MAPWABA NTORO'),
-      user_id = COALESCE(users.user_id, 'bmapwaba'),
-      business_profile = 'Admin',
-      role = 'admin',
-      title = 'Platform Administrator & Managing Director',
-      initials = 'BM',
-      active = TRUE;
-
-    INSERT INTO user_roles (user_id, role_id, assigned_by)
-    SELECT u.id, 'admin', 'System Initializer' FROM users u WHERE LOWER(u.email) = 'bmapwabantoro@liecconsulting.com'
-    ON CONFLICT (user_id, role_id) DO NOTHING;
-
-    INSERT INTO user_roles (user_id, role_id, assigned_by)
-    SELECT u.id, 'lh_security_admin', 'System Initializer' FROM users u WHERE LOWER(u.email) = 'bmapwabantoro@liecconsulting.com'
-    ON CONFLICT (user_id, role_id) DO NOTHING;
-  `);
-// Ensure new AVI columns exist on existing database tables
-  await client.exec(`
+    -- Ensure new AVI columns exist on existing database tables
     ALTER TABLE avi_requests ADD COLUMN IF NOT EXISTS physical_address VARCHAR(220) DEFAULT 'Avenue de la Gombe, Kinshasa';
     ALTER TABLE avi_requests ADD COLUMN IF NOT EXISTS other_guarantor BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE avi_requests ADD COLUMN IF NOT EXISTS guarantor_details TEXT DEFAULT '';
@@ -561,7 +506,6 @@ async function initSchemaAndSeed(client: DBClient) {
     ALTER TABLE candidats ADD COLUMN IF NOT EXISTS history_json TEXT DEFAULT '[]';
 
     ALTER TABLE avi_requests ADD COLUMN IF NOT EXISTS student_ref VARCHAR(50);
-    UPDATE avi_requests SET student_ref = '#CAN-2025-042' WHERE student_name ILIKE '%Kabangele%' AND (student_ref IS NULL OR student_ref = '');
 
     CREATE TABLE IF NOT EXISTS parent_student_links (
       id SERIAL PRIMARY KEY,
@@ -778,60 +722,90 @@ async function initSchemaAndSeed(client: DBClient) {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS invitation_token VARCHAR(120);
     ALTER TABLE users ADD COLUMN IF NOT EXISTS invitation_token_expires_at TIMESTAMP WITH TIME ZONE;
   `);
+}
 
-  // Ensure Admin profile and technical roles are ALWAYS preserved
+/**
+ * Seed initial reference data, technical RBAC roles, timeouts, and ensure default administrator.
+ * Only contains DML statements (INSERT, UPDATE) and never executes DDL.
+ */
+export async function seedInitialData(client: DBClient): Promise<void> {
+  // Seed Technical Roles from RBAC Specification if empty
   await client.exec(`
-    UPDATE users SET business_profile = 'Admin', role = 'admin', active = TRUE
-    WHERE LOWER(email) = 'bmapwabantoro@liecconsulting.com';
+    INSERT INTO roles (role_id, role_name, business_profile, description, safeguards, active) VALUES
+      ('admin', 'Platform Administrator', 'Admin', 'Highest privilege. Assign only to trusted administrators.', 'Assign only to trusted administrators; log assignments and removals.', TRUE),
+      ('lh_security_admin', 'Security Administrator', 'Admin', 'Security administration. Limit access to security configuration and sensitive controls.', 'Limit access to security configuration and sensitive controls.', TRUE),
+      ('ITIL', 'ITIL Workflow Operator', 'Secretary', 'Secretary workflows (as configured). Applicant intake and administrative tracking.', 'Do not assume this role means full administrator access. Verify permissions and inherited access.', TRUE),
+      ('lh_internal', 'Internal Application Access', 'Secretary', 'Internal application access. Restrict to applicant intake, assigned records, comments and history.', 'Restrict to applicant intake, assigned records, comments and history.', TRUE),
+      ('lh_finance', 'Finance & AVI Officer', 'Finance Officer', 'AVI and parent-financing operations, YIMMILINE desk calculations and loan requests.', 'Restrict to AVI-related functions and records; do not grant unrelated finance or system configuration access.', TRUE),
+      ('secretary', 'Secretary (Intake & Admissions)', 'Secretary', 'Intake officer and applicant management operations.', 'Limit to applicant registration and admissions tracking.', TRUE),
+      ('avi', 'Finance Officer (Blocked Account / AVI)', 'Finance Officer', 'Guichet AVI and loan verification operator.', 'Restrict to AVI desk operations.', TRUE)
+    ON CONFLICT (role_id) DO NOTHING;
 
-    INSERT INTO user_roles (user_id, role_id, assigned_by)
-    SELECT u.id, 'admin', 'System Initializer' FROM users u
-    WHERE LOWER(u.email) = 'bmapwabantoro@liecconsulting.com'
-    ON CONFLICT (user_id, role_id) DO NOTHING;
+    INSERT INTO role_session_timeouts (role_id, role_name, business_profile, timeout_minutes, updated_by) VALUES
+      ('admin', 'Platform Administrator (Admin / Self)', 'Admin', 15, 'System Initializer'),
+      ('lh_security_admin', 'Security Administrator', 'Admin', 15, 'System Initializer'),
+      ('secretary', 'Secretary (Admissions & Intake)', 'Secretary', 20, 'System Initializer'),
+      ('ITIL', 'ITIL Workflow Operator', 'Secretary', 20, 'System Initializer'),
+      ('lh_internal', 'Internal Application Access', 'Secretary', 20, 'System Initializer'),
+      ('avi', 'Finance Officer (Blocked Account / AVI)', 'Finance Officer', 15, 'System Initializer'),
+      ('lh_finance', 'Finance & AVI Officer', 'Finance Officer', 15, 'System Initializer')
+    ON CONFLICT (role_id) DO NOTHING;
 
+    -- Ensure default administrator account and initial role assignments are created ONLY IF IT DOES NOT ALREADY EXIST.
+    -- Routine initialisation must NEVER restore privileges or grant roles to existing administrator records.
+    WITH new_admin AS (
+      INSERT INTO users (name, first_name, last_name, user_id, email, business_profile, role, title, initials, active)
+      VALUES ('Barthelemy MAPWABA NTORO', 'Barthelemy', 'MAPWABA NTORO', 'bmapwaba', 'bmapwabantoro@liecconsulting.com', 'Admin', 'admin', 'Platform Administrator & Managing Director', 'BM', TRUE)
+      ON CONFLICT (email) DO NOTHING
+      RETURNING id
+    )
     INSERT INTO user_roles (user_id, role_id, assigned_by)
-    SELECT u.id, 'lh_security_admin', 'System Initializer' FROM users u
-    WHERE LOWER(u.email) = 'bmapwabantoro@liecconsulting.com'
-    ON CONFLICT (user_id, role_id) DO NOTHING;
+    SELECT id, 'admin', 'System Initializer' FROM new_admin
+    UNION ALL
+    SELECT id, 'lh_security_admin', 'System Initializer' FROM new_admin;
+
+    UPDATE avi_requests SET student_ref = '#CAN-2025-042' WHERE student_name ILIKE '%Kabangele%' AND (student_ref IS NULL OR student_ref = '');
   `);
+}
 
-  // Ensure initial Accommodation sample exists
-  try {
-    const checkAcc = await client.query<{ count: string | number }>(
-      `SELECT COUNT(*) as count FROM accommodation_requests`
-    );
-    if (Number(checkAcc.rows[0]?.count ?? 0) === 0) {
-      await client.exec(`
-        -- No demo accommodation_requests
-      `);
-    }
-  } catch (err) {
-    console.warn('Notice: accommodation seed check:', err);
+/**
+ * Fail-closed runtime DDL guard.
+ * Strictly checks the actual client engine identity:
+ * Only embedded PGlite (client.engine === 'pglite') may execute runtime DDL.
+ * External PostgreSQL (client.engine === 'pg') is strictly blocked from runtime DDL.
+ * FORCE_PGLITE=true or any override environment variable must NEVER enable DDL on an external PostgreSQL client.
+ * Schema changes in production/external environments are exclusively migration-driven.
+ */
+export function shouldExecuteRuntimeDDL(client: DBClient): boolean {
+  return client.engine === 'pglite';
+}
+
+/**
+ * Fail-closed runtime Seeding guard.
+ * Strictly checks the actual client engine identity:
+ * Only embedded PGlite (client.engine === 'pglite') may execute runtime seeding.
+ * External PostgreSQL (client.engine === 'pg') is strictly blocked from runtime data seeding.
+ * FORCE_PGLITE=true or any override environment variable must NEVER enable seeding on an external PostgreSQL client.
+ */
+export function shouldExecuteRuntimeSeeding(client: DBClient): boolean {
+  return client.engine === 'pglite';
+}
+
+/**
+ * Backward-compatible initialisation orchestrator applying fail-closed guards.
+ */
+export async function initSchemaAndSeed(client: DBClient): Promise<void> {
+  if (shouldExecuteRuntimeDDL(client)) {
+    await initSchemaDDL(client);
+  } else {
+    console.warn('[DB-SECURITY] External PostgreSQL detected: Runtime DDL initialization is disabled (Fail-Closed). DDL statements skipped.');
   }
 
-  // Ensure primary administrator account is present without affecting applicant data
-  await client.exec(`
-    INSERT INTO users (id, name, first_name, last_name, user_id, email, business_profile, role, title, initials, active)
-    VALUES (1, 'Barthelemy MAPWABA NTORO', 'Barthelemy', 'MAPWABA NTORO', 'bmapwaba', 'bmapwabantoro@liecconsulting.com', 'Admin', 'admin', 'Platform Administrator & Managing Director', 'BM', TRUE)
-    ON CONFLICT (email) DO UPDATE SET
-      name = 'Barthelemy MAPWABA NTORO',
-      first_name = COALESCE(users.first_name, 'Barthelemy'),
-      last_name = COALESCE(users.last_name, 'MAPWABA NTORO'),
-      user_id = COALESCE(users.user_id, 'bmapwaba'),
-      business_profile = 'Admin',
-      role = 'admin',
-      title = 'Platform Administrator & Managing Director',
-      initials = 'BM',
-      active = TRUE;
-
-    INSERT INTO user_roles (user_id, role_id, assigned_by)
-    SELECT u.id, 'admin', 'System Initializer' FROM users u WHERE LOWER(u.email) = 'bmapwabantoro@liecconsulting.com'
-    ON CONFLICT (user_id, role_id) DO NOTHING;
-
-    INSERT INTO user_roles (user_id, role_id, assigned_by)
-    SELECT u.id, 'lh_security_admin', 'System Initializer' FROM users u WHERE LOWER(u.email) = 'bmapwabantoro@liecconsulting.com'
-    ON CONFLICT (user_id, role_id) DO NOTHING;
-  `);
+  if (shouldExecuteRuntimeSeeding(client)) {
+    await seedInitialData(client);
+  } else {
+    console.warn('[DB-SECURITY] External PostgreSQL detected: Runtime data seeding is disabled (Fail-Closed). Seeding statements skipped.');
+  }
 }
 function getSafeDbInfo(rawUrl: string): { host: string; database: string } {
   try {
@@ -879,7 +853,18 @@ async function createDBClient(): Promise<DBClient> {
         },
       };
 
-      await initSchemaAndSeed(pgClient);
+      if (shouldExecuteRuntimeDDL(pgClient)) {
+        await initSchemaDDL(pgClient);
+      } else {
+        console.warn('[DB-SECURITY] External PostgreSQL detected: Runtime DDL initialization is disabled (Fail-Closed). DDL statements skipped.');
+      }
+
+      if (shouldExecuteRuntimeSeeding(pgClient)) {
+        await seedInitialData(pgClient);
+      } else {
+        console.warn('[DB-SECURITY] External PostgreSQL detected: Runtime data seeding is disabled (Fail-Closed). Seeding statements skipped.');
+      }
+
       return pgClient;
     } catch (err: any) {
       console.warn('[DB] Could not connect to external Neon PostgreSQL server:', err?.message || err);
@@ -936,7 +921,12 @@ async function createDBClient(): Promise<DBClient> {
     },
   };
 
-  await initSchemaAndSeed(pgliteClient);
+  if (shouldExecuteRuntimeDDL(pgliteClient)) {
+    await initSchemaDDL(pgliteClient);
+  }
+  if (shouldExecuteRuntimeSeeding(pgliteClient)) {
+    await seedInitialData(pgliteClient);
+  }
   return pgliteClient;
 }
 

@@ -562,3 +562,6 @@ CREATE TABLE IF NOT EXISTS user_import_staging_rows (
 CREATE INDEX IF NOT EXISTS idx_staging_import_set ON user_import_staging_rows(import_set_id);
 CREATE INDEX IF NOT EXISTS idx_staging_validation ON user_import_staging_rows(validation_status);
 CREATE INDEX IF NOT EXISTS idx_staging_transform ON user_import_staging_rows(transform_status);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS invitation_token VARCHAR(120);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS invitation_token_expires_at TIMESTAMP WITH TIME ZONE;
