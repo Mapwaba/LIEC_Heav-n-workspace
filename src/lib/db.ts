@@ -103,7 +103,7 @@ export async function initSchemaDDL(client: DBClient): Promise<void> {
       name VARCHAR(120) NOT NULL,
       first_name VARCHAR(60),
       last_name VARCHAR(60),
-      user_id VARCHAR(60) UNIQUE,
+      user_id VARCHAR(60),
       email VARCHAR(160) UNIQUE NOT NULL,
       business_profile VARCHAR(50) NOT NULL DEFAULT 'Secretary',
       role VARCHAR(50) NOT NULL DEFAULT 'secretary',
@@ -117,10 +117,11 @@ export async function initSchemaDDL(client: DBClient): Promise<void> {
       password_updated_at TIMESTAMP WITH TIME ZONE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE UNIQUE INDEX IF NOT EXISTS users_user_id_unique_idx ON users (LOWER(user_id));
 
     CREATE TABLE IF NOT EXISTS demandes (
       id SERIAL PRIMARY KEY,
-      ref VARCHAR(50) UNIQUE NOT NULL,
+      ref VARCHAR(40) UNIQUE NOT NULL,
       initials VARCHAR(10) NOT NULL,
       full_name VARCHAR(150) NOT NULL,
       email VARCHAR(160) NOT NULL,
@@ -130,55 +131,63 @@ export async function initSchemaDDL(client: DBClient): Promise<void> {
       graduation_year VARCHAR(10),
       current_activity VARCHAR(25),
       final_year_university VARCHAR(10),
-      whatsapp_verified BOOLEAN DEFAULT TRUE,
-      country_code VARCHAR(10) DEFAULT 'CD',
-      flag VARCHAR(10) DEFAULT '🇨🇩',
-      country_name VARCHAR(100) DEFAULT 'RDC',
-      city VARCHAR(120) DEFAULT 'Kinshasa',
+      whatsapp_verified BOOLEAN NOT NULL DEFAULT TRUE,
+      country_code VARCHAR(10) NOT NULL DEFAULT 'CD',
+      flag VARCHAR(16) NOT NULL DEFAULT '🇨🇩',
+      country_name VARCHAR(100) NOT NULL,
+      city VARCHAR(100) NOT NULL,
       nationality VARCHAR(100) DEFAULT 'Congolaise (RDC)',
       sexe VARCHAR(30) DEFAULT 'Male',
       program VARCHAR(255) NOT NULL,
       service_pole VARCHAR(120) NOT NULL,
-      target_cities VARCHAR(150) DEFAULT 'Lyon',
-      current_level VARCHAR(100) DEFAULT 'Licence',
-      budget_range VARCHAR(100) DEFAULT '8 500 € – 10 000 € / an',
-      status VARCHAR(60) DEFAULT 'Nouvelle',
-      adviser VARCHAR(100) DEFAULT 'Barthelemy MAPWABA NTORO',
-      application_year VARCHAR(20),
-      expected_start VARCHAR(60) DEFAULT 'Septembre 2025',
+      target_cities VARCHAR(200) DEFAULT 'Lyon (Exclusif)',
+      current_level VARCHAR(200) DEFAULT 'Licence 3 - Mention Bien',
+      budget_range VARCHAR(120) DEFAULT '8 500 € – 10 000 € / an',
+      status VARCHAR(50) NOT NULL DEFAULT 'Nouvelle',
+      adviser VARCHAR(120) DEFAULT 'Barthelemy MAPWABA NTORO',
+      expected_start VARCHAR(50) DEFAULT 'Septembre 2025',
       message TEXT,
-      submitted_at VARCHAR(60) DEFAULT 'Just now',
-      is_dashboard_recent BOOLEAN DEFAULT TRUE,
-      is_archived BOOLEAN DEFAULT FALSE,
+      submitted_at VARCHAR(100) NOT NULL DEFAULT 'Soumis le 25 Octobre 2025 à 16:42',
+      is_dashboard_recent BOOLEAN NOT NULL DEFAULT FALSE,
+      is_archived BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS demande_notes (
       id SERIAL PRIMARY KEY,
-      demande_ref VARCHAR(50) NOT NULL,
-      author VARCHAR(100) NOT NULL,
-      timestamp_label VARCHAR(60) DEFAULT 'Today',
+      demande_ref VARCHAR(40) NOT NULL,
+      author VARCHAR(120) NOT NULL,
+      timestamp_label VARCHAR(80) NOT NULL,
       content TEXT NOT NULL,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS prospects (
       id SERIAL PRIMARY KEY,
-      ref VARCHAR(50) UNIQUE NOT NULL,
       full_name VARCHAR(150) NOT NULL,
-      initials VARCHAR(10) NOT NULL,
-      program VARCHAR(180) NOT NULL,
-      stage VARCHAR(50) NOT NULL DEFAULT 'lead',
-      email VARCHAR(160),
-      phone VARCHAR(60),
-      country VARCHAR(100) DEFAULT 'RDC',
-      city VARCHAR(100) DEFAULT 'Kinshasa',
+      stage VARCHAR(50) NOT NULL DEFAULT 'nouveau',
+      badge_text VARCHAR(60) NOT NULL,
+      badge_tone VARCHAR(30) NOT NULL DEFAULT 'neutral',
+      flag VARCHAR(16) NOT NULL DEFAULT '🇨🇩',
+      country_city VARCHAR(120) NOT NULL,
+      program_tag VARCHAR(140) NOT NULL,
+      program_tag_tone VARCHAR(30) NOT NULL DEFAULT 'mint',
+      highlight_box VARCHAR(180),
+      meta_left VARCHAR(120) NOT NULL,
+      meta_right VARCHAR(120) NOT NULL,
+      meta_right_tone VARCHAR(30) DEFAULT 'teal',
+      adviser_initials VARCHAR(10) NOT NULL DEFAULT 'BM',
+      adviser_name VARCHAR(100) NOT NULL DEFAULT 'Barthelemy MAPWABA NTORO',
+      adviser_color VARCHAR(30) NOT NULL DEFAULT 'navy',
+      estimated_value INTEGER NOT NULL DEFAULT 1800,
+      is_urgent BOOLEAN NOT NULL DEFAULT FALSE,
+      is_prepa BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS candidats (
       id SERIAL PRIMARY KEY,
-      ref VARCHAR(50) UNIQUE NOT NULL,
+      ref VARCHAR(40) UNIQUE NOT NULL,
       initials VARCHAR(10) NOT NULL,
       full_name VARCHAR(160) NOT NULL,
       avatar_url VARCHAR(255),
@@ -186,13 +195,13 @@ export async function initSchemaDDL(client: DBClient): Promise<void> {
       cities VARCHAR(140) NOT NULL,
       sexe VARCHAR(30) DEFAULT 'Male',
       adviser VARCHAR(120) NOT NULL DEFAULT 'Barthelemy MAPWABA NTORO',
-      stage_badge VARCHAR(60) NOT NULL DEFAULT 'Jalon 1',
+      stage_badge VARCHAR(60) NOT NULL DEFAULT 'En cours (Jalon 2)',
       stage_badge_tone VARCHAR(30) NOT NULL DEFAULT 'teal',
-      progress_pct INTEGER NOT NULL DEFAULT 25,
-      status_left VARCHAR(80) NOT NULL DEFAULT 'Dossier à 25%',
-      status_right VARCHAR(80) NOT NULL DEFAULT 'J-30 CF',
-      email VARCHAR(160) DEFAULT 'candidat@liec.edu',
-      phone VARCHAR(60) DEFAULT '+243 81 000 0000',
+      progress_pct INTEGER NOT NULL DEFAULT 65,
+      status_left VARCHAR(80) NOT NULL DEFAULT 'Dossier à 65%',
+      status_right VARCHAR(80) NOT NULL DEFAULT 'J-14 CF',
+      email VARCHAR(160) DEFAULT 'd.kabangele@unikin.ac.cd',
+      phone VARCHAR(60) DEFAULT '+243 81 552 1904',
       parent_full_name VARCHAR(150),
       parent_phone VARCHAR(30),
       graduation_year VARCHAR(10),
@@ -200,14 +209,14 @@ export async function initSchemaDDL(client: DBClient): Promise<void> {
       final_year_university VARCHAR(10),
       country VARCHAR(100) DEFAULT 'RDC (Kinshasa)',
       nationality VARCHAR(100) DEFAULT 'Congolaise (RDC)',
-      current_diploma VARCHAR(180) DEFAULT 'Licence',
-      tcf_score VARCHAR(100) DEFAULT 'TCF B2',
-      garant_info VARCHAR(220) DEFAULT 'Dossier AVI',
-      interview_date VARCHAR(100) DEFAULT '15 Novembre 2025',
-      jalons_json TEXT DEFAULT '[]',
-      voeux_json TEXT DEFAULT '[]',
-      notes_json TEXT DEFAULT '[]',
-      pieces_json TEXT DEFAULT '[]',
+      current_diploma VARCHAR(180) DEFAULT 'Licence Informatique (Mention TB) - UNIKIN',
+      tcf_score VARCHAR(100) DEFAULT 'TCF B2 (540 pts) certifié',
+      garant_info VARCHAR(220) DEFAULT 'Oncle résidant à Villeurbanne en CDI (Revenus vérifiés)',
+      interview_date VARCHAR(120) DEFAULT '04 Novembre 2025',
+      jalons_json TEXT NOT NULL DEFAULT '[]',
+      voeux_json TEXT NOT NULL DEFAULT '[]',
+      notes_json TEXT NOT NULL DEFAULT '[]',
+      pieces_json TEXT NOT NULL DEFAULT '[]',
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -215,49 +224,70 @@ export async function initSchemaDDL(client: DBClient): Promise<void> {
       id SERIAL PRIMARY KEY,
       title VARCHAR(160) NOT NULL,
       description TEXT NOT NULL,
-      priority VARCHAR(40) NOT NULL DEFAULT 'Moderate',
-      action_label VARCHAR(80) NOT NULL DEFAULT 'Open',
+      priority VARCHAR(30) NOT NULL DEFAULT 'Urgent',
+      action_label VARCHAR(120) NOT NULL,
       target_module VARCHAR(60) NOT NULL DEFAULT 'demandes',
       completed BOOLEAN NOT NULL DEFAULT FALSE,
-      role_queue VARCHAR(50) NOT NULL DEFAULT 'adviser',
+      role_queue VARCHAR(50) NOT NULL DEFAULT 'all',
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS avi_requests (
       id SERIAL PRIMARY KEY,
-      ref VARCHAR(50) UNIQUE NOT NULL,
+      ref VARCHAR(40) UNIQUE NOT NULL,
       parent_name VARCHAR(150) NOT NULL,
-      student_name VARCHAR(150) NOT NULL,
-      country VARCHAR(80) NOT NULL,
-      amount NUMERIC(12,2) NOT NULL,
-      status VARCHAR(60) NOT NULL DEFAULT 'pending',
+      country VARCHAR(100) NOT NULL,
+      town VARCHAR(100) NOT NULL,
+      nationality VARCHAR(100) NOT NULL,
       physical_address VARCHAR(220) DEFAULT 'Avenue de la Gombe, Kinshasa',
+      occupation VARCHAR(160) NOT NULL,
+      phone VARCHAR(60) NOT NULL,
+      email VARCHAR(160) NOT NULL,
       other_guarantor BOOLEAN NOT NULL DEFAULT FALSE,
       guarantor_details TEXT DEFAULT '',
+      expected_start VARCHAR(40) NOT NULL,
+      student_name VARCHAR(150) NOT NULL,
+      student_program VARCHAR(160) NOT NULL,
+      student_id_doc VARCHAR(100) NOT NULL,
+      offer_key VARCHAR(40) NOT NULL DEFAULT 'classique',
+      offer_name VARCHAR(80) NOT NULL DEFAULT 'Classique',
+      interest_rate NUMERIC(5,2) NOT NULL DEFAULT 12.00,
+      duration_months INTEGER NOT NULL DEFAULT 8,
       principal_eur NUMERIC(12,2) NOT NULL DEFAULT 2800.00,
+      principal_usd NUMERIC(12,2) NOT NULL DEFAULT 3043.48,
       principal_xaf NUMERIC(14,2) NOT NULL DEFAULT 1836680.00,
+      usd_eur_rate NUMERIC(10,4) NOT NULL DEFAULT 0.9200,
+      usd_xaf_rate NUMERIC(10,2) NOT NULL DEFAULT 603.48,
       total_interest_eur NUMERIC(10,2) NOT NULL DEFAULT 336.00,
+      liec_fee_usd NUMERIC(10,2) NOT NULL DEFAULT 150.00,
+      files_count INTEGER NOT NULL DEFAULT 3,
       supporting_docs TEXT DEFAULT '',
+      status VARCHAR(60) NOT NULL DEFAULT 'Submitted to YIMMILINE',
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS prepa_cohorts (
       id SERIAL PRIMARY KEY,
-      code VARCHAR(50) UNIQUE NOT NULL,
-      title VARCHAR(150) NOT NULL,
-      student_count INTEGER NOT NULL DEFAULT 0,
-      target_school VARCHAR(150) NOT NULL,
-      status VARCHAR(50) NOT NULL DEFAULT 'active',
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      code VARCHAR(40) UNIQUE NOT NULL,
+      name VARCHAR(150) NOT NULL,
+      campus VARCHAR(100) NOT NULL,
+      start_date VARCHAR(80) NOT NULL,
+      enrolled_count INTEGER NOT NULL DEFAULT 24,
+      capacity INTEGER NOT NULL DEFAULT 30,
+      lead_instructor VARCHAR(120) NOT NULL,
+      status VARCHAR(50) NOT NULL DEFAULT 'Inscriptions ouvertes'
     );
 
     CREATE TABLE IF NOT EXISTS invoices (
       id SERIAL PRIMARY KEY,
-      ref VARCHAR(50) UNIQUE NOT NULL,
-      client_name VARCHAR(150) NOT NULL,
-      amount NUMERIC(12,2) NOT NULL,
-      status VARCHAR(50) NOT NULL DEFAULT 'unpaid',
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      ref VARCHAR(40) UNIQUE NOT NULL,
+      student_name VARCHAR(150) NOT NULL,
+      service_label VARCHAR(160) NOT NULL,
+      amount_eur NUMERIC(10,2) NOT NULL,
+      paid_eur NUMERIC(10,2) NOT NULL,
+      recipient VARCHAR(80) NOT NULL DEFAULT 'LIEC Education',
+      status VARCHAR(50) NOT NULL DEFAULT 'Partiellement payé',
+      issued_date VARCHAR(60) NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS audit_logs (
@@ -368,11 +398,9 @@ export async function initSchemaDDL(client: DBClient): Promise<void> {
       description TEXT NOT NULL,
       safeguards TEXT NOT NULL,
       active BOOLEAN NOT NULL DEFAULT TRUE,
-      password_hash VARCHAR(255),
-      password_salt VARCHAR(64),
-      must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
-      last_login TIMESTAMP WITH TIME ZONE,
-      password_updated_at TIMESTAMP WITH TIME ZONE,
+      timeout_minutes INTEGER NOT NULL DEFAULT 15 CHECK (timeout_minutes >= 10 AND timeout_minutes <= 30),
+      suspended_at TIMESTAMP WITH TIME ZONE,
+      suspended_by VARCHAR(120),
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -544,30 +572,6 @@ export async function initSchemaDDL(client: DBClient): Promise<void> {
       content TEXT NOT NULL,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
-
-    CREATE TABLE IF NOT EXISTS user_notification_reads (
-      id SERIAL PRIMARY KEY,
-      user_email VARCHAR(160) NOT NULL,
-      notification_id VARCHAR(100) NOT NULL,
-      read_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(user_email, notification_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS accommodation_access_tokens (
-      id SERIAL PRIMARY KEY,
-      token_hash VARCHAR(64) UNIQUE NOT NULL,
-      request_ref VARCHAR(50) NOT NULL,
-      partner_id VARCHAR(50) NOT NULL,
-      partner_email VARCHAR(160) NOT NULL,
-      document_ids TEXT NOT NULL DEFAULT '[]',
-      expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-      revoked BOOLEAN NOT NULL DEFAULT FALSE,
-      revoked_at TIMESTAMP WITH TIME ZONE,
-      revoked_by VARCHAR(120),
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE INDEX IF NOT EXISTS idx_acc_tokens_hash ON accommodation_access_tokens(token_hash);
-    CREATE INDEX IF NOT EXISTS idx_acc_tokens_ref ON accommodation_access_tokens(request_ref);
 
     ALTER TABLE candidats ADD COLUMN IF NOT EXISTS application_year VARCHAR(30) DEFAULT '2027–2028';
     ALTER TABLE candidats ADD COLUMN IF NOT EXISTS qualified_at TIMESTAMP WITH TIME ZONE;

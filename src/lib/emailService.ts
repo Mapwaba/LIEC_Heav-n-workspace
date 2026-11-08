@@ -1,5 +1,11 @@
 import nodemailer from 'nodemailer';
 import {
+  isProductionEnvironment,
+  isPreviewEnvironment,
+  resolveAppEnvironment,
+} from './environment';
+export { isProductionEnvironment, isPreviewEnvironment, resolveAppEnvironment };
+import {
   ACCOMMODATION_PARTNERS,
   AccommodationPartner,
   getAccommodationPartnerById,
@@ -39,7 +45,7 @@ export interface AccommodationEmailPayload {
   confirmedResend?: boolean;
 }
 
-export type EmailProviderType = 'resend' | 'smtp' | 'json_transport' | 'simulated';
+export type EmailProviderType = 'resend' | 'smtp' | 'json_transport' | 'simulated' | 'preview_sink';
 export type EmailDeliveryStatus = 'Pending' | 'Accepted by provider' | 'Delivered' | 'Failed' | 'Bounced';
 
 export interface EmailAttachment {
@@ -183,6 +189,40 @@ export function resolveSenderAddress(override?: string): string {
 }
 
 /**
+ * Strict Approved Preview SMTP Test-Sink Validator
+ * Rejects production SMTP collisions, unapproved hosts, and commercial production relays.
+ */
+export function isApprovedPreviewSmtpHost(host?: string): boolean {
+  if (!host) return false;
+  const cleanHost = host.trim().toLowerCase();
+  if (!cleanHost) return false;
+
+  // 1. REJECT if matching production SMTP_HOST
+  const prodHost = process.env.SMTP_HOST?.trim().toLowerCase();
+  if (prodHost && cleanHost === prodHost) {
+    return false;
+  }
+
+  // 2. REJECT known public commercial production email relays unless explicitly whitelisted
+  const commercialRelayPattern =
+    /(^|\.)(sendgrid\.net|resend\.com|gmail\.com|googlemail\.com|office365\.com|outlook\.com|postmarkapp\.com|sparkpostmail\.com|amazonaws\.com)$/i;
+  if (commercialRelayPattern.test(cleanHost) && process.env.PREVIEW_SMTP_ALLOW_UNLISTED_SINK !== 'true') {
+    return false;
+  }
+
+  // 3. Explicitly approved mock and test sink providers
+  const isApprovedSink =
+    /(^|\.)mailtrap\.io$/i.test(cleanHost) ||
+    /(^|\.)mailpit($|\.)/i.test(cleanHost) ||
+    /(^|\.)mailhog($|\.)/i.test(cleanHost) ||
+    /(^|\.)ethereal\.email$/i.test(cleanHost) ||
+    /^(localhost|127\.0\.0\.1|::1)$/i.test(cleanHost) ||
+    process.env.PREVIEW_SMTP_ALLOW_UNLISTED_SINK === 'true';
+
+  return isApprovedSink;
+}
+
+/**
  * Returns server-side provider status without exposing credentials.
  */
 export function getEmailProviderDiagnostics(): {
@@ -191,36 +231,53 @@ export function getEmailProviderDiagnostics(): {
   hasSmtpConfig: boolean;
   senderAddress: string;
   isProduction: boolean;
+  isPreview: boolean;
 } {
+  const isPreview = isPreviewEnvironment();
+  const isProduction = isProductionEnvironment();
   const hasResend = Boolean(process.env.RESEND_API_KEY?.trim());
-  const hasSmtp = Boolean(
+  const hasProductionSmtp = Boolean(
     process.env.SMTP_HOST?.trim() && process.env.SMTP_USER?.trim() && process.env.SMTP_PASS?.trim()
   );
-  const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+  const previewSmtpHost = process.env.PREVIEW_SMTP_HOST?.trim();
+  const hasApprovedPreviewSmtp = Boolean(
+    previewSmtpHost &&
+    process.env.PREVIEW_SMTP_USER?.trim() &&
+    process.env.PREVIEW_SMTP_PASS?.trim() &&
+    isApprovedPreviewSmtpHost(previewSmtpHost)
+  );
 
   let activeProvider: EmailProviderType | 'none' = 'none';
-  if (hasResend) activeProvider = 'resend';
-  else if (hasSmtp) activeProvider = 'smtp';
-  else if (!isProduction) activeProvider = 'json_transport';
+  if (isPreview) {
+    activeProvider = hasApprovedPreviewSmtp ? 'smtp' : 'preview_sink';
+  } else if (hasResend) {
+    activeProvider = 'resend';
+  } else if (hasProductionSmtp) {
+    activeProvider = 'smtp';
+  } else if (!isProduction) {
+    activeProvider = 'json_transport';
+  }
 
   return {
     activeProvider,
     hasResendKey: hasResend,
-    hasSmtpConfig: hasSmtp,
+    hasSmtpConfig: isPreview ? hasApprovedPreviewSmtp : hasProductionSmtp,
     senderAddress: resolveSenderAddress(),
     isProduction,
+    isPreview,
   };
 }
 
 /**
  * Sends outbound email via the primary configured provider with fallback.
  * Provider Priority:
- *  1. Resend REST API (when RESEND_API_KEY is configured)
- *  2. SMTP via Nodemailer (when SMTP credentials are configured)
- *  3. JSON Transport (development / simulation only - NEVER in production)
+ *  - Preview Environment: Intercepted via Preview SMTP sink or Preview Mock/JSON sink. Resend is NEVER called.
+ *  - Production Environment: Resend REST API (when RESEND_API_KEY is configured) -> SMTP. NEVER JSON transport.
+ *  - Development Environment: Resend (if configured) -> SMTP -> JSON Transport simulation.
  */
 export async function sendEmail(options: SendEmailOptions): Promise<EmailSendResult> {
-  const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+  const isPreview = isPreviewEnvironment();
+  const isProduction = isProductionEnvironment();
   const resendApiKey = process.env.RESEND_API_KEY?.trim();
   const fromAddress = resolveSenderAddress(options.from);
 
@@ -238,6 +295,104 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
     replyToArray = Array.isArray(options.replyTo)
       ? options.replyTo.map((r) => r.trim()).filter(Boolean)
       : [options.replyTo.trim()].filter(Boolean);
+  }
+
+  // --- PREVIEW ENVIRONMENT ISOLATION GUARD ---
+  // In Vercel Preview deployments, never dispatch real outbound emails via Resend.
+  // Resend is strictly blocked to protect students, parents, partners, and live recipients.
+  if (isPreview) {
+    const previewSmtpHost = process.env.PREVIEW_SMTP_HOST?.trim();
+    const previewSmtpUser = process.env.PREVIEW_SMTP_USER?.trim();
+    const previewSmtpPass = process.env.PREVIEW_SMTP_PASS?.trim();
+    const previewSmtpPort = Number(process.env.PREVIEW_SMTP_PORT) || 587;
+
+    // Strict Guard: Host must be explicitly approved and not collide with production SMTP
+    const isApprovedSink = isApprovedPreviewSmtpHost(previewSmtpHost);
+
+    if (previewSmtpHost && previewSmtpUser && previewSmtpPass && isApprovedSink) {
+      try {
+        const testTransporter = nodemailer.createTransport({
+          host: previewSmtpHost,
+          port: previewSmtpPort,
+          secure: previewSmtpPort === 465,
+          auth: { user: previewSmtpUser, pass: previewSmtpPass },
+        });
+
+        const mailOptions: any = {
+          from: fromAddress,
+          to: recipientString,
+          replyTo: replyToArray && replyToArray.length > 0 ? replyToArray.join(', ') : undefined,
+          subject: `[PREVIEW SINK] ${options.subject}`,
+          html: options.html,
+          text: options.text,
+        };
+
+        if (options.attachments && options.attachments.length > 0) {
+          mailOptions.attachments = options.attachments.map((att) => ({
+            filename: att.filename,
+            content: att.content,
+            contentType: att.contentType,
+          }));
+        }
+
+        const info = await testTransporter.sendMail(mailOptions);
+        return {
+          success: true,
+          messageId: info.messageId || `preview_smtp_${Date.now()}`,
+          recipient: recipientString,
+          sentAt: new Date().toISOString(),
+          transport: 'preview_test_smtp',
+          provider: 'smtp',
+          status: 'Accepted by provider',
+          idempotencyKey: options.idempotencyKey,
+          details: {
+            previewMode: true,
+            sink: 'Dedicated Preview SMTP Sink',
+          },
+        };
+      } catch (smtpErr: any) {
+        console.error('[Preview SMTP Sink Error]', smtpErr?.message || smtpErr);
+      }
+    }
+
+    // Default Preview Mock Sink: captures email cleanly using JSON transport without contacting external networks
+    const previewTransporter = nodemailer.createTransport({ jsonTransport: true });
+    const previewMailOptions: any = {
+      from: fromAddress,
+      to: recipientString,
+      replyTo: replyToArray && replyToArray.length > 0 ? replyToArray.join(', ') : undefined,
+      subject: options.subject,
+      html: options.html,
+      text: options.text,
+    };
+
+    if (options.attachments && options.attachments.length > 0) {
+      previewMailOptions.attachments = options.attachments.map((att) => ({
+        filename: att.filename,
+        contentType: att.contentType,
+      }));
+    }
+
+    const info = await previewTransporter.sendMail(previewMailOptions);
+
+    return {
+      success: true,
+      messageId: `preview_sink_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+      recipient: recipientString,
+      sentAt: new Date().toISOString(),
+      transport: 'preview_sink',
+      provider: 'json_transport',
+      status: 'Accepted by provider',
+      idempotencyKey: options.idempotencyKey,
+      details: {
+        previewMode: true,
+        isolated: true,
+        rawMessageId: info.messageId,
+        notice: 'Preview email intercepted and routed to mock sink. No external delivery.',
+        subject: options.subject,
+        to: recipientList,
+      },
+    };
   }
 
   // --- PROVIDER 1: RESEND REST API ---
