@@ -715,9 +715,9 @@ export async function executeTransform(
            SET transform_status = 'PROVISIONED',
                provisioned_user_id = $1,
                provisioned_user_identifier = $2,
-               email_status = $3,
+               email_status = $3::VARCHAR,
                email_error = $4,
-               email_sent_at = CASE WHEN $3 = 'SENT' THEN CURRENT_TIMESTAMP ELSE NULL END,
+               email_sent_at = CASE WHEN ($3::VARCHAR) = 'SENT' THEN CURRENT_TIMESTAMP ELSE NULL END,
                error_message = $5,
                execution_lock_id = NULL
            WHERE id = $6 AND execution_lock_id = $7`,
