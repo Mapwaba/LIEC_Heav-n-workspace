@@ -1,0 +1,133 @@
+# ============================================================================
+# LIEC Heav'n - PostgreSQL Bulk Insert Fix Verification Launcher
+# ============================================================================
+# Target: Non-Production PostgreSQL Test Environment (e.g. Preview DB)
+# Strictly uses atomic transactions with ROLLBACK (Zero persistent writes).
+# ============================================================================
+
+[Console]::Title = "LIEC Heav'n - PostgreSQL Bulk Insert Fix Verification"
+Clear-Host
+
+Write-Host "===============================================================" -ForegroundColor Cyan
+Write-Host "LIEC Heav'n - PostgreSQL Bulk Insert Fix Verification Suite" -ForegroundColor White
+Write-Host "Target Architecture: Non-Production PostgreSQL (e.g. Preview DB)" -ForegroundColor Yellow
+Write-Host "Transaction Mode:    ATOMIC ISOLATED ROLLBACK (Zero DB Mutation)" -ForegroundColor Green
+Write-Host "===============================================================" -ForegroundColor Cyan
+Write-Host ""
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+function Get-MaskedCredential {
+    try {
+        $form = New-Object System.Windows.Forms.Form
+        $form.Text = "LIEC Heav'n - PostgreSQL Fix Verification"
+        $form.Size = New-Object System.Drawing.Size(580, 280)
+        $form.StartPosition = "CenterScreen"
+        $form.TopMost = $true
+        $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
+        $form.MaximizeBox = $false
+        $form.MinimizeBox = $false
+        $form.ShowInTaskbar = $true
+
+        $labelTitle = New-Object System.Windows.Forms.Label
+        $labelTitle.Location = New-Object System.Drawing.Point(20, 15)
+        $labelTitle.Size = New-Object System.Drawing.Size(520, 25)
+        $labelTitle.Text = "LIEC Heav'n - Non-Production PostgreSQL Verification"
+        $labelTitle.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+        $form.Controls.Add($labelTitle)
+
+        $labelInfo = New-Object System.Windows.Forms.Label
+        $labelInfo.Location = New-Object System.Drawing.Point(20, 45)
+        $labelInfo.Size = New-Object System.Drawing.Size(520, 40)
+        $labelInfo.Text = "Paste the Direct Connection String for your Non-Production PostgreSQL database (e.g. ep-wispy-firefly-b9el08l7):"
+        $labelInfo.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+        $form.Controls.Add($labelInfo)
+
+        $txtPassword = New-Object System.Windows.Forms.TextBox
+        $txtPassword.Location = New-Object System.Drawing.Point(20, 95)
+        $txtPassword.Size = New-Object System.Drawing.Size(520, 25)
+        $txtPassword.UseSystemPasswordChar = $true
+        $txtPassword.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+        $form.Controls.Add($txtPassword)
+
+        $labelStatus = New-Object System.Windows.Forms.Label
+        $labelStatus.Location = New-Object System.Drawing.Point(20, 130)
+        $labelStatus.Size = New-Object System.Drawing.Size(520, 20)
+        $labelStatus.ForeColor = [System.Drawing.Color]::DarkRed
+        $form.Controls.Add($labelStatus)
+
+        $btnSubmit = New-Object System.Windows.Forms.Button
+        $btnSubmit.Text = "Run PostgreSQL Tests"
+        $btnSubmit.Location = New-Object System.Drawing.Point(180, 175)
+        $btnSubmit.Size = New-Object System.Drawing.Size(200, 35)
+        $btnSubmit.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+        $btnSubmit.DialogResult = [System.Windows.Forms.DialogResult]::OK
+
+        $btnCancel = New-Object System.Windows.Forms.Button
+        $btnCancel.Text = "Cancel"
+        $btnCancel.Location = New-Object System.Drawing.Point(395, 175)
+        $btnCancel.Size = New-Object System.Drawing.Size(110, 35)
+        $btnCancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+
+        $btnSubmit.Add_Click({
+            $val = $txtPassword.Text.Trim()
+            if ([string]::IsNullOrWhiteSpace($val)) {
+                $labelStatus.Text = "Connection string cannot be empty."
+                $form.DialogResult = [System.Windows.Forms.DialogResult]::None
+                return
+            }
+            if (-not ($val -match "^postgres(ql)?://")) {
+                $labelStatus.Text = "Invalid format: must start with postgresql:// or postgres://"
+                $form.DialogResult = [System.Windows.Forms.DialogResult]::None
+                return
+            }
+            if ($val -match "ep-silent-recipe-b9ahkke2") {
+                $labelStatus.Text = "REJECTED: Points to Production endpoint ep-silent-recipe-b9ahkke2!"
+                $form.DialogResult = [System.Windows.Forms.DialogResult]::None
+                return
+            }
+            $form.Tag = $val
+        })
+
+        $form.Controls.Add($btnSubmit)
+        $form.Controls.Add($btnCancel)
+        $form.AcceptButton = $btnSubmit
+        $form.CancelButton = $btnCancel
+
+        $result = $form.ShowDialog()
+        if ($result -eq [System.Windows.Forms.DialogResult]::OK -and $form.Tag) {
+            return $form.Tag
+        }
+        return $null
+    } catch {
+        Write-Error "Windows Forms Error: $_"
+        return $null
+    }
+}
+
+$connStr = Get-MaskedCredential
+
+if ([string]::IsNullOrWhiteSpace($connStr)) {
+    Write-Host "[!] Verification cancelled by user or empty input." -ForegroundColor Yellow
+    exit 1
+}
+
+Write-Host "[+] Connection string received securely." -ForegroundColor Green
+Write-Host "[+] Launching automated PostgreSQL fix test suite (Atomic ROLLBACK)..." -ForegroundColor Cyan
+
+$workspace = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location $workspace
+
+$env:NON_PROD_DATABASE_URL = $connStr
+node "$workspace\tests\test_postgres_bulk_insert_fix.mjs"
+$exitCode = $LASTEXITCODE
+
+Remove-Item Env:\NON_PROD_DATABASE_URL -ErrorAction SilentlyContinue
+
+if ($exitCode -eq 0) {
+    Write-Host "`n[PASS] All PostgreSQL fix verification tests passed successfully!" -ForegroundColor Green
+} else {
+    Write-Host "`n[FAIL] Test suite failed with exit code $exitCode." -ForegroundColor Red
+}
+exit $exitCode

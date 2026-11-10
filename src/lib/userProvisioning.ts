@@ -275,7 +275,7 @@ export async function provisionUserAccount(
     )
      VALUES (
        $1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, $11, TRUE,
-       $12, CASE WHEN $12 IS NOT NULL THEN CURRENT_TIMESTAMP + INTERVAL '24 hours' ELSE NULL END
+       $12::VARCHAR, CASE WHEN ($12::VARCHAR) IS NOT NULL THEN CURRENT_TIMESTAMP + INTERVAL '24 hours' ELSE NULL END
      )
      RETURNING id, name, first_name, last_name, user_id, email, business_profile, role, title, initials, active, must_change_password`,
     [
