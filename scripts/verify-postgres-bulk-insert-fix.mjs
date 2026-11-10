@@ -46,7 +46,21 @@ async function getConnectionString() {
   if (process.env.PREVIEW_DATABASE_URL) {
     return process.env.PREVIEW_DATABASE_URL;
   }
-  // Try reading from stdin
+  // Check for gitignored local headless configuration file
+  const envPreviewPath = path.join(workspaceDir, '.env.preview');
+  if (fs.existsSync(envPreviewPath)) {
+    const content = fs.readFileSync(envPreviewPath, 'utf8');
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('PREVIEW_DATABASE_URL=') || trimmed.startsWith('DATABASE_URL=')) {
+        const val = trimmed.slice(trimmed.indexOf('=') + 1).trim().replace(/^["']|["']$/g, '');
+        if (val) return val;
+      } else if (trimmed.startsWith('postgres://') || trimmed.startsWith('postgresql://')) {
+        return trimmed.replace(/^["']|["']$/g, '');
+      }
+    }
+  }
+  // Try reading from stdin (with 2-second timeout if not piped)
   return new Promise((resolve) => {
     let input = '';
     const rl = readline.createInterface({
@@ -54,10 +68,16 @@ async function getConnectionString() {
       output: process.stdout,
       terminal: false,
     });
+    const timer = setTimeout(() => {
+      rl.close();
+      resolve(input.trim());
+    }, 2000);
     rl.on('line', (line) => {
+      clearTimeout(timer);
       input += line.trim();
     });
     rl.on('close', () => {
+      clearTimeout(timer);
       resolve(input.trim());
     });
   });
