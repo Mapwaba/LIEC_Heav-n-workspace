@@ -95,25 +95,15 @@ export const PARTNER_SCHOOLS_LYON = [
   },
 ];
 
-async function initSchemaAndSeed(client: DBClient) {
-  const schemaPath = path.join(process.cwd(), 'database', 'schema.sql');
-  if (fs.existsSync(schemaPath)) {
-    try {
-      const schemaSql = fs.readFileSync(schemaPath, 'utf-8');
-      await client.exec(schemaSql);
-    } catch (e) {
-      console.warn('Notice: Could not execute database/schema.sql file:', e);
-    }
-  }
-
-  // Ensure all base tables exist (vital for serverless deployments like Vercel/Lambda)
+export async function initSchemaDDL(client: DBClient): Promise<void> {
+  // Ensure all base tables, constraints and indexes exist (pure DDL)
   await client.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       name VARCHAR(120) NOT NULL,
       first_name VARCHAR(60),
       last_name VARCHAR(60),
-      user_id VARCHAR(60) UNIQUE,
+      user_id VARCHAR(60),
       email VARCHAR(160) UNIQUE NOT NULL,
       business_profile VARCHAR(50) NOT NULL DEFAULT 'Secretary',
       role VARCHAR(50) NOT NULL DEFAULT 'secretary',
@@ -127,10 +117,11 @@ async function initSchemaAndSeed(client: DBClient) {
       password_updated_at TIMESTAMP WITH TIME ZONE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE UNIQUE INDEX IF NOT EXISTS users_user_id_unique_idx ON users (LOWER(user_id));
 
     CREATE TABLE IF NOT EXISTS demandes (
       id SERIAL PRIMARY KEY,
-      ref VARCHAR(50) UNIQUE NOT NULL,
+      ref VARCHAR(40) UNIQUE NOT NULL,
       initials VARCHAR(10) NOT NULL,
       full_name VARCHAR(150) NOT NULL,
       email VARCHAR(160) NOT NULL,
@@ -140,55 +131,63 @@ async function initSchemaAndSeed(client: DBClient) {
       graduation_year VARCHAR(10),
       current_activity VARCHAR(25),
       final_year_university VARCHAR(10),
-      whatsapp_verified BOOLEAN DEFAULT TRUE,
-      country_code VARCHAR(10) DEFAULT 'CD',
-      flag VARCHAR(10) DEFAULT '🇨🇩',
-      country_name VARCHAR(100) DEFAULT 'RDC',
-      city VARCHAR(120) DEFAULT 'Kinshasa',
+      whatsapp_verified BOOLEAN NOT NULL DEFAULT TRUE,
+      country_code VARCHAR(10) NOT NULL DEFAULT 'CD',
+      flag VARCHAR(16) NOT NULL DEFAULT '🇨🇩',
+      country_name VARCHAR(100) NOT NULL,
+      city VARCHAR(100) NOT NULL,
       nationality VARCHAR(100) DEFAULT 'Congolaise (RDC)',
       sexe VARCHAR(30) DEFAULT 'Male',
       program VARCHAR(255) NOT NULL,
       service_pole VARCHAR(120) NOT NULL,
-      target_cities VARCHAR(150) DEFAULT 'Lyon',
-      current_level VARCHAR(100) DEFAULT 'Licence',
-      budget_range VARCHAR(100) DEFAULT '8 500 € – 10 000 € / an',
-      status VARCHAR(60) DEFAULT 'Nouvelle',
-      adviser VARCHAR(100) DEFAULT 'Barthelemy MAPWABA NTORO',
-      application_year VARCHAR(20),
-      expected_start VARCHAR(60) DEFAULT 'Septembre 2025',
+      target_cities VARCHAR(200) DEFAULT 'Lyon (Exclusif)',
+      current_level VARCHAR(200) DEFAULT 'Licence 3 - Mention Bien',
+      budget_range VARCHAR(120) DEFAULT '8 500 € – 10 000 € / an',
+      status VARCHAR(50) NOT NULL DEFAULT 'Nouvelle',
+      adviser VARCHAR(120) DEFAULT 'Barthelemy MAPWABA NTORO',
+      expected_start VARCHAR(50) DEFAULT 'Septembre 2025',
       message TEXT,
-      submitted_at VARCHAR(60) DEFAULT 'Just now',
-      is_dashboard_recent BOOLEAN DEFAULT TRUE,
-      is_archived BOOLEAN DEFAULT FALSE,
+      submitted_at VARCHAR(100) NOT NULL DEFAULT 'Soumis le 25 Octobre 2025 à 16:42',
+      is_dashboard_recent BOOLEAN NOT NULL DEFAULT FALSE,
+      is_archived BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS demande_notes (
       id SERIAL PRIMARY KEY,
-      demande_ref VARCHAR(50) NOT NULL,
-      author VARCHAR(100) NOT NULL,
-      timestamp_label VARCHAR(60) DEFAULT 'Today',
+      demande_ref VARCHAR(40) NOT NULL,
+      author VARCHAR(120) NOT NULL,
+      timestamp_label VARCHAR(80) NOT NULL,
       content TEXT NOT NULL,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS prospects (
       id SERIAL PRIMARY KEY,
-      ref VARCHAR(50) UNIQUE NOT NULL,
       full_name VARCHAR(150) NOT NULL,
-      initials VARCHAR(10) NOT NULL,
-      program VARCHAR(180) NOT NULL,
-      stage VARCHAR(50) NOT NULL DEFAULT 'lead',
-      email VARCHAR(160),
-      phone VARCHAR(60),
-      country VARCHAR(100) DEFAULT 'RDC',
-      city VARCHAR(100) DEFAULT 'Kinshasa',
+      stage VARCHAR(50) NOT NULL DEFAULT 'nouveau',
+      badge_text VARCHAR(60) NOT NULL,
+      badge_tone VARCHAR(30) NOT NULL DEFAULT 'neutral',
+      flag VARCHAR(16) NOT NULL DEFAULT '🇨🇩',
+      country_city VARCHAR(120) NOT NULL,
+      program_tag VARCHAR(140) NOT NULL,
+      program_tag_tone VARCHAR(30) NOT NULL DEFAULT 'mint',
+      highlight_box VARCHAR(180),
+      meta_left VARCHAR(120) NOT NULL,
+      meta_right VARCHAR(120) NOT NULL,
+      meta_right_tone VARCHAR(30) DEFAULT 'teal',
+      adviser_initials VARCHAR(10) NOT NULL DEFAULT 'BM',
+      adviser_name VARCHAR(100) NOT NULL DEFAULT 'Barthelemy MAPWABA NTORO',
+      adviser_color VARCHAR(30) NOT NULL DEFAULT 'navy',
+      estimated_value INTEGER NOT NULL DEFAULT 1800,
+      is_urgent BOOLEAN NOT NULL DEFAULT FALSE,
+      is_prepa BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS candidats (
       id SERIAL PRIMARY KEY,
-      ref VARCHAR(50) UNIQUE NOT NULL,
+      ref VARCHAR(40) UNIQUE NOT NULL,
       initials VARCHAR(10) NOT NULL,
       full_name VARCHAR(160) NOT NULL,
       avatar_url VARCHAR(255),
@@ -196,13 +195,13 @@ async function initSchemaAndSeed(client: DBClient) {
       cities VARCHAR(140) NOT NULL,
       sexe VARCHAR(30) DEFAULT 'Male',
       adviser VARCHAR(120) NOT NULL DEFAULT 'Barthelemy MAPWABA NTORO',
-      stage_badge VARCHAR(60) NOT NULL DEFAULT 'Jalon 1',
+      stage_badge VARCHAR(60) NOT NULL DEFAULT 'En cours (Jalon 2)',
       stage_badge_tone VARCHAR(30) NOT NULL DEFAULT 'teal',
-      progress_pct INTEGER NOT NULL DEFAULT 25,
-      status_left VARCHAR(80) NOT NULL DEFAULT 'Dossier à 25%',
-      status_right VARCHAR(80) NOT NULL DEFAULT 'J-30 CF',
-      email VARCHAR(160) DEFAULT 'candidat@liec.edu',
-      phone VARCHAR(60) DEFAULT '+243 81 000 0000',
+      progress_pct INTEGER NOT NULL DEFAULT 65,
+      status_left VARCHAR(80) NOT NULL DEFAULT 'Dossier à 65%',
+      status_right VARCHAR(80) NOT NULL DEFAULT 'J-14 CF',
+      email VARCHAR(160) DEFAULT 'd.kabangele@unikin.ac.cd',
+      phone VARCHAR(60) DEFAULT '+243 81 552 1904',
       parent_full_name VARCHAR(150),
       parent_phone VARCHAR(30),
       graduation_year VARCHAR(10),
@@ -210,14 +209,14 @@ async function initSchemaAndSeed(client: DBClient) {
       final_year_university VARCHAR(10),
       country VARCHAR(100) DEFAULT 'RDC (Kinshasa)',
       nationality VARCHAR(100) DEFAULT 'Congolaise (RDC)',
-      current_diploma VARCHAR(180) DEFAULT 'Licence',
-      tcf_score VARCHAR(100) DEFAULT 'TCF B2',
-      garant_info VARCHAR(220) DEFAULT 'Dossier AVI',
-      interview_date VARCHAR(100) DEFAULT '15 Novembre 2025',
-      jalons_json TEXT DEFAULT '[]',
-      voeux_json TEXT DEFAULT '[]',
-      notes_json TEXT DEFAULT '[]',
-      pieces_json TEXT DEFAULT '[]',
+      current_diploma VARCHAR(180) DEFAULT 'Licence Informatique (Mention TB) - UNIKIN',
+      tcf_score VARCHAR(100) DEFAULT 'TCF B2 (540 pts) certifié',
+      garant_info VARCHAR(220) DEFAULT 'Oncle résidant à Villeurbanne en CDI (Revenus vérifiés)',
+      interview_date VARCHAR(120) DEFAULT '04 Novembre 2025',
+      jalons_json TEXT NOT NULL DEFAULT '[]',
+      voeux_json TEXT NOT NULL DEFAULT '[]',
+      notes_json TEXT NOT NULL DEFAULT '[]',
+      pieces_json TEXT NOT NULL DEFAULT '[]',
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -225,49 +224,70 @@ async function initSchemaAndSeed(client: DBClient) {
       id SERIAL PRIMARY KEY,
       title VARCHAR(160) NOT NULL,
       description TEXT NOT NULL,
-      priority VARCHAR(40) NOT NULL DEFAULT 'Moderate',
-      action_label VARCHAR(80) NOT NULL DEFAULT 'Open',
+      priority VARCHAR(30) NOT NULL DEFAULT 'Urgent',
+      action_label VARCHAR(120) NOT NULL,
       target_module VARCHAR(60) NOT NULL DEFAULT 'demandes',
       completed BOOLEAN NOT NULL DEFAULT FALSE,
-      role_queue VARCHAR(50) NOT NULL DEFAULT 'adviser',
+      role_queue VARCHAR(50) NOT NULL DEFAULT 'all',
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS avi_requests (
       id SERIAL PRIMARY KEY,
-      ref VARCHAR(50) UNIQUE NOT NULL,
+      ref VARCHAR(40) UNIQUE NOT NULL,
       parent_name VARCHAR(150) NOT NULL,
-      student_name VARCHAR(150) NOT NULL,
-      country VARCHAR(80) NOT NULL,
-      amount NUMERIC(12,2) NOT NULL,
-      status VARCHAR(60) NOT NULL DEFAULT 'pending',
+      country VARCHAR(100) NOT NULL,
+      town VARCHAR(100) NOT NULL,
+      nationality VARCHAR(100) NOT NULL,
       physical_address VARCHAR(220) DEFAULT 'Avenue de la Gombe, Kinshasa',
+      occupation VARCHAR(160) NOT NULL,
+      phone VARCHAR(60) NOT NULL,
+      email VARCHAR(160) NOT NULL,
       other_guarantor BOOLEAN NOT NULL DEFAULT FALSE,
       guarantor_details TEXT DEFAULT '',
+      expected_start VARCHAR(40) NOT NULL,
+      student_name VARCHAR(150) NOT NULL,
+      student_program VARCHAR(160) NOT NULL,
+      student_id_doc VARCHAR(100) NOT NULL,
+      offer_key VARCHAR(40) NOT NULL DEFAULT 'classique',
+      offer_name VARCHAR(80) NOT NULL DEFAULT 'Classique',
+      interest_rate NUMERIC(5,2) NOT NULL DEFAULT 12.00,
+      duration_months INTEGER NOT NULL DEFAULT 8,
       principal_eur NUMERIC(12,2) NOT NULL DEFAULT 2800.00,
+      principal_usd NUMERIC(12,2) NOT NULL DEFAULT 3043.48,
       principal_xaf NUMERIC(14,2) NOT NULL DEFAULT 1836680.00,
+      usd_eur_rate NUMERIC(10,4) NOT NULL DEFAULT 0.9200,
+      usd_xaf_rate NUMERIC(10,2) NOT NULL DEFAULT 603.48,
       total_interest_eur NUMERIC(10,2) NOT NULL DEFAULT 336.00,
+      liec_fee_usd NUMERIC(10,2) NOT NULL DEFAULT 150.00,
+      files_count INTEGER NOT NULL DEFAULT 3,
       supporting_docs TEXT DEFAULT '',
+      status VARCHAR(60) NOT NULL DEFAULT 'Submitted to YIMMILINE',
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS prepa_cohorts (
       id SERIAL PRIMARY KEY,
-      code VARCHAR(50) UNIQUE NOT NULL,
-      title VARCHAR(150) NOT NULL,
-      student_count INTEGER NOT NULL DEFAULT 0,
-      target_school VARCHAR(150) NOT NULL,
-      status VARCHAR(50) NOT NULL DEFAULT 'active',
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      code VARCHAR(40) UNIQUE NOT NULL,
+      name VARCHAR(150) NOT NULL,
+      campus VARCHAR(100) NOT NULL,
+      start_date VARCHAR(80) NOT NULL,
+      enrolled_count INTEGER NOT NULL DEFAULT 24,
+      capacity INTEGER NOT NULL DEFAULT 30,
+      lead_instructor VARCHAR(120) NOT NULL,
+      status VARCHAR(50) NOT NULL DEFAULT 'Inscriptions ouvertes'
     );
 
     CREATE TABLE IF NOT EXISTS invoices (
       id SERIAL PRIMARY KEY,
-      ref VARCHAR(50) UNIQUE NOT NULL,
-      client_name VARCHAR(150) NOT NULL,
-      amount NUMERIC(12,2) NOT NULL,
-      status VARCHAR(50) NOT NULL DEFAULT 'unpaid',
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      ref VARCHAR(40) UNIQUE NOT NULL,
+      student_name VARCHAR(150) NOT NULL,
+      service_label VARCHAR(160) NOT NULL,
+      amount_eur NUMERIC(10,2) NOT NULL,
+      paid_eur NUMERIC(10,2) NOT NULL,
+      recipient VARCHAR(80) NOT NULL DEFAULT 'LIEC Education',
+      status VARCHAR(50) NOT NULL DEFAULT 'Partiellement payé',
+      issued_date VARCHAR(60) NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS audit_logs (
@@ -378,11 +398,9 @@ async function initSchemaAndSeed(client: DBClient) {
       description TEXT NOT NULL,
       safeguards TEXT NOT NULL,
       active BOOLEAN NOT NULL DEFAULT TRUE,
-      password_hash VARCHAR(255),
-      password_salt VARCHAR(64),
-      must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
-      last_login TIMESTAMP WITH TIME ZONE,
-      password_updated_at TIMESTAMP WITH TIME ZONE,
+      timeout_minutes INTEGER NOT NULL DEFAULT 15 CHECK (timeout_minutes >= 10 AND timeout_minutes <= 30),
+      suspended_at TIMESTAMP WITH TIME ZONE,
+      suspended_by VARCHAR(120),
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -458,52 +476,7 @@ async function initSchemaAndSeed(client: DBClient) {
     ALTER TABLE demande_notes ADD COLUMN IF NOT EXISTS timestamp_label VARCHAR(60) DEFAULT 'Today';
     ALTER TABLE demandes ADD COLUMN IF NOT EXISTS application_year VARCHAR(20);
 
-    -- Seed Technical Roles from RBAC Specification if empty
-    INSERT INTO roles (role_id, role_name, business_profile, description, safeguards, active) VALUES
-      ('admin', 'Platform Administrator', 'Admin', 'Highest privilege. Assign only to trusted administrators.', 'Assign only to trusted administrators; log assignments and removals.', TRUE),
-      ('lh_security_admin', 'Security Administrator', 'Admin', 'Security administration. Limit access to security configuration and sensitive controls.', 'Limit access to security configuration and sensitive controls.', TRUE),
-      ('ITIL', 'ITIL Workflow Operator', 'Secretary', 'Secretary workflows (as configured). Applicant intake and administrative tracking.', 'Do not assume this role means full administrator access. Verify permissions and inherited access.', TRUE),
-      ('lh_internal', 'Internal Application Access', 'Secretary', 'Internal application access. Restrict to applicant intake, assigned records, comments and history.', 'Restrict to applicant intake, assigned records, comments and history.', TRUE),
-      ('lh_finance', 'Finance & AVI Officer', 'Finance Officer', 'AVI and parent-financing operations, YIMMILINE desk calculations and loan requests.', 'Restrict to AVI-related functions and records; do not grant unrelated finance or system configuration access.', TRUE),
-      ('secretary', 'Secretary (Intake & Admissions)', 'Secretary', 'Intake officer and applicant management operations.', 'Limit to applicant registration and admissions tracking.', TRUE),
-      ('avi', 'Finance Officer (Blocked Account / AVI)', 'Finance Officer', 'Guichet AVI and loan verification operator.', 'Restrict to AVI desk operations.', TRUE)
-    ON CONFLICT (role_id) DO NOTHING;
-
-    -- Seed Default Role Session Timeouts (Enforces 10 to 30 min Range)
-    INSERT INTO role_session_timeouts (role_id, role_name, business_profile, timeout_minutes, updated_by) VALUES
-      ('admin', 'Platform Administrator (Admin / Self)', 'Admin', 15, 'System Initializer'),
-      ('lh_security_admin', 'Security Administrator', 'Admin', 15, 'System Initializer'),
-      ('secretary', 'Secretary (Admissions & Intake)', 'Secretary', 20, 'System Initializer'),
-      ('ITIL', 'ITIL Workflow Operator', 'Secretary', 20, 'System Initializer'),
-      ('lh_internal', 'Internal Application Access', 'Secretary', 20, 'System Initializer'),
-      ('avi', 'Finance Officer (Blocked Account / AVI)', 'Finance Officer', 15, 'System Initializer'),
-      ('lh_finance', 'Finance & AVI Officer', 'Finance Officer', 15, 'System Initializer')
-    ON CONFLICT (role_id) DO NOTHING;
-
-    -- Ensure Admin user exists with default credentials
-    INSERT INTO users (id, name, first_name, last_name, user_id, email, business_profile, role, title, initials, active)
-    VALUES (1, 'Barthelemy MAPWABA NTORO', 'Barthelemy', 'MAPWABA NTORO', 'bmapwaba', 'bmapwabantoro@liecconsulting.com', 'Admin', 'admin', 'Platform Administrator & Managing Director', 'BM', TRUE)
-    ON CONFLICT (email) DO UPDATE SET
-      name = 'Barthelemy MAPWABA NTORO',
-      first_name = COALESCE(users.first_name, 'Barthelemy'),
-      last_name = COALESCE(users.last_name, 'MAPWABA NTORO'),
-      user_id = COALESCE(users.user_id, 'bmapwaba'),
-      business_profile = 'Admin',
-      role = 'admin',
-      title = 'Platform Administrator & Managing Director',
-      initials = 'BM',
-      active = TRUE;
-
-    INSERT INTO user_roles (user_id, role_id, assigned_by)
-    SELECT u.id, 'admin', 'System Initializer' FROM users u WHERE LOWER(u.email) = 'bmapwabantoro@liecconsulting.com'
-    ON CONFLICT (user_id, role_id) DO NOTHING;
-
-    INSERT INTO user_roles (user_id, role_id, assigned_by)
-    SELECT u.id, 'lh_security_admin', 'System Initializer' FROM users u WHERE LOWER(u.email) = 'bmapwabantoro@liecconsulting.com'
-    ON CONFLICT (user_id, role_id) DO NOTHING;
-  `);
-// Ensure new AVI columns exist on existing database tables
-  await client.exec(`
+    -- Ensure new AVI columns exist on existing database tables
     ALTER TABLE avi_requests ADD COLUMN IF NOT EXISTS physical_address VARCHAR(220) DEFAULT 'Avenue de la Gombe, Kinshasa';
     ALTER TABLE avi_requests ADD COLUMN IF NOT EXISTS other_guarantor BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE avi_requests ADD COLUMN IF NOT EXISTS guarantor_details TEXT DEFAULT '';
@@ -561,7 +534,6 @@ async function initSchemaAndSeed(client: DBClient) {
     ALTER TABLE candidats ADD COLUMN IF NOT EXISTS history_json TEXT DEFAULT '[]';
 
     ALTER TABLE avi_requests ADD COLUMN IF NOT EXISTS student_ref VARCHAR(50);
-    UPDATE avi_requests SET student_ref = '#CAN-2025-042' WHERE student_name ILIKE '%Kabangele%' AND (student_ref IS NULL OR student_ref = '');
 
     CREATE TABLE IF NOT EXISTS parent_student_links (
       id SERIAL PRIMARY KEY,
@@ -600,30 +572,6 @@ async function initSchemaAndSeed(client: DBClient) {
       content TEXT NOT NULL,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
-
-    CREATE TABLE IF NOT EXISTS user_notification_reads (
-      id SERIAL PRIMARY KEY,
-      user_email VARCHAR(160) NOT NULL,
-      notification_id VARCHAR(100) NOT NULL,
-      read_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(user_email, notification_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS accommodation_access_tokens (
-      id SERIAL PRIMARY KEY,
-      token_hash VARCHAR(64) UNIQUE NOT NULL,
-      request_ref VARCHAR(50) NOT NULL,
-      partner_id VARCHAR(50) NOT NULL,
-      partner_email VARCHAR(160) NOT NULL,
-      document_ids TEXT NOT NULL DEFAULT '[]',
-      expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-      revoked BOOLEAN NOT NULL DEFAULT FALSE,
-      revoked_at TIMESTAMP WITH TIME ZONE,
-      revoked_by VARCHAR(120),
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE INDEX IF NOT EXISTS idx_acc_tokens_hash ON accommodation_access_tokens(token_hash);
-    CREATE INDEX IF NOT EXISTS idx_acc_tokens_ref ON accommodation_access_tokens(request_ref);
 
     ALTER TABLE candidats ADD COLUMN IF NOT EXISTS application_year VARCHAR(30) DEFAULT '2027–2028';
     ALTER TABLE candidats ADD COLUMN IF NOT EXISTS qualified_at TIMESTAMP WITH TIME ZONE;
@@ -713,61 +661,155 @@ async function initSchemaAndSeed(client: DBClient) {
     ALTER TABLE accommodation_requests ADD COLUMN IF NOT EXISTS confirmation_doc_name VARCHAR(255);
     ALTER TABLE accommodation_requests ADD COLUMN IF NOT EXISTS decline_reason TEXT;
     ALTER TABLE accommodation_requests ADD COLUMN IF NOT EXISTS cancellation_reason TEXT;
-  `);
 
-  // Ensure Admin profile and technical roles are ALWAYS preserved
-  await client.exec(`
-    UPDATE users SET business_profile = 'Admin', role = 'admin', active = TRUE
-    WHERE LOWER(email) = 'bmapwabantoro@liecconsulting.com';
-
-    INSERT INTO user_roles (user_id, role_id, assigned_by)
-    SELECT u.id, 'admin', 'System Initializer' FROM users u
-    WHERE LOWER(u.email) = 'bmapwabantoro@liecconsulting.com'
-    ON CONFLICT (user_id, role_id) DO NOTHING;
-
-    INSERT INTO user_roles (user_id, role_id, assigned_by)
-    SELECT u.id, 'lh_security_admin', 'System Initializer' FROM users u
-    WHERE LOWER(u.email) = 'bmapwabantoro@liecconsulting.com'
-    ON CONFLICT (user_id, role_id) DO NOTHING;
-  `);
-
-  // Ensure initial Accommodation sample exists
-  try {
-    const checkAcc = await client.query<{ count: string | number }>(
-      `SELECT COUNT(*) as count FROM accommodation_requests`
+    -- User Import Sets & Transform Maps (ServiceNow Staging Architecture)
+    CREATE TABLE IF NOT EXISTS user_import_sets (
+      id SERIAL PRIMARY KEY,
+      set_number VARCHAR(50) UNIQUE NOT NULL,
+      file_name VARCHAR(255) NOT NULL,
+      file_size INTEGER DEFAULT 0,
+      file_type VARCHAR(20) DEFAULT 'csv',
+      status VARCHAR(40) NOT NULL DEFAULT 'LOADED',
+      total_rows INTEGER NOT NULL DEFAULT 0,
+      valid_rows INTEGER NOT NULL DEFAULT 0,
+      error_rows INTEGER NOT NULL DEFAULT 0,
+      skipped_rows INTEGER NOT NULL DEFAULT 0,
+      created_rows INTEGER NOT NULL DEFAULT 0,
+      updated_rows INTEGER NOT NULL DEFAULT 0,
+      transform_map_json TEXT DEFAULT '{}',
+      execution_summary_json TEXT DEFAULT '{}',
+      selected_sheet VARCHAR(120),
+      sheets_available_json TEXT DEFAULT '[]',
+      execution_lock_id VARCHAR(80),
+      execution_started_at TIMESTAMP WITH TIME ZONE,
+      created_by VARCHAR(120) NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      executed_by VARCHAR(120),
+      executed_at TIMESTAMP WITH TIME ZONE
     );
-    if (Number(checkAcc.rows[0]?.count ?? 0) === 0) {
-      await client.exec(`
-        -- No demo accommodation_requests
-      `);
-    }
-  } catch (err) {
-    console.warn('Notice: accommodation seed check:', err);
+    CREATE INDEX IF NOT EXISTS idx_import_sets_status ON user_import_sets(status);
+    CREATE INDEX IF NOT EXISTS idx_import_sets_number ON user_import_sets(set_number);
+
+    ALTER TABLE user_import_sets ADD COLUMN IF NOT EXISTS selected_sheet VARCHAR(120);
+    ALTER TABLE user_import_sets ADD COLUMN IF NOT EXISTS sheets_available_json TEXT DEFAULT '[]';
+    ALTER TABLE user_import_sets ADD COLUMN IF NOT EXISTS execution_lock_id VARCHAR(80);
+    ALTER TABLE user_import_sets ADD COLUMN IF NOT EXISTS execution_started_at TIMESTAMP WITH TIME ZONE;
+    ALTER TABLE user_import_sets ADD COLUMN IF NOT EXISTS execution_heartbeat_at TIMESTAMP WITH TIME ZONE;
+
+    CREATE TABLE IF NOT EXISTS user_import_staging_rows (
+      id SERIAL PRIMARY KEY,
+      import_set_id INTEGER NOT NULL REFERENCES user_import_sets(id) ON DELETE CASCADE,
+      row_number INTEGER NOT NULL,
+      raw_data_json TEXT NOT NULL,
+      mapped_data_json TEXT DEFAULT '{}',
+      validation_status VARCHAR(40) NOT NULL DEFAULT 'PENDING',
+      validation_errors_json TEXT DEFAULT '[]',
+      transform_status VARCHAR(40) NOT NULL DEFAULT 'PENDING',
+      provisioned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      provisioned_user_identifier VARCHAR(60),
+      email_status VARCHAR(40) DEFAULT 'NOT_SENT',
+      email_error TEXT,
+      email_sent_at TIMESTAMP WITH TIME ZONE,
+      error_message TEXT,
+      is_excluded BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_staging_import_set ON user_import_staging_rows(import_set_id);
+    CREATE INDEX IF NOT EXISTS idx_staging_validation ON user_import_staging_rows(validation_status);
+    CREATE INDEX IF NOT EXISTS idx_staging_transform ON user_import_staging_rows(transform_status);
+
+    ALTER TABLE user_import_staging_rows ADD COLUMN IF NOT EXISTS email_status VARCHAR(40) DEFAULT 'NOT_SENT';
+    ALTER TABLE user_import_staging_rows ADD COLUMN IF NOT EXISTS email_error TEXT;
+    ALTER TABLE user_import_staging_rows ADD COLUMN IF NOT EXISTS email_sent_at TIMESTAMP WITH TIME ZONE;
+    ALTER TABLE user_import_staging_rows ADD COLUMN IF NOT EXISTS execution_lock_id VARCHAR(80);
+
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS invitation_token VARCHAR(120);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS invitation_token_expires_at TIMESTAMP WITH TIME ZONE;
+  `);
+}
+
+/**
+ * Seed initial reference data, technical RBAC roles, timeouts, and ensure default administrator.
+ * Only contains DML statements (INSERT, UPDATE) and never executes DDL.
+ */
+export async function seedInitialData(client: DBClient): Promise<void> {
+  // Seed Technical Roles from RBAC Specification if empty
+  await client.exec(`
+    INSERT INTO roles (role_id, role_name, business_profile, description, safeguards, active) VALUES
+      ('admin', 'Platform Administrator', 'Admin', 'Highest privilege. Assign only to trusted administrators.', 'Assign only to trusted administrators; log assignments and removals.', TRUE),
+      ('lh_security_admin', 'Security Administrator', 'Admin', 'Security administration. Limit access to security configuration and sensitive controls.', 'Limit access to security configuration and sensitive controls.', TRUE),
+      ('ITIL', 'ITIL Workflow Operator', 'Secretary', 'Secretary workflows (as configured). Applicant intake and administrative tracking.', 'Do not assume this role means full administrator access. Verify permissions and inherited access.', TRUE),
+      ('lh_internal', 'Internal Application Access', 'Secretary', 'Internal application access. Restrict to applicant intake, assigned records, comments and history.', 'Restrict to applicant intake, assigned records, comments and history.', TRUE),
+      ('lh_finance', 'Finance & AVI Officer', 'Finance Officer', 'AVI and parent-financing operations, YIMMILINE desk calculations and loan requests.', 'Restrict to AVI-related functions and records; do not grant unrelated finance or system configuration access.', TRUE),
+      ('secretary', 'Secretary (Intake & Admissions)', 'Secretary', 'Intake officer and applicant management operations.', 'Limit to applicant registration and admissions tracking.', TRUE),
+      ('avi', 'Finance Officer (Blocked Account / AVI)', 'Finance Officer', 'Guichet AVI and loan verification operator.', 'Restrict to AVI desk operations.', TRUE)
+    ON CONFLICT (role_id) DO NOTHING;
+
+    INSERT INTO role_session_timeouts (role_id, role_name, business_profile, timeout_minutes, updated_by) VALUES
+      ('admin', 'Platform Administrator (Admin / Self)', 'Admin', 15, 'System Initializer'),
+      ('lh_security_admin', 'Security Administrator', 'Admin', 15, 'System Initializer'),
+      ('secretary', 'Secretary (Admissions & Intake)', 'Secretary', 20, 'System Initializer'),
+      ('ITIL', 'ITIL Workflow Operator', 'Secretary', 20, 'System Initializer'),
+      ('lh_internal', 'Internal Application Access', 'Secretary', 20, 'System Initializer'),
+      ('avi', 'Finance Officer (Blocked Account / AVI)', 'Finance Officer', 15, 'System Initializer'),
+      ('lh_finance', 'Finance & AVI Officer', 'Finance Officer', 15, 'System Initializer')
+    ON CONFLICT (role_id) DO NOTHING;
+
+    -- Ensure default administrator account and initial role assignments are created ONLY IF IT DOES NOT ALREADY EXIST.
+    -- Routine initialisation must NEVER restore privileges or grant roles to existing administrator records.
+    WITH new_admin AS (
+      INSERT INTO users (name, first_name, last_name, user_id, email, business_profile, role, title, initials, active)
+      VALUES ('Barthelemy MAPWABA NTORO', 'Barthelemy', 'MAPWABA NTORO', 'bmapwaba', 'bmapwabantoro@liecconsulting.com', 'Admin', 'admin', 'Platform Administrator & Managing Director', 'BM', TRUE)
+      ON CONFLICT (email) DO NOTHING
+      RETURNING id
+    )
+    INSERT INTO user_roles (user_id, role_id, assigned_by)
+    SELECT id, 'admin', 'System Initializer' FROM new_admin
+    UNION ALL
+    SELECT id, 'lh_security_admin', 'System Initializer' FROM new_admin;
+
+    UPDATE avi_requests SET student_ref = '#CAN-2025-042' WHERE student_name ILIKE '%Kabangele%' AND (student_ref IS NULL OR student_ref = '');
+  `);
+}
+
+/**
+ * Fail-closed runtime DDL guard.
+ * Strictly checks the actual client engine identity:
+ * Only embedded PGlite (client.engine === 'pglite') may execute runtime DDL.
+ * External PostgreSQL (client.engine === 'pg') is strictly blocked from runtime DDL.
+ * FORCE_PGLITE=true or any override environment variable must NEVER enable DDL on an external PostgreSQL client.
+ * Schema changes in production/external environments are exclusively migration-driven.
+ */
+export function shouldExecuteRuntimeDDL(client: DBClient): boolean {
+  return client.engine === 'pglite';
+}
+
+/**
+ * Fail-closed runtime Seeding guard.
+ * Strictly checks the actual client engine identity:
+ * Only embedded PGlite (client.engine === 'pglite') may execute runtime seeding.
+ * External PostgreSQL (client.engine === 'pg') is strictly blocked from runtime data seeding.
+ * FORCE_PGLITE=true or any override environment variable must NEVER enable seeding on an external PostgreSQL client.
+ */
+export function shouldExecuteRuntimeSeeding(client: DBClient): boolean {
+  return client.engine === 'pglite';
+}
+
+/**
+ * Backward-compatible initialisation orchestrator applying fail-closed guards.
+ */
+export async function initSchemaAndSeed(client: DBClient): Promise<void> {
+  if (shouldExecuteRuntimeDDL(client)) {
+    await initSchemaDDL(client);
+  } else {
+    console.warn('[DB-SECURITY] External PostgreSQL detected: Runtime DDL initialization is disabled (Fail-Closed). DDL statements skipped.');
   }
 
-  // Ensure primary administrator account is present without affecting applicant data
-  await client.exec(`
-    INSERT INTO users (id, name, first_name, last_name, user_id, email, business_profile, role, title, initials, active)
-    VALUES (1, 'Barthelemy MAPWABA NTORO', 'Barthelemy', 'MAPWABA NTORO', 'bmapwaba', 'bmapwabantoro@liecconsulting.com', 'Admin', 'admin', 'Platform Administrator & Managing Director', 'BM', TRUE)
-    ON CONFLICT (email) DO UPDATE SET
-      name = 'Barthelemy MAPWABA NTORO',
-      first_name = COALESCE(users.first_name, 'Barthelemy'),
-      last_name = COALESCE(users.last_name, 'MAPWABA NTORO'),
-      user_id = COALESCE(users.user_id, 'bmapwaba'),
-      business_profile = 'Admin',
-      role = 'admin',
-      title = 'Platform Administrator & Managing Director',
-      initials = 'BM',
-      active = TRUE;
-
-    INSERT INTO user_roles (user_id, role_id, assigned_by)
-    SELECT u.id, 'admin', 'System Initializer' FROM users u WHERE LOWER(u.email) = 'bmapwabantoro@liecconsulting.com'
-    ON CONFLICT (user_id, role_id) DO NOTHING;
-
-    INSERT INTO user_roles (user_id, role_id, assigned_by)
-    SELECT u.id, 'lh_security_admin', 'System Initializer' FROM users u WHERE LOWER(u.email) = 'bmapwabantoro@liecconsulting.com'
-    ON CONFLICT (user_id, role_id) DO NOTHING;
-  `);
+  if (shouldExecuteRuntimeSeeding(client)) {
+    await seedInitialData(client);
+  } else {
+    console.warn('[DB-SECURITY] External PostgreSQL detected: Runtime data seeding is disabled (Fail-Closed). Seeding statements skipped.');
+  }
 }
 function getSafeDbInfo(rawUrl: string): { host: string; database: string } {
   try {
@@ -815,7 +857,18 @@ async function createDBClient(): Promise<DBClient> {
         },
       };
 
-      await initSchemaAndSeed(pgClient);
+      if (shouldExecuteRuntimeDDL(pgClient)) {
+        await initSchemaDDL(pgClient);
+      } else {
+        console.warn('[DB-SECURITY] External PostgreSQL detected: Runtime DDL initialization is disabled (Fail-Closed). DDL statements skipped.');
+      }
+
+      if (shouldExecuteRuntimeSeeding(pgClient)) {
+        await seedInitialData(pgClient);
+      } else {
+        console.warn('[DB-SECURITY] External PostgreSQL detected: Runtime data seeding is disabled (Fail-Closed). Seeding statements skipped.');
+      }
+
       return pgClient;
     } catch (err: any) {
       console.warn('[DB] Could not connect to external Neon PostgreSQL server:', err?.message || err);
@@ -872,7 +925,12 @@ async function createDBClient(): Promise<DBClient> {
     },
   };
 
-  await initSchemaAndSeed(pgliteClient);
+  if (shouldExecuteRuntimeDDL(pgliteClient)) {
+    await initSchemaDDL(pgliteClient);
+  }
+  if (shouldExecuteRuntimeSeeding(pgliteClient)) {
+    await seedInitialData(pgliteClient);
+  }
   return pgliteClient;
 }
 

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { UserImportSetsModal } from './UserImportSetsModal';
 import {
   CheckSquare,
   Award,
@@ -40,6 +41,7 @@ import {
   Search,
   Clock,
   CreditCard,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 export type Lang = 'en' | 'fr';
@@ -3557,6 +3559,7 @@ export function ParametresGovernanceScreen({
 
   // Create User Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [newFirstName, setNewFirstName] = useState('');
   const [newLastName, setNewLastName] = useState('');
   const [newUserName, setNewUserName] = useState('');
@@ -4127,6 +4130,13 @@ export function ParametresGovernanceScreen({
                   >
                     <UserPlus className="w-4 h-4" />
                     <span>{isEn ? '+ Create User' : '+ Créer un Utilisateur'}</span>
+                  </button>
+                  <button
+                    onClick={() => setShowImportModal(true)}
+                    className="rounded-xl border border-[#092342] bg-[#092342] hover:bg-[#061830] text-white px-4 py-2.5 text-xs font-extrabold flex items-center gap-2 shadow-xs transition"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-teal-300" />
+                    <span>{isEn ? 'Import Users (Import Sets)' : 'Importer des Utilisateurs'}</span>
                   </button>
                 </div>
               </div>
@@ -4924,6 +4934,14 @@ export function ParametresGovernanceScreen({
           )}
         </div>
       )}
+
+      <UserImportSetsModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        isEn={isEn}
+        currentUser={currentUser}
+        onSuccess={fetchUsersAndRoles}
+      />
 
       {/* MODAL: CREATE USER */}
       {showCreateModal && (

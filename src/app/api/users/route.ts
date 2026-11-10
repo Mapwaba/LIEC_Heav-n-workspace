@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { enforceRbac } from '@/lib/rbac';
-import { generateSecureTemporaryPassword, hashPassword } from '@/lib/passwordSecurity';
-import { sendNewUserWelcomeEmail } from '@/lib/emailService';
+import { provisionUserAccount } from '@/lib/userProvisioning';
 
 /**
  * Admin User-Management Workflow API (Enterprise RBAC)
@@ -55,156 +54,35 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    let firstName = (body.first_name || body.firstName || '').trim();
-    let lastName = (body.last_name || body.lastName || '').trim();
-    let name = (body.name || '').trim();
 
-    if ((!firstName || !lastName) && name) {
-      const parts = name.split(/\s+/);
-      if (!firstName) firstName = parts[0] || '';
-      if (!lastName) lastName = parts.slice(1).join(' ') || parts[0] || '';
+    const outcome = await provisionUserAccount(db, {
+      firstName: body.first_name || body.firstName,
+      lastName: body.last_name || body.lastName,
+      name: body.name,
+      email: body.email,
+      businessProfile: body.business_profile,
+      technicalRoles: body.technical_roles,
+      title: body.title,
+      requestedUserId: body.user_id || body.userId,
+      adminUser,
+      options: {
+        updateIfExists: false,
+        sendWelcomeEmail: true,
+        sourceBatch: 'MANUAL_ADMIN_CREATION',
+      },
+    });
+
+    if (!outcome.success) {
+      return NextResponse.json({ error: outcome.error }, { status: 400 });
     }
-
-    if (!name && (firstName || lastName)) {
-      name = `${firstName} ${lastName}`.trim();
-    }
-
-    const email = (body.email || '').trim().toLowerCase();
-    const businessProfile = body.business_profile || 'Secretary';
-    const technicalRoles: string[] = Array.isArray(body.technical_roles) ? body.technical_roles : [];
-    const title = body.title || `${businessProfile} Staff`;
-    const initials =
-      ((firstName ? firstName[0] : '') + (lastName ? lastName[0] : '')).toUpperCase().slice(0, 3) ||
-      name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 3) ||
-      'CU';
-
-    if (!firstName || !lastName || !email) {
-      return NextResponse.json(
-        { error: 'First name, last name, and professional email are required.' },
-        { status: 400 }
-      );
-    }
-
-    if (!email.endsWith('@liecconsulting.com')) {
-      return NextResponse.json(
-        { error: 'Professional email must end with @liecconsulting.com' },
-        { status: 400 }
-      );
-    }
-
-    // Role mapping compatibility helper
-    let legacyRole = 'secretary';
-    if (businessProfile === 'Admin') legacyRole = 'admin';
-    else if (businessProfile === 'Finance Officer') legacyRole = 'avi';
-
-    // Automatic User ID Generation: first_initial + last_name, lowercase, no accents or spaces
-    const cleanFirst = firstName
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '');
-
-    const cleanLast = lastName
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '');
-
-    const baseUserId = (cleanFirst ? cleanFirst[0] : '') + cleanLast || 'user';
-    const requestedUserId = (body.user_id || body.userId || '').trim().toLowerCase();
-    const targetUserId = requestedUserId || baseUserId;
-
-    // Validate uniqueness before creating account and resolve predictable suffix if taken
-    let candidateUserId = targetUserId;
-    let suffixCounter = 1;
-    while (true) {
-      const existing = await db.query(
-        'SELECT id FROM users WHERE LOWER(user_id) = LOWER($1) LIMIT 1',
-        [candidateUserId]
-      );
-      if (!existing.rows || existing.rows.length === 0) {
-        break;
-      }
-      suffixCounter++;
-      candidateUserId = `${baseUserId}${suffixCounter}`;
-    }
-    const finalUserId = candidateUserId;
-
-    // Check if email already exists
-    const emailCheck = await db.query(
-      'SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1',
-      [email]
-    );
-    if (emailCheck.rows && emailCheck.rows.length > 0) {
-      return NextResponse.json(
-        { error: `A user with email ${email} already exists.` },
-        { status: 400 }
-      );
-    }
-
-    // Generate cryptographically strong temporary password & hash
-    const temporaryPassword = generateSecureTemporaryPassword();
-    const { hash: passwordHash, salt: passwordSalt } = hashPassword(temporaryPassword);
-
-    // Insert user with secure hash, User ID, and mandatory first-login password change
-    const insertRes = await db.query(
-      `INSERT INTO users (
-        name, first_name, last_name, user_id, email, business_profile, role, title, initials, active, password_hash, password_salt, must_change_password
-      )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, $11, TRUE)
-       RETURNING id, name, first_name, last_name, user_id, email, business_profile, role, title, initials, active, must_change_password`,
-      [name, firstName, lastName, finalUserId, email, businessProfile, legacyRole, title, initials, passwordHash, passwordSalt]
-    );
-
-    const newUser = insertRes.rows[0];
-
-    // Assign technical roles
-    for (const rId of technicalRoles) {
-      await db.query(
-        `INSERT INTO user_roles (user_id, role_id, assigned_by)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (user_id, role_id) DO NOTHING`,
-        [newUser.id, rId, adminUser.name]
-      );
-    }
-
-    // Automatically send account notification to user's professional email via Resend
-    let emailSent = false;
-    let emailError: string | undefined;
-    try {
-      const mailRes = await sendNewUserWelcomeEmail({
-        firstName,
-        lastName,
-        userId: finalUserId,
-        email,
-        role: legacyRole,
-        businessProfile,
-        temporaryPassword,
-      });
-      emailSent = mailRes.success;
-    } catch (err: any) {
-      console.warn('Notice: New user welcome email notification could not be dispatched:', err?.message);
-      emailError = err?.message;
-    }
-
-    // Audit log entry (NEVER log the plain-text password)
-    await db.query(
-      `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
-       VALUES ($1, 'CREATE_USER', $2, 'SUCCESS', $3)`,
-      [
-        adminUser.name,
-        `USER-${newUser.id}`,
-        `Created user '${name}' (User ID: ${finalUserId}) with profile '${businessProfile}' and roles [${technicalRoles.join(', ')}]. One-time temporary password generated with mandatory first-login change. Email dispatch: ${emailSent ? 'Sent' : 'Deferred (' + (emailError || 'pending') + ')'}.`,
-      ]
-    );
 
     return NextResponse.json({
       success: true,
-      user: newUser,
-      userId: finalUserId,
-      temporaryPassword,
-      emailSent,
-      emailError,
+      user: outcome.user,
+      userId: outcome.userId,
+      temporaryPassword: outcome.temporaryPassword,
+      emailSent: outcome.emailSent,
+      emailError: outcome.emailError,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

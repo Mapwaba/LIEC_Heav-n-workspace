@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { resolveSenderAddress } from '@/lib/emailService';
+import { resolveSenderAddress, isPreviewEnvironment } from '@/lib/emailService';
 
 export async function GET(req: NextRequest) {
   try {
@@ -12,6 +12,23 @@ export async function GET(req: NextRequest) {
     const maskedKey = resendApiKey
       ? `${resendApiKey.slice(0, 8)}...${resendApiKey.slice(-4)} (length ${resendApiKey.length})`
       : 'NOT_CONFIGURED';
+
+    // Intercept in Preview environments to prevent accidental live external email dispatch
+    if (isPreviewEnvironment()) {
+      return NextResponse.json({
+        ok: true,
+        previewMode: true,
+        isolated: true,
+        message:
+          'Preview environment active: live Resend test transmission blocked to protect external recipients. Email routing is safely isolated to the preview sink.',
+        config: {
+          hasKey: Boolean(resendApiKey),
+          configuredFrom,
+          resolvedFrom,
+          environment: 'preview',
+        },
+      });
+    }
 
     if (!resendApiKey) {
       return NextResponse.json({

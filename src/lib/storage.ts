@@ -6,6 +6,7 @@
  */
 
 import crypto from 'crypto';
+import { isPreviewEnvironment } from './environment.ts';
 
 export interface StorageConfig {
   endpoint: string;
@@ -15,22 +16,55 @@ export interface StorageConfig {
   secretAccessKey: string;
 }
 
+/**
+ * NOTE ON CLOUD-LEVEL ISOLATION:
+ * The application enforces strict logical bucket separation by requiring a dedicated
+ * PREVIEW_S3_BUCKET and preventing the preview runtime from targeting the production bucket.
+ * However, logical application-level bucket scoping alone does NOT constitute cloud-level
+ * IAM isolation. Cloud-level isolation strictly requires provider-side IAM scoping
+ * (e.g. Neon Object Storage API keys restricted to the preview bucket via IAM policies).
+ */
 export function getStorageConfig(): StorageConfig | null {
-  const endpoint =
-    process.env.AWS_ENDPOINT_URL_S3 ||
-    'https://br-delicate-glitter-b9g66zzx.storage.c-7.eu-central-1.aws.neon.tech';
-  const accessKeyId =
-    process.env.AWS_ACCESS_KEY_ID ||
-    'nak_live_257a0c60381541988b13bc2faa525b22';
-  const secretAccessKey =
-    process.env.AWS_SECRET_ACCESS_KEY ||
-    'nsk_live_38f426f35207ea4c2f055c81d93a497a546d1251c7f23c813de94ad8e25158a9';
-  const bucket = process.env.S3_BUCKET || 'uploads';
-  const region = process.env.AWS_REGION || 'eu-central-1';
+  const isPreview = isPreviewEnvironment();
 
-  if (!endpoint || !accessKeyId || !secretAccessKey || !bucket) {
-    return null;
+  let endpoint: string | undefined;
+  let accessKeyId: string | undefined;
+  let secretAccessKey: string | undefined;
+  let bucket: string | undefined;
+
+  if (isPreview) {
+    // PREVIEW ENVIRONMENT STORAGE CONFIGURATION:
+    // Strictly requires PREVIEW_AWS_* credentials and dedicated PREVIEW_S3_BUCKET.
+    // Zero silent fallback to production credentials or production bucket name.
+    bucket = process.env.PREVIEW_S3_BUCKET?.trim();
+    const productionBucket = process.env.S3_BUCKET?.trim();
+
+    // Strict Guards: Reject missing bucket, default 'uploads', or collision with production bucket
+    if (!bucket || bucket === 'uploads' || (productionBucket && bucket === productionBucket)) {
+      return null;
+    }
+
+    endpoint = process.env.PREVIEW_AWS_ENDPOINT_URL_S3?.trim();
+    accessKeyId = process.env.PREVIEW_AWS_ACCESS_KEY_ID?.trim();
+    secretAccessKey = process.env.PREVIEW_AWS_SECRET_ACCESS_KEY?.trim();
+
+    // Fail closed: If any preview S3 credential or endpoint is missing, return null
+    if (!endpoint || !accessKeyId || !secretAccessKey) {
+      return null;
+    }
+  } else {
+    // PRODUCTION / DEVELOPMENT STORAGE CONFIGURATION:
+    bucket = process.env.S3_BUCKET?.trim();
+    endpoint = process.env.AWS_ENDPOINT_URL_S3?.trim();
+    accessKeyId = process.env.AWS_ACCESS_KEY_ID?.trim();
+    secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY?.trim();
+
+    if (!endpoint || !accessKeyId || !secretAccessKey || !bucket) {
+      return null;
+    }
   }
+
+  const region = process.env.AWS_REGION?.trim() || 'eu-central-1';
 
   return {
     endpoint: endpoint.replace(/\/$/, ''),

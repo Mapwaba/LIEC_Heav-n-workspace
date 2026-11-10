@@ -286,6 +286,56 @@ CREATE TABLE IF NOT EXISTS accommodation_requests (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS prepa_payments (
+  id SERIAL PRIMARY KEY,
+  payment_ref VARCHAR(80) UNIQUE NOT NULL,
+  candidate_ref VARCHAR(80) NOT NULL,
+  candidate_name VARCHAR(150) NOT NULL,
+  candidate_email VARCHAR(160),
+  academic_intake VARCHAR(80) DEFAULT '2025–2026',
+  program VARCHAR(100) DEFAULT 'LIEC-France PREPA',
+  instalment_number INT NOT NULL,
+  instalment_label VARCHAR(50) NOT NULL,
+  instalment_percentage NUMERIC(5,2) NOT NULL,
+  amount NUMERIC(10,2) NOT NULL,
+  payment_method VARCHAR(80) DEFAULT 'Bank Wire (Virement)',
+  transaction_ref VARCHAR(100),
+  proof_file_url TEXT,
+  proof_filename VARCHAR(255),
+  status VARCHAR(50) NOT NULL DEFAULT 'Pending',
+  validated_by VARCHAR(150),
+  validated_at TIMESTAMP WITH TIME ZONE,
+  expected_next_date TIMESTAMP WITH TIME ZONE,
+  payment_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  is_settled_totally BOOLEAN DEFAULT TRUE,
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS prepa_receipts (
+  id SERIAL PRIMARY KEY,
+  receipt_number VARCHAR(80) UNIQUE NOT NULL,
+  payment_id INT REFERENCES prepa_payments(id),
+  payment_ref VARCHAR(80) NOT NULL,
+  candidate_ref VARCHAR(80) NOT NULL,
+  candidate_name VARCHAR(150) NOT NULL,
+  instalment_number INT NOT NULL,
+  amount_paid NUMERIC(10,2) NOT NULL,
+  cumulative_paid NUMERIC(10,2) NOT NULL,
+  outstanding_balance NUMERIC(10,2) NOT NULL,
+  issue_date_paris VARCHAR(30) NOT NULL,
+  issue_time_paris VARCHAR(30) NOT NULL,
+  timezone VARCHAR(30) DEFAULT 'Europe/Paris',
+  verification_ref VARCHAR(100) UNIQUE NOT NULL,
+  is_reissue BOOLEAN DEFAULT FALSE,
+  reissue_count INT DEFAULT 0,
+  generated_by VARCHAR(150) NOT NULL,
+  generated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  receipt_pdf_url TEXT,
+  metadata JSONB DEFAULT '{}'::jsonb
+);
+
 CREATE TABLE IF NOT EXISTS accommodation_access_tokens (
   id SERIAL PRIMARY KEY,
   token_hash VARCHAR(64) UNIQUE NOT NULL,
@@ -304,9 +354,9 @@ CREATE INDEX IF NOT EXISTS idx_acc_tokens_ref ON accommodation_access_tokens(req
 
 CREATE TABLE IF NOT EXISTS audit_logs (
   id SERIAL PRIMARY KEY,
-  actor VARCHAR(120) NOT NULL,
-  action VARCHAR(160) NOT NULL,
-  entity_ref VARCHAR(80) NOT NULL,
+  actor VARCHAR(150) NOT NULL,
+  action VARCHAR(255) NOT NULL,
+  entity_ref VARCHAR(100),
   outcome VARCHAR(50) NOT NULL DEFAULT 'Succès',
   details TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -321,6 +371,11 @@ CREATE TABLE IF NOT EXISTS staff_2fa (
   last_verified_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(60);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(60);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS user_id VARCHAR(60);
+CREATE UNIQUE INDEX IF NOT EXISTS users_user_id_unique_idx ON users (LOWER(user_id));
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS business_profile VARCHAR(50) DEFAULT 'Secretary';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE;
@@ -482,6 +537,7 @@ ALTER TABLE demandes ADD COLUMN IF NOT EXISTS registration_date TIMESTAMP WITH T
 ALTER TABLE demandes ADD COLUMN IF NOT EXISTS first_instalment_paid BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE demandes ADD COLUMN IF NOT EXISTS first_instalment_amount NUMERIC(10,2);
 ALTER TABLE demandes ADD COLUMN IF NOT EXISTS first_instalment_date TIMESTAMP WITH TIME ZONE;
+ALTER TABLE demandes ADD COLUMN IF NOT EXISTS application_year VARCHAR(30) DEFAULT '2027–2028';
 ALTER TABLE demandes ADD COLUMN IF NOT EXISTS first_instalment_ref VARCHAR(100);
 ALTER TABLE demandes ADD COLUMN IF NOT EXISTS converted_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE demandes ADD COLUMN IF NOT EXISTS converted_candidate_ref VARCHAR(50);
@@ -502,3 +558,87 @@ ALTER TABLE accommodation_requests ADD COLUMN IF NOT EXISTS decline_reason TEXT;
 ALTER TABLE accommodation_requests ADD COLUMN IF NOT EXISTS cancellation_reason TEXT;
 
 
+
+
+-- ============================================================================
+-- USER IMPORT SETS & TRANSFORM MAPS (SERVICENOW STAGING ARCHITECTURE)
+-- Demandes Advisor Assignment & Override Tracking
+ALTER TABLE demandes ADD COLUMN IF NOT EXISTS adviser_email VARCHAR(160);
+ALTER TABLE demandes ADD COLUMN IF NOT EXISTS adviser_assigned_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE demandes ADD COLUMN IF NOT EXISTS adviser_assigned_by VARCHAR(150);
+ALTER TABLE demandes ADD COLUMN IF NOT EXISTS assignment_history_json TEXT DEFAULT '[]';
+ALTER TABLE demandes ADD COLUMN IF NOT EXISTS is_manual_override BOOLEAN DEFAULT FALSE;
+ALTER TABLE demandes ADD COLUMN IF NOT EXISTS override_reason TEXT;
+ALTER TABLE demandes ADD COLUMN IF NOT EXISTS override_notes TEXT;
+ALTER TABLE demandes ADD COLUMN IF NOT EXISTS override_by VARCHAR(150);
+ALTER TABLE demandes ADD COLUMN IF NOT EXISTS override_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE demandes ADD COLUMN IF NOT EXISTS previous_status VARCHAR(60);
+ALTER TABLE demandes ADD COLUMN IF NOT EXISTS status_history_json TEXT DEFAULT '[]';
+
+-- Prospects Advisor Assignment & Override Tracking
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS adviser_email VARCHAR(160);
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS adviser_assigned_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS adviser_assigned_by VARCHAR(150);
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS assignment_history_json TEXT DEFAULT '[]';
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS is_manual_override BOOLEAN DEFAULT FALSE;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS override_reason TEXT;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS override_notes TEXT;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS override_by VARCHAR(150);
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS override_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS previous_stage VARCHAR(60);
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS status_history_json TEXT DEFAULT '[]';
+
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS user_import_sets (
+  id SERIAL PRIMARY KEY,
+  set_number VARCHAR(50) UNIQUE NOT NULL,
+  file_name VARCHAR(255) NOT NULL,
+  file_size INTEGER DEFAULT 0,
+  file_type VARCHAR(20) DEFAULT 'csv',
+  status VARCHAR(40) NOT NULL DEFAULT 'LOADED',
+  total_rows INTEGER NOT NULL DEFAULT 0,
+  valid_rows INTEGER NOT NULL DEFAULT 0,
+  error_rows INTEGER NOT NULL DEFAULT 0,
+  skipped_rows INTEGER NOT NULL DEFAULT 0,
+  created_rows INTEGER NOT NULL DEFAULT 0,
+  updated_rows INTEGER NOT NULL DEFAULT 0,
+  transform_map_json TEXT DEFAULT '{}',
+  execution_summary_json TEXT DEFAULT '{}',
+  selected_sheet VARCHAR(120),
+  sheets_available_json TEXT DEFAULT '[]',
+  execution_lock_id VARCHAR(80),
+  execution_started_at TIMESTAMP WITH TIME ZONE,
+  execution_heartbeat_at TIMESTAMP WITH TIME ZONE,
+  created_by VARCHAR(120) NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  executed_by VARCHAR(120),
+  executed_at TIMESTAMP WITH TIME ZONE
+);
+CREATE INDEX IF NOT EXISTS idx_import_sets_status ON user_import_sets(status);
+CREATE INDEX IF NOT EXISTS idx_import_sets_number ON user_import_sets(set_number);
+
+CREATE TABLE IF NOT EXISTS user_import_staging_rows (
+  id SERIAL PRIMARY KEY,
+  import_set_id INTEGER NOT NULL REFERENCES user_import_sets(id) ON DELETE CASCADE,
+  row_number INTEGER NOT NULL,
+  raw_data_json TEXT NOT NULL,
+  mapped_data_json TEXT DEFAULT '{}',
+  validation_status VARCHAR(40) NOT NULL DEFAULT 'PENDING',
+  validation_errors_json TEXT DEFAULT '[]',
+  transform_status VARCHAR(40) NOT NULL DEFAULT 'PENDING',
+  provisioned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  provisioned_user_identifier VARCHAR(60),
+  email_status VARCHAR(40) DEFAULT 'NOT_SENT',
+  email_error TEXT,
+  email_sent_at TIMESTAMP WITH TIME ZONE,
+  execution_lock_id VARCHAR(80),
+  error_message TEXT,
+  is_excluded BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_staging_import_set ON user_import_staging_rows(import_set_id);
+CREATE INDEX IF NOT EXISTS idx_staging_validation ON user_import_staging_rows(validation_status);
+CREATE INDEX IF NOT EXISTS idx_staging_transform ON user_import_staging_rows(transform_status);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS invitation_token VARCHAR(120);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS invitation_token_expires_at TIMESTAMP WITH TIME ZONE;
