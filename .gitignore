@@ -24,4 +24,16 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
+# Sensitive local credentials and activation handoffs
+.admin-credentials.json
+.preview-activation-url.txt
+*.activation.txt
+.verification-report.txt
+~$*
+verify-preview-db.bat
+verify-preview-db.ps1
+provision-preview-db.bat
+provision-preview-db.ps1
+.provisioning-report.txt
+
 tsconfig.tsbuildinfo

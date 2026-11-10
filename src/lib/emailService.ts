@@ -3,14 +3,14 @@ import {
   isProductionEnvironment,
   isPreviewEnvironment,
   resolveAppEnvironment,
-} from './environment';
+} from './environment.ts';
 export { isProductionEnvironment, isPreviewEnvironment, resolveAppEnvironment };
 import {
   ACCOMMODATION_PARTNERS,
-  AccommodationPartner,
+  type AccommodationPartner,
   getAccommodationPartnerById,
   getAccommodationPartnerByEmail,
-} from './accommodationPartners';
+} from './accommodationPartners.ts';
 
 export interface AccommodationAttachment {
   id?: string;
