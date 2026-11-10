@@ -1,7 +1,7 @@
 # ============================================================================
 # LIEC Heav'n - PostgreSQL Bulk Insert Fix Verification Launcher
 # ============================================================================
-# Target: Non-Production PostgreSQL Test Environment (e.g. Preview DB)
+# Target: Dedicated Neon Preview Database (ep-wispy-firefly-b9el08l7)
 # Strictly uses atomic transactions with ROLLBACK (Zero persistent writes).
 # ============================================================================
 
@@ -10,7 +10,7 @@ Clear-Host
 
 Write-Host "===============================================================" -ForegroundColor Cyan
 Write-Host "LIEC Heav'n - PostgreSQL Bulk Insert Fix Verification Suite" -ForegroundColor White
-Write-Host "Target Architecture: Non-Production PostgreSQL (e.g. Preview DB)" -ForegroundColor Yellow
+Write-Host "Target Architecture: Neon Preview (ep-wispy-firefly-b9el08l7)" -ForegroundColor Yellow
 Write-Host "Transaction Mode:    ATOMIC ISOLATED ROLLBACK (Zero DB Mutation)" -ForegroundColor Green
 Write-Host "===============================================================" -ForegroundColor Cyan
 Write-Host ""
@@ -33,14 +33,14 @@ function Get-MaskedCredential {
         $labelTitle = New-Object System.Windows.Forms.Label
         $labelTitle.Location = New-Object System.Drawing.Point(20, 15)
         $labelTitle.Size = New-Object System.Drawing.Size(520, 25)
-        $labelTitle.Text = "LIEC Heav'n - Non-Production PostgreSQL Verification"
+        $labelTitle.Text = "LIEC Heav'n - Preview PostgreSQL Verification"
         $labelTitle.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
         $form.Controls.Add($labelTitle)
 
         $labelInfo = New-Object System.Windows.Forms.Label
         $labelInfo.Location = New-Object System.Drawing.Point(20, 45)
         $labelInfo.Size = New-Object System.Drawing.Size(520, 40)
-        $labelInfo.Text = "Paste the Direct Connection String for your Non-Production PostgreSQL database (e.g. ep-wispy-firefly-b9el08l7):"
+        $labelInfo.Text = "Paste the Direct Connection String for Preview endpoint ep-wispy-firefly-b9el08l7:"
         $labelInfo.Font = New-Object System.Drawing.Font("Segoe UI", 9)
         $form.Controls.Add($labelInfo)
 
@@ -62,48 +62,57 @@ function Get-MaskedCredential {
         $btnSubmit.Location = New-Object System.Drawing.Point(180, 175)
         $btnSubmit.Size = New-Object System.Drawing.Size(200, 35)
         $btnSubmit.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
-        $btnSubmit.DialogResult = [System.Windows.Forms.DialogResult]::OK
 
         $btnCancel = New-Object System.Windows.Forms.Button
         $btnCancel.Text = "Cancel"
         $btnCancel.Location = New-Object System.Drawing.Point(395, 175)
         $btnCancel.Size = New-Object System.Drawing.Size(110, 35)
-        $btnCancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
 
         $btnSubmit.Add_Click({
             $val = $txtPassword.Text.Trim()
+            if ($val.StartsWith('"') -and $val.EndsWith('"')) { $val = $val.Substring(1, $val.Length - 2).Trim() }
+            if ($val.StartsWith("'") -and $val.EndsWith("'")) { $val = $val.Substring(1, $val.Length - 2).Trim() }
+
             if ([string]::IsNullOrWhiteSpace($val)) {
                 $labelStatus.Text = "Connection string cannot be empty."
-                $form.DialogResult = [System.Windows.Forms.DialogResult]::None
                 return
             }
             if (-not ($val -match "^postgres(ql)?://")) {
                 $labelStatus.Text = "Invalid format: must start with postgresql:// or postgres://"
-                $form.DialogResult = [System.Windows.Forms.DialogResult]::None
                 return
             }
             if ($val -match "ep-silent-recipe-b9ahkke2" -or $val -match "silent-recipe" -or $val -match "br-delicate-glitter") {
                 $labelStatus.Text = "CRITICAL: Points to Production endpoint ep-silent-recipe-b9ahkke2!"
-                $form.DialogResult = [System.Windows.Forms.DialogResult]::None
                 return
             }
             if (-not ($val -match "ep-wispy-firefly-b9el08l7")) {
                 $labelStatus.Text = "REJECTED: Target must be Preview endpoint ep-wispy-firefly-b9el08l7!"
-                $form.DialogResult = [System.Windows.Forms.DialogResult]::None
                 return
             }
             if ($val -match "-pooler") {
                 $labelStatus.Text = "REJECTED: Pooled connection (-pooler) detected. Use Direct connection."
-                $form.DialogResult = [System.Windows.Forms.DialogResult]::None
                 return
             }
             $form.Tag = $val
+            $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
+            $form.Close()
+        })
+
+        $btnCancel.Add_Click({
+            $form.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+            $form.Close()
         })
 
         $form.Controls.Add($btnSubmit)
         $form.Controls.Add($btnCancel)
         $form.AcceptButton = $btnSubmit
         $form.CancelButton = $btnCancel
+
+        $form.Add_Shown({
+            $form.Activate()
+            $form.BringToFront()
+            $txtPassword.Focus()
+        })
 
         $result = $form.ShowDialog()
         if ($result -eq [System.Windows.Forms.DialogResult]::OK -and $form.Tag) {
@@ -129,11 +138,9 @@ Write-Host "[+] Launching automated PostgreSQL fix test suite (Atomic ROLLBACK).
 $workspace = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $workspace
 
-$env:NON_PROD_DATABASE_URL = $connStr
-node "$workspace\tests\test_postgres_bulk_insert_fix.mjs"
+# Pass connection string via stdin to avoid exposing in environment or arguments
+$connStr | node "$workspace\scripts\verify-postgres-bulk-insert-fix.mjs"
 $exitCode = $LASTEXITCODE
-
-Remove-Item Env:\NON_PROD_DATABASE_URL -ErrorAction SilentlyContinue
 
 if ($exitCode -eq 0) {
     Write-Host "`n[PASS] All PostgreSQL fix verification tests passed successfully!" -ForegroundColor Green
