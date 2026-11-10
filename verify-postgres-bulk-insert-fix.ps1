@@ -82,8 +82,18 @@ function Get-MaskedCredential {
                 $form.DialogResult = [System.Windows.Forms.DialogResult]::None
                 return
             }
-            if ($val -match "ep-silent-recipe-b9ahkke2") {
-                $labelStatus.Text = "REJECTED: Points to Production endpoint ep-silent-recipe-b9ahkke2!"
+            if ($val -match "ep-silent-recipe-b9ahkke2" -or $val -match "silent-recipe" -or $val -match "br-delicate-glitter") {
+                $labelStatus.Text = "CRITICAL: Points to Production endpoint ep-silent-recipe-b9ahkke2!"
+                $form.DialogResult = [System.Windows.Forms.DialogResult]::None
+                return
+            }
+            if (-not ($val -match "ep-wispy-firefly-b9el08l7")) {
+                $labelStatus.Text = "REJECTED: Target must be Preview endpoint ep-wispy-firefly-b9el08l7!"
+                $form.DialogResult = [System.Windows.Forms.DialogResult]::None
+                return
+            }
+            if ($val -match "-pooler") {
+                $labelStatus.Text = "REJECTED: Pooled connection (-pooler) detected. Use Direct connection."
                 $form.DialogResult = [System.Windows.Forms.DialogResult]::None
                 return
             }
