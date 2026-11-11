@@ -82,6 +82,7 @@ export interface AuthenticatedUserContext {
   initials: string;
   active: boolean;
   must_change_password?: boolean;
+  session_version?: number;
   suspended_at?: string | null;
   suspended_by?: string | null;
 }
@@ -445,8 +446,8 @@ export async function authenticateServerRequest(
   req: NextRequest,
   dbClient?: DBClient
 ): Promise<
-  | { success: true; user: AuthenticatedUserContext }
-  | { success: false; response: NextResponse }
+  | { success: true; authenticated: true; user: AuthenticatedUserContext }
+  | { success: false; authenticated: false; response: NextResponse }
 > {
   // Extract requester email from various standard headers and params
   const headerEmail =
@@ -456,8 +457,22 @@ export async function authenticateServerRequest(
 
   const authHeader = req.headers.get('authorization') || '';
   let bearerEmail = '';
+  let bearerSessionVersion: string | null = null;
   if (authHeader.toLowerCase().startsWith('bearer ')) {
-    bearerEmail = authHeader.slice(7).trim();
+    const tokenPart = authHeader.slice(7).trim();
+    if (tokenPart.startsWith('{') && tokenPart.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(tokenPart);
+        if (parsed.email) bearerEmail = String(parsed.email).trim();
+        if (parsed.sessionVersion !== undefined) bearerSessionVersion = String(parsed.sessionVersion).trim();
+      } catch {}
+    } else if (tokenPart.includes(':')) {
+      const parts = tokenPart.split(':');
+      bearerEmail = parts[0].trim();
+      bearerSessionVersion = parts[1].trim();
+    } else {
+      bearerEmail = tokenPart;
+    }
   }
 
   const url = new URL(req.url);
@@ -476,9 +491,19 @@ export async function authenticateServerRequest(
     ''
   ).trim();
 
+  // Extract session version from headers, cookies, token or query params
+  const rawSessionVersion =
+    req.headers.get('x-session-version') ||
+    req.headers.get('X-Session-Version') ||
+    bearerSessionVersion ||
+    req.cookies.get('liec_session_version')?.value ||
+    url.searchParams.get('session_version') ||
+    url.searchParams.get('sessionVersion');
+
   if (!rawEmail) {
     return {
       success: false,
+      authenticated: false,
       response: NextResponse.json(
         {
           error: 'Accès non autorisé / Unauthorized',
@@ -497,12 +522,12 @@ export async function authenticateServerRequest(
     const db = dbClient || (await getDb());
     const res = await db.query(
       `SELECT u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials,
-              u.active, u.suspended_at, u.suspended_by, u.must_change_password,
+              u.active, u.suspended_at, u.suspended_by, u.must_change_password, u.session_version,
               COALESCE(ARRAY_AGG(ur.role_id) FILTER (WHERE ur.role_id IS NOT NULL), ARRAY[]::VARCHAR[]) as technical_roles
        FROM users u
        LEFT JOIN user_roles ur ON u.id = ur.user_id
        WHERE LOWER(u.email) = $1
-       GROUP BY u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials, u.active, u.suspended_at, u.suspended_by, u.must_change_password`,
+       GROUP BY u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials, u.active, u.suspended_at, u.suspended_by, u.must_change_password, u.session_version`,
       [targetEmail]
     );
 
@@ -528,19 +553,29 @@ export async function authenticateServerRequest(
         suspended_at: r.suspended_at,
         suspended_by: r.suspended_by,
         must_change_password: Boolean(r.must_change_password),
+        session_version: r.session_version !== null && r.session_version !== undefined ? Number(r.session_version) : 1,
       };
     }
   } catch (err) {
-    console.warn('DB lookup for user RBAC context failed, falling back to preconfigured:', err);
+    console.error('Database authentication check failed:', err);
+    return {
+      success: false,
+      authenticated: false,
+      response: NextResponse.json(
+        {
+          error: 'Service indisponible / Database unavailable',
+          message: 'Impossible de vérifier les autorisations dans la base de données. Veuillez réessayer ultérieurement.',
+        },
+        { status: 503 }
+      ),
+    };
   }
 
-  if (!user) {
-    user = PRECONFIGURED_USERS_RBAC[targetEmail] || null;
-  }
-
+  // PostgreSQL is single authoritative source of truth: Fail securely if user not found
   if (!user) {
     return {
       success: false,
+      authenticated: false,
       response: NextResponse.json(
         {
           error: 'Utilisateur non reconnu / User not found',
@@ -551,10 +586,45 @@ export async function authenticateServerRequest(
     };
   }
 
+  // Validate session version against authoritative database record
+  if (rawSessionVersion === undefined || rawSessionVersion === null || String(rawSessionVersion).trim() === '') {
+    return {
+      success: false,
+      authenticated: false,
+      response: NextResponse.json(
+        {
+          error: 'Version de session manquante / Session version required',
+          code: 'SESSION_VERSION_REQUIRED',
+          message: 'Identifiant de version de session manquant. Veuillez vous reconnecter.',
+        },
+        { status: 401 }
+      ),
+    };
+  }
+
+  const clientSessionVersion = parseInt(String(rawSessionVersion).trim(), 10);
+  const currentSessionVersion = user.session_version ?? 1;
+
+  if (isNaN(clientSessionVersion) || clientSessionVersion !== currentSessionVersion) {
+    return {
+      success: false,
+      authenticated: false,
+      response: NextResponse.json(
+        {
+          error: 'Session révoquée / Session revoked',
+          code: 'SESSION_REVOKED',
+          message: 'Votre session a été invalidée suite à une modification de mot de passe ou est obsolète. Veuillez vous reconnecter.',
+        },
+        { status: 401 }
+      ),
+    };
+  }
+
   // Check account suspension status
   if (!user.active) {
     return {
       success: false,
+      authenticated: false,
       response: NextResponse.json(
         {
           error: 'Compte suspendu / Account Suspended',
@@ -570,6 +640,7 @@ export async function authenticateServerRequest(
   if (user.must_change_password) {
     return {
       success: false,
+      authenticated: false,
       response: NextResponse.json(
         {
           error: 'Changement de mot de passe obligatoire / Password Change Required',
@@ -583,7 +654,7 @@ export async function authenticateServerRequest(
     };
   }
 
-  return { success: true, user };
+  return { success: true, authenticated: true, user };
 }
 
 /**

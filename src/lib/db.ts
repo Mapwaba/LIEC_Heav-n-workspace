@@ -725,6 +725,18 @@ export async function initSchemaDDL(client: DBClient): Promise<void> {
 
     ALTER TABLE users ADD COLUMN IF NOT EXISTS invitation_token VARCHAR(120);
     ALTER TABLE users ADD COLUMN IF NOT EXISTS invitation_token_expires_at TIMESTAMP WITH TIME ZONE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 1;
+
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash VARCHAR(64) NOT NULL UNIQUE,
+      expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+      used_at TIMESTAMP WITH TIME ZONE,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_password_resets_token_hash ON password_resets(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_password_resets_user_id ON password_resets(user_id);
   `);
 }
 

@@ -78,16 +78,20 @@ export async function POST(req: NextRequest) {
     // Hash new personal password
     const { hash: newHash, salt: newSalt } = hashPassword(newPassword);
 
-    // Update in database
-    await db.query(
+    // Update in database: atomically increment session_version to invalidate prior sessions
+    const updateRes = await db.query(
       `UPDATE users
        SET password_hash = $1,
            password_salt = $2,
            must_change_password = FALSE,
-           password_updated_at = CURRENT_TIMESTAMP
-       WHERE id = $3`,
+           password_updated_at = CURRENT_TIMESTAMP,
+           session_version = COALESCE(session_version, 1) + 1
+       WHERE id = $3
+       RETURNING session_version`,
       [newHash, newSalt, user.id]
     );
+
+    const newSessionVersion = updateRes.rows[0]?.session_version ?? 2;
 
     // Audit log entry
     await db.query(
@@ -96,7 +100,7 @@ export async function POST(req: NextRequest) {
       [
         user.name,
         `USER-${user.id}`,
-        `User completed mandatory first-login password change and set their personal secure password.`,
+        `User completed mandatory first-login password change and set their personal secure password. Session version incremented to ${newSessionVersion}.`,
       ]
     );
 
@@ -112,6 +116,7 @@ export async function POST(req: NextRequest) {
       title: user.title,
       initials: user.initials,
       must_change_password: false,
+      session_version: newSessionVersion,
     };
 
     const res = NextResponse.json({
@@ -123,6 +128,14 @@ export async function POST(req: NextRequest) {
     res.cookies.set({
       name: 'liec_user_email',
       value: user.email,
+      path: '/',
+      maxAge: 604800,
+      sameSite: 'lax',
+    });
+
+    res.cookies.set({
+      name: 'liec_session_version',
+      value: String(newSessionVersion),
       path: '/',
       maxAge: 604800,
       sameSite: 'lax',

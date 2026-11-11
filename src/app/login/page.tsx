@@ -33,12 +33,16 @@ function getRedirectTarget(): string {
 
 export default function LoginPage() {
   const router = useRouter();
-  const [step, setStep] = useState<'credentials' | '2fa' | 'first_login_password_change' | 'invitation_setup'>('credentials');
+  const [step, setStep] = useState<'credentials' | '2fa' | 'first_login_password_change' | 'invitation_setup' | 'forgot_password'>('credentials');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotSuccess, setForgotSuccess] = useState(false);
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotMessage, setForgotMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [twoFaData, setTwoFaData] = useState<TwoFaSetupData | null>(null);
@@ -120,30 +124,6 @@ export default function LoginPage() {
     setMousePos({ x, y });
   };
 
-  const OFFLINE_STAFF_CREDENTIALS = [
-    {
-      role: 'admin' as const,
-      user_id: 'bmapwaba',
-      email: 'bmapwabantoro@liecconsulting.com',
-      password: 'Admin@LIEC2026!',
-      passwords: ['Admin@LIEC2026!', 'ReRxpnn@%9tX5ro#'],
-    },
-    {
-      role: 'admin' as const,
-      user_id: 'admin',
-      email: 'admin@liecconsulting.com',
-      password: 'Admin@LIEC2026!',
-      passwords: ['Admin@LIEC2026!', 'ReRxpnn@%9tX5ro#'],
-    },
-    {
-      role: 'secretary' as const,
-      user_id: 'omandeke',
-      email: 'contacts@liecconsulting.com',
-      password: 'Admin@LIEC2026!',
-      passwords: ['Admin@LIEC2026!', 'ReRxpnn@%9tX5ro#'],
-    },
-  ];
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -179,43 +159,13 @@ export default function LoginPage() {
         localStorage.setItem('liec_user', JSON.stringify(data.user));
         localStorage.setItem('liec_role', data.user.role);
         document.cookie = `liec_user_email=${encodeURIComponent(data.user.email)}; path=/; max-age=604800; SameSite=Lax`;
+        document.cookie = `liec_session_version=${encodeURIComponent(String(data.user.session_version || 1))}; path=/; max-age=604800; SameSite=Lax`;
         window.location.replace(getRedirectTarget());
       } else {
         setError(data.error || 'Invalid credentials. Please check your email and password.');
       }
     } catch {
-      // Offline fallback validation
-      const lower = email.trim().toLowerCase();
-      const pass = password.trim();
-
-      const matched = OFFLINE_STAFF_CREDENTIALS.find(
-        (t) =>
-          (t.email.toLowerCase() === lower ||
-            (t as any).user_id?.toLowerCase() === lower ||
-            lower === 'bmapwabantoro@liecconsulting.com' ||
-            lower === 'bmapwaba' ||
-            lower === 'omandeke' ||
-            lower === 'admin@liecconsulting.com') &&
-          (t.passwords ? t.passwords.includes(pass) : t.password === pass)
-      );
-
-      if (matched) {
-        const fallbackUser = {
-          id: 1,
-          name: 'Barthelemy MAPWABA NTORO',
-          email: 'bmapwabantoro@liecconsulting.com',
-          role: 'admin',
-          title: 'Platform Administrator & Managing Director',
-          initials: 'BM',
-        };
-
-        localStorage.setItem('liec_user', JSON.stringify(fallbackUser));
-        localStorage.setItem('liec_role', fallbackUser.role);
-        document.cookie = `liec_user_email=${encodeURIComponent(fallbackUser.email)}; path=/; max-age=604800; SameSite=Lax`;
-        window.location.replace(getRedirectTarget());
-      } else {
-        setError('Invalid credentials. Please check your email address and password.');
-      }
+      setError('Unable to reach the authentication server. Please check your network connection.');
     } finally {
       setLoading(false);
     }
@@ -250,22 +200,46 @@ export default function LoginPage() {
         localStorage.setItem('liec_user', JSON.stringify(data.user));
         localStorage.setItem('liec_role', data.user.role);
         document.cookie = `liec_user_email=${encodeURIComponent(data.user.email)}; path=/; max-age=604800; SameSite=Lax`;
+        document.cookie = `liec_session_version=${encodeURIComponent(String(data.user.session_version || 1))}; path=/; max-age=604800; SameSite=Lax`;
         window.location.replace(getRedirectTarget());
       } else {
         setError(data.error || 'Code Google Authenticator invalide ou expiré.');
       }
     } catch {
-      // Offline fallback: simulate TOTP success on valid input
-      if (/^\d{6}$/.test(cleanCode)) {
-        localStorage.setItem('liec_user', JSON.stringify(twoFaData.user));
-        localStorage.setItem('liec_role', twoFaData.user.role);
-        document.cookie = `liec_user_email=${encodeURIComponent(twoFaData.user.email)}; path=/; max-age=604800; SameSite=Lax`;
-        window.location.replace(getRedirectTarget());
-      } else {
-        setError('Code à 6 chiffres invalide.');
-      }
+      setError('Network error during 2FA verification. Please check your connection.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotLoading(true);
+    setError(null);
+
+    const cleanEmail = forgotEmail.trim();
+    if (!cleanEmail) {
+      setError('Please provide your professional email address.');
+      setForgotLoading(false);
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail }),
+      });
+      const data = await res.json();
+      setForgotSuccess(true);
+      setForgotMessage(
+        data.message ||
+          'If an account associated with this email address exists, password reset instructions have been sent.'
+      );
+    } catch {
+      setError('Unable to reach recovery server. Please try again later.');
+    } finally {
+      setForgotLoading(false);
     }
   };
 
@@ -975,12 +949,14 @@ export default function LoginPage() {
                       Remember me
                     </label>
                     <a
-                      href="#"
+                      href="#forgot-password"
                       onClick={(e) => {
                         e.preventDefault();
-                        setError(
-                          'Veuillez contacter l’administrateur système LIEC pour réinitialiser vos identifiants.'
-                        );
+                        setError(null);
+                        setForgotEmail(email.trim());
+                        setForgotSuccess(false);
+                        setForgotMessage(null);
+                        setStep('forgot_password');
                       }}
                     >
                       Forgot password?
@@ -992,6 +968,89 @@ export default function LoginPage() {
                     <span aria-hidden="true">→</span>
                   </button>
                 </form>
+              </>
+            ) : step === 'forgot_password' ? (
+              <>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#d8f6ea', color: '#0c685a', padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
+                  <span>🔐 ACCOUNT RECOVERY</span>
+                </div>
+                <h2>Reset Your Password</h2>
+                <p className="sub">
+                  Enter your professional email address. If an account is associated with it, we will send you a secure link to reset your password.
+                </p>
+
+                {error && <div className="error">{error}</div>}
+
+                {forgotSuccess ? (
+                  <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                    <div style={{
+                      background: '#ecfdf5',
+                      border: '1px solid #a7f3d0',
+                      borderRadius: '10px',
+                      padding: '16px',
+                      color: '#065f46',
+                      marginBottom: '20px',
+                      fontSize: '13px',
+                      lineHeight: 1.5,
+                      textAlign: 'left'
+                    }}>
+                      <strong>Recovery Request Submitted</strong><br />
+                      {forgotMessage}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStep('credentials');
+                        setError(null);
+                      }}
+                      className="submit"
+                      style={{ width: '100%' }}
+                    >
+                      Return to Sign In
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={handleForgotPassword}>
+                    <div className="field">
+                      <label htmlFor="forgotEmail">Professional Email Address</label>
+                      <input
+                        id="forgotEmail"
+                        name="forgotEmail"
+                        type="email"
+                        placeholder="e.g. bmapwabantoro@liecconsulting.com"
+                        value={forgotEmail}
+                        onChange={(e) => setForgotEmail(e.target.value)}
+                        required
+                        autoFocus
+                      />
+                    </div>
+
+                    <button className="submit" type="submit" disabled={forgotLoading}>
+                      <span>{forgotLoading ? 'Sending link...' : 'Send Recovery Link'}</span>
+                      <span aria-hidden="true">→</span>
+                    </button>
+
+                    <div style={{ textAlign: 'center', marginTop: '14px' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStep('credentials');
+                          setError(null);
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#64748b',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ← Return to Sign In
+                      </button>
+                    </div>
+                  </form>
+                )}
               </>
             ) : step === 'invitation_setup' ? (
               <>

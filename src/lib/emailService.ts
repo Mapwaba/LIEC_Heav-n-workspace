@@ -1172,3 +1172,90 @@ export async function sendNewUserWelcomeEmail(
     allowSimulation: true,
   });
 }
+
+export interface PasswordResetEmailPayload {
+  to: string;
+  name: string;
+  resetUrl: string;
+  expiresInMinutes?: number;
+  idempotencyKey?: string;
+}
+
+export function renderPasswordResetHtml(data: PasswordResetEmailPayload): string {
+  const minutes = data.expiresInMinutes || 30;
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Reset Your LIEC Heav'n Password</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f4f6f8; padding: 24px; color: #1e293b;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+    <tr>
+      <td style="background: linear-gradient(135deg, #0c685a 0%, #064e43 100%); padding: 32px 24px; text-align: center;">
+        <h1 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: 700;">LIEC Heav'n Education</h1>
+        <p style="color: #d8f6ea; margin: 6px 0 0 0; font-size: 14px;">Secure Password Recovery</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 32px 24px;">
+        <p style="font-size: 16px; margin: 0 0 16px 0;">Hello <strong>${data.name}</strong>,</p>
+        <p style="font-size: 14px; line-height: 1.6; color: #475569; margin: 0 0 24px 0;">
+          A password reset was requested for your LIEC Heav'n account. Click the button below to establish a new password. This secure link is single-use and will expire in <strong>${minutes} minutes</strong>.
+        </p>
+        <div style="text-align: center; margin: 32px 0;">
+          <a href="${data.resetUrl}" style="background-color: #0c685a; color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 8px; font-weight: 600; font-size: 15px; display: inline-block;">
+            Reset My Password
+          </a>
+        </div>
+        <p style="font-size: 13px; line-height: 1.5; color: #64748b; margin: 0 0 16px 0;">
+          If the button above does not work, copy and paste this link into your browser:<br>
+          <a href="${data.resetUrl}" style="color: #0c685a; word-break: break-all;">${data.resetUrl}</a>
+        </p>
+        <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 12px 16px; border-radius: 4px; margin-top: 24px;">
+          <p style="margin: 0; font-size: 12px; color: #991b1b; line-height: 1.4;">
+            <strong>Security Notice:</strong> If you did not initiate this request, you can safely ignore this email. Your password will remain unchanged. Never forward this link to anyone.
+          </p>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td style="background: #f8fafc; padding: 20px 24px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8;">
+        &copy; ${new Date().getFullYear()} LIEC Heav'n Education &bull; Confidential Internal Security Notice
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+export async function sendPasswordResetEmail(payload: PasswordResetEmailPayload): Promise<EmailSendResult> {
+  const recipient = cleanSenderAddress(payload.to);
+  const minutes = payload.expiresInMinutes || 30;
+  const subject = `[LIEC Heav'n] Reset Your Password (${minutes}-minute validity)`;
+  const htmlContent = renderPasswordResetHtml(payload);
+  const textContent = [
+    `LIEC Heav'n Education - Password Reset`,
+    `Hello ${payload.name},`,
+    '',
+    `A password reset was requested for your LIEC Heav'n account.`,
+    `Visit the link below to set a new password (valid for ${minutes} minutes, single-use):`,
+    payload.resetUrl,
+    '',
+    `If you did not request this, you can safely ignore this message. Your password will not change.`,
+    '',
+    `LIEC Heav'n Education - Confidential Internal Security Notice`,
+  ].join('\n');
+
+  const idempotencyKey = payload.idempotencyKey || `pwd_reset_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+  return sendEmail({
+    to: recipient,
+    subject,
+    html: htmlContent,
+    text: textContent,
+    idempotencyKey,
+    workflow: 'general',
+    allowSimulation: true,
+  });
+}

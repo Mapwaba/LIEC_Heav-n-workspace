@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { canonicalizeUserEmail } from '@/lib/rbac';
 import { getOrCreateStaff2Fa } from '@/lib/authStore';
 import { getTotpSetup } from '@/lib/totp';
-import { STAFF_ACCOUNTS } from '@/lib/staff';
 import { verifyPassword } from '@/lib/passwordSecurity';
 
 // 2FA Feature Toggle: Disabled (set to false) as requested by user
@@ -27,120 +25,79 @@ export async function POST(req: NextRequest) {
     const db = await getDb();
     const dbUserRes = await db.query(
       `SELECT u.id, u.name, u.first_name, u.last_name, u.user_id, u.email, u.business_profile, u.role, u.title, u.initials,
-              u.active, u.password_hash, u.password_salt, u.must_change_password
+              u.active, u.password_hash, u.password_salt, u.must_change_password, u.session_version
        FROM users u
        WHERE LOWER(u.email) = $1 OR LOWER(COALESCE(u.user_id, '')) = $1`,
       [rawIdentifier]
     );
 
-    let userPayload: any = null;
-
-    if (dbUserRes.rows.length > 0) {
-      const dbUser = dbUserRes.rows[0];
-
-      if (!dbUser.active) {
-        return NextResponse.json(
-          { error: isEn ? 'Account suspended by an administrator. Access revoked.' : 'Compte suspendu par un administrateur. Accès refusé.' },
-          { status: 403 }
-        );
-      }
-
-      if (dbUser.password_hash && dbUser.password_salt) {
-        const isValid = verifyPassword(password, dbUser.password_hash, dbUser.password_salt);
-        if (!isValid) {
-          return NextResponse.json(
-            { error: isEn ? 'Invalid email/User ID or password.' : 'Email/Identifiant ou mot de passe incorrect.' },
-            { status: 401 }
-          );
-        }
-
-        // Check if mandatory first login password change is required
-        if (dbUser.must_change_password) {
-          return NextResponse.json({
-            requirePasswordChange: true,
-            email: dbUser.email,
-            user_id: dbUser.user_id,
-            name: dbUser.name,
-            first_name: dbUser.first_name,
-            last_name: dbUser.last_name,
-            role: dbUser.role || 'secretary',
-            business_profile: dbUser.business_profile || 'Secretary',
-            message: 'First login detected. Password change required.',
-          });
-        }
-
-        userPayload = {
-          id: dbUser.id,
-          name: dbUser.name,
-          first_name: dbUser.first_name,
-          last_name: dbUser.last_name,
-          user_id: dbUser.user_id,
-          email: dbUser.email,
-          role: dbUser.role || 'secretary',
-          business_profile: dbUser.business_profile || 'Secretary',
-          title: dbUser.title,
-          initials: dbUser.initials,
-          must_change_password: false,
-        };
-      }
-    }
-
-    if (!userPayload) {
-      const matchedAccount = STAFF_ACCOUNTS.find(
-        (acc) =>
-          acc.acceptedEmails.some((e) => e.toLowerCase() === rawIdentifier) ||
-          acc.email.toLowerCase() === rawIdentifier ||
-          (acc as any).user_id?.toLowerCase() === rawIdentifier ||
-          (acc.role === 'admin' && rawIdentifier === 'bmapwaba') ||
-          (acc.role === 'secretary' && rawIdentifier === 'omandeke')
+    if (dbUserRes.rows.length === 0) {
+      return NextResponse.json(
+        { error: isEn ? 'Invalid email/User ID or password.' : 'Email/Identifiant ou mot de passe incorrect.' },
+        { status: 401 }
       );
-
-      if (!matchedAccount) {
-        return NextResponse.json(
-          {
-            error: isEn
-              ? 'Invalid email/User ID or password.'
-              : 'Email/Identifiant ou mot de passe incorrect.',
-          },
-          { status: 401 }
-        );
-      }
-
-      const isValidFallback =
-        matchedAccount.password === password ||
-        password === 'ReRxpnn@%9tX5ro#' ||
-        password === 'Admin@LIEC2026!';
-
-      if (!isValidFallback) {
-        return NextResponse.json(
-          { error: isEn ? 'Invalid email/User ID or password.' : 'Email/Identifiant ou mot de passe incorrect.' },
-          { status: 401 }
-        );
-      }
-
-      userPayload = {
-        id: matchedAccount.id,
-        name: matchedAccount.name,
-        email: matchedAccount.email,
-        role: matchedAccount.role,
-        business_profile:
-          matchedAccount.role === 'admin'
-            ? 'Admin'
-            : matchedAccount.role === 'avi'
-            ? 'Finance Officer'
-            : 'Secretary',
-        title: matchedAccount.title,
-        initials: matchedAccount.initials,
-        must_change_password: false,
-      };
     }
+
+    const dbUser = dbUserRes.rows[0];
+
+    if (!dbUser.active) {
+      return NextResponse.json(
+        { error: isEn ? 'Account suspended by an administrator. Access revoked.' : 'Compte suspendu par un administrateur. Accès refusé.' },
+        { status: 403 }
+      );
+    }
+
+    if (!dbUser.password_hash || !dbUser.password_salt) {
+      return NextResponse.json(
+        { error: isEn ? 'Account has no active password. Please request a password reset.' : 'Ce compte ne possède aucun mot de passe actif. Veuillez réinitialiser votre mot de passe.' },
+        { status: 401 }
+      );
+    }
+
+    const isValid = verifyPassword(password, dbUser.password_hash, dbUser.password_salt);
+    if (!isValid) {
+      return NextResponse.json(
+        { error: isEn ? 'Invalid email/User ID or password.' : 'Email/Identifiant ou mot de passe incorrect.' },
+        { status: 401 }
+      );
+    }
+
+    // Check if mandatory first login password change is required
+    if (dbUser.must_change_password) {
+      return NextResponse.json({
+        requirePasswordChange: true,
+        email: dbUser.email,
+        user_id: dbUser.user_id,
+        name: dbUser.name,
+        first_name: dbUser.first_name,
+        last_name: dbUser.last_name,
+        role: dbUser.role || 'secretary',
+        business_profile: dbUser.business_profile || 'Secretary',
+        session_version: dbUser.session_version ?? 1,
+        message: 'First login detected. Password change required.',
+      });
+    }
+
+    const userPayload = {
+      id: dbUser.id,
+      name: dbUser.name,
+      first_name: dbUser.first_name,
+      last_name: dbUser.last_name,
+      user_id: dbUser.user_id,
+      email: dbUser.email,
+      role: dbUser.role || 'secretary',
+      business_profile: dbUser.business_profile || 'Secretary',
+      title: dbUser.title,
+      initials: dbUser.initials,
+      must_change_password: false,
+      session_version: dbUser.session_version ?? 1,
+    };
 
     // If 2FA is enabled, enforce Google Authenticator TOTP verification
     if (ENABLE_2FA) {
       const twoFaRecord = await getOrCreateStaff2Fa(userPayload.email);
 
       try {
-        const db = await getDb();
         await db.query(
           `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
            VALUES ($1, 'Mot de passe validé - En attente 2FA Google Authenticator (' || $2 || ')', 'AUTH-PASSWORD-CHECK', 'Succès')`,
@@ -191,6 +148,13 @@ export async function POST(req: NextRequest) {
     });
 
     res.cookies.set('liec_user_email', userPayload.email, {
+      path: '/',
+      httpOnly: false,
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7,
+    });
+
+    res.cookies.set('liec_session_version', String(userPayload.session_version), {
       path: '/',
       httpOnly: false,
       sameSite: 'lax',
