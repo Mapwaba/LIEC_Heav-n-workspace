@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server.js';
+import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { getDb } from '@/lib/db.ts';
-import { authenticateServerRequest } from '@/lib/rbac.ts';
+import { getDb } from '@/lib/db';
+import { authenticateServerRequest } from '@/lib/rbac';
 
 /**
  * Platform Administrator MFA Enrolment Authorization API

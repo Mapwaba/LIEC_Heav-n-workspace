@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server.js';
+import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { getDb } from '@/lib/db.ts';
-import { verifyPassword } from '@/lib/passwordSecurity.ts';
-import { generateBase32Secret, getTotpSetup } from '@/lib/totp.ts';
-import { encryptMfaSecret } from '@/lib/mfa.ts';
-import { signMfaPendingToken } from '@/lib/session.ts';
+import { getDb } from '@/lib/db';
+import { verifyPassword } from '@/lib/passwordSecurity';
+import { generateBase32Secret, getTotpSetup } from '@/lib/totp';
+import { encryptMfaSecret } from '@/lib/mfa';
+import { signMfaPendingToken } from '@/lib/session';
 
 export async function POST(req: NextRequest) {
   try {
@@ -124,42 +124,30 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Validate administrator enrolment authorization token
+      // Validate and atomically consume administrator enrolment authorization token in a single conditional statement:
+      // Verifies token hash, user binding, single-use, and expiration atomically under concurrency
       const tokenHash = crypto.createHash('sha256').update(enrollmentToken).digest('hex');
       const authRes = await db.query(
-        `SELECT id, expires_at, used_at FROM mfa_enrollment_authorizations
-         WHERE user_id = $1 AND token_hash = $2
-         FOR UPDATE`,
+        `UPDATE mfa_enrollment_authorizations
+         SET used_at = CURRENT_TIMESTAMP
+         WHERE user_id = $1
+           AND token_hash = $2
+           AND used_at IS NULL
+           AND expires_at > CURRENT_TIMESTAMP
+         RETURNING id`,
         [dbUser.id, tokenHash]
       );
 
       if (authRes.rows.length === 0) {
         return NextResponse.json(
-          { error: isEn ? 'Invalid or unknown MFA enrollment authorization token.' : 'Jeton d’enrôlement MFA invalide ou inconnu.' },
+          {
+            error: isEn
+              ? 'Invalid, expired, or already-used MFA enrollment authorization token.'
+              : 'Jeton d’enrôlement MFA invalide, expiré ou déjà utilisé.',
+          },
           { status: 401 }
         );
       }
-
-      const authRecord = authRes.rows[0];
-      if (authRecord.used_at) {
-        return NextResponse.json(
-          { error: isEn ? 'This MFA enrollment authorization token has already been used.' : 'Ce jeton d’enrôlement MFA a déjà été utilisé.' },
-          { status: 401 }
-        );
-      }
-
-      if (Date.now() > new Date(authRecord.expires_at).getTime()) {
-        return NextResponse.json(
-          { error: isEn ? 'This MFA enrollment authorization token has expired.' : 'Ce jeton d’enrôlement MFA a expiré.' },
-          { status: 401 }
-        );
-      }
-
-      // Atomically consume authorization token
-      await db.query(
-        `UPDATE mfa_enrollment_authorizations SET used_at = CURRENT_TIMESTAMP WHERE id = $1`,
-        [authRecord.id]
-      );
 
       // Generate secret, encrypt at rest, and return setup data
       const rawSecret = generateBase32Secret(32);

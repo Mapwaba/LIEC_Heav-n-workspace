@@ -60,7 +60,7 @@ function getSessionSecret(): string {
  * Creates a cryptographically signed session token: <base64url(payload)>.<hmac-sha256>
  */
 export function signSessionToken(
-  data: Omit<SessionPayload, 'issuedAt' | 'expiresAt'> & { jti?: string },
+  data: Omit<SessionPayload, 'jti' | 'issuedAt' | 'expiresAt'> & { jti?: string },
   expiresInSeconds?: number
 ): string {
   const secret = getSessionSecret();

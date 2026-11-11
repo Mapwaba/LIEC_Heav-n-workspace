@@ -4,6 +4,7 @@ import { getDb } from '@/lib/db';
 import {
   verifyMfaPendingToken,
   signSessionToken,
+  verifySessionToken,
   SESSION_COOKIE_NAME,
   registerDatabaseSession,
   getMaxSessionLifetimeSeconds,
@@ -105,20 +106,21 @@ export async function POST(req: NextRequest) {
       const cleanRecovery = rawCode.toUpperCase().replace(/\s+/g, '');
       const codeHash = crypto.createHash('sha256').update(cleanRecovery).digest('hex');
 
+      // Atomic single-statement conditional consumption:
+      // Guarantees that concurrent requests using the same recovery code result in at most one successful consumption
       const recRes = await db.query(
-        `SELECT id FROM user_mfa_recovery_codes
-         WHERE user_id = $1 AND code_hash = $2 AND used_at IS NULL
-         FOR UPDATE`,
+        `UPDATE user_mfa_recovery_codes
+         SET used_at = CURRENT_TIMESTAMP
+         WHERE user_id = $1
+           AND code_hash = $2
+           AND used_at IS NULL
+         RETURNING id`,
         [user.id, codeHash]
       );
 
       if (recRes.rows.length > 0) {
         verified = true;
         usedRecoveryCode = true;
-        await db.query(
-          `UPDATE user_mfa_recovery_codes SET used_at = CURRENT_TIMESTAMP WHERE id = $1`,
-          [recRes.rows[0].id]
-        );
 
         try {
           await db.query(

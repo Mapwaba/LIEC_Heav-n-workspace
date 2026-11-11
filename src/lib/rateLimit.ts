@@ -4,6 +4,10 @@ import { getDb, type DBClient } from './db.ts';
 
 const RATE_LIMIT_SALT = process.env.SESSION_SECRET || 'liec_rate_limit_default_salt_2026';
 
+// Minimum interval between opportunistic database cleanup runs (1 hour)
+const CLEANUP_THROTTLE_MS = 60 * 60 * 1000;
+let lastCleanupRunTimestamp = 0;
+
 /**
  * Extracts the client IP from proxy headers safely
  */
@@ -42,6 +46,14 @@ export async function checkRateLimit(
   dbClient?: DBClient
 ): Promise<{ allowed: boolean; count: number; remaining: number; resetAt: Date; error?: boolean }> {
   const db = dbClient || (await getDb());
+
+  // Opportunistic bounded cleanup: trigger at most once per hour without blocking the current request
+  const now = Date.now();
+  if (now - lastCleanupRunTimestamp > CLEANUP_THROTTLE_MS) {
+    lastCleanupRunTimestamp = now;
+    // Asynchronous background execution: never blocks rate limit check and fails silently without affecting auth
+    cleanupExpiredRateLimitBuckets(db).catch(() => {});
+  }
 
   // Atomic UPSERT: If record exists and has expired, reset count to 1 and update reset_at.
   // Otherwise, increment count.
@@ -124,4 +136,32 @@ export async function checkPasswordRecoveryRateLimit(
   }
 
   return { allowed: true };
+}
+
+/**
+ * Safely purges expired records from rate_limit_buckets older than a retention threshold (default: 7 days).
+ * - Never deletes active rate-limit buckets (reset_at > CURRENT_TIMESTAMP).
+ * - Never deletes recent expired buckets within the 7-day window.
+ * - Does not interfere with atomic UPSERT operations.
+ * - Failures do not affect authentication and never cause rate limiting to fail open.
+ */
+export async function cleanupExpiredRateLimitBuckets(
+  dbClient?: DBClient,
+  olderThanDays: number = 7
+): Promise<{ success: boolean; deletedCount: number; error?: string }> {
+  try {
+    const db = dbClient || (await getDb());
+    const retentionDays = Math.max(1, Math.floor(olderThanDays));
+    const res = await db.query(
+      `DELETE FROM rate_limit_buckets
+       WHERE reset_at < CURRENT_TIMESTAMP - ($1 || ' days')::INTERVAL
+       RETURNING key`,
+      [retentionDays]
+    );
+    const deletedCount = res.rowCount ?? res.rows.length;
+    return { success: true, deletedCount };
+  } catch (err: any) {
+    console.error('[RATE LIMIT CLEANUP] Error during bucket retention cleanup:', err?.message || err);
+    return { success: false, deletedCount: 0, error: err?.message };
+  }
 }

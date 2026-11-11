@@ -15,7 +15,7 @@ function getMfaEncryptionKey(): Buffer {
   }
 
   // If provided key is arbitrary string, derive a stable 256-bit key using HKDF
-  return crypto.hkdfSync('sha256', Buffer.from(rawKey), Buffer.from('liec_mfa_salt'), Buffer.from('mfa_enc_v1'), 32);
+  return Buffer.from(crypto.hkdfSync('sha256', Buffer.from(rawKey), Buffer.from('liec_mfa_salt'), Buffer.from('mfa_enc_v1'), 32));
 }
 
 /**

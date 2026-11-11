@@ -500,9 +500,10 @@ export async function authenticateServerRequest(
 
   const sessionPayload = verified.payload;
   let user: AuthenticatedUserContext | null = null;
+  let db: DBClient;
 
   try {
-    const db = dbClient || (await getDb());
+    db = dbClient || (await getDb());
     const res = await db.query(
       `SELECT u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials,
               u.active, u.suspended_at, u.suspended_by, u.must_change_password, u.session_version,
