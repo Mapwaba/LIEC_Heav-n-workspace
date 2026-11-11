@@ -1,21 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { authenticateServerRequest } from '@/lib/rbac';
 
 export async function GET(req: NextRequest) {
   try {
     const db = await getDb();
-    const { searchParams } = new URL(req.url);
-    const userEmail = (
-      searchParams.get('email') ||
-      searchParams.get('user_email') ||
-      req.headers.get('x-user-email') ||
-      ''
-    )
-      .toLowerCase()
-      .trim();
+    const auth = await authenticateServerRequest(req, db);
+    if (!auth.success) return auth.response;
 
-    if (!userEmail) {
-      return NextResponse.json({ readIds: [] });
+    const { searchParams } = new URL(req.url);
+    const requestedEmail = (searchParams.get('email') || searchParams.get('user_email') || '').toLowerCase().trim();
+
+    // Normal staff can only read their own notifications; Admin can view any
+    let effectiveEmail = auth.user.email.toLowerCase().trim();
+    if (requestedEmail && auth.user.role === 'admin') {
+      effectiveEmail = requestedEmail;
     }
 
     // Ensure table exists
@@ -31,11 +30,11 @@ export async function GET(req: NextRequest) {
 
     const res = await db.query(
       `SELECT notification_id FROM user_notification_reads WHERE LOWER(user_email) = $1`,
-      [userEmail]
+      [effectiveEmail]
     );
 
     const readIds = res.rows.map((r: any) => r.notification_id);
-    return NextResponse.json({ readIds, count: readIds.length });
+    return NextResponse.json({ readIds, count: readIds.length, userEmail: effectiveEmail });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message }, { status: 500 });
   }
@@ -44,21 +43,21 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const db = await getDb();
+    const auth = await authenticateServerRequest(req, db);
+    if (!auth.success) return auth.response;
+
     const body = await req.json();
-    const userEmail = (
-      body.email ||
-      body.user_email ||
-      body.userEmail ||
-      req.headers.get('x-user-email') ||
-      ''
-    )
-      .toLowerCase()
-      .trim();
+    const requestedEmail = (body.email || body.user_email || body.userEmail || '').toLowerCase().trim();
     const notificationId = String(body.notification_id || body.notificationId || '').trim();
 
-    if (!userEmail || !notificationId) {
+    let effectiveEmail = auth.user.email.toLowerCase().trim();
+    if (requestedEmail && auth.user.role === 'admin') {
+      effectiveEmail = requestedEmail;
+    }
+
+    if (!notificationId) {
       return NextResponse.json(
-        { error: 'Email and notification_id are required' },
+        { error: 'notification_id is required' },
         { status: 400 }
       );
     }
@@ -78,10 +77,10 @@ export async function POST(req: NextRequest) {
       `INSERT INTO user_notification_reads (user_email, notification_id)
        VALUES ($1, $2)
        ON CONFLICT (user_email, notification_id) DO NOTHING`,
-      [userEmail, notificationId]
+      [effectiveEmail, notificationId]
     );
 
-    return NextResponse.json({ ok: true, read: true, notificationId, userEmail });
+    return NextResponse.json({ ok: true, read: true, notificationId, userEmail: effectiveEmail });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message }, { status: 500 });
   }
@@ -90,20 +89,16 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const db = await getDb();
+    const auth = await authenticateServerRequest(req, db);
+    if (!auth.success) return auth.response;
+
     const body = await req.json();
-    const userEmail = (
-      body.email ||
-      body.user_email ||
-      body.userEmail ||
-      req.headers.get('x-user-email') ||
-      ''
-    )
-      .toLowerCase()
-      .trim();
+    const requestedEmail = (body.email || body.user_email || body.userEmail || '').toLowerCase().trim();
     const notificationIds: string[] = body.notification_ids || body.notificationIds || [];
 
-    if (!userEmail) {
-      return NextResponse.json({ error: 'Email is required' }, { status: 400 });
+    let effectiveEmail = auth.user.email.toLowerCase().trim();
+    if (requestedEmail && auth.user.role === 'admin') {
+      effectiveEmail = requestedEmail;
     }
 
     // Ensure table exists
@@ -123,12 +118,12 @@ export async function PUT(req: NextRequest) {
           `INSERT INTO user_notification_reads (user_email, notification_id)
            VALUES ($1, $2)
            ON CONFLICT (user_email, notification_id) DO NOTHING`,
-          [userEmail, String(notifId).trim()]
+          [effectiveEmail, String(notifId).trim()]
         );
       }
     }
 
-    return NextResponse.json({ ok: true, count: notificationIds.length, userEmail });
+    return NextResponse.json({ ok: true, count: notificationIds.length, userEmail: effectiveEmail });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message }, { status: 500 });
   }

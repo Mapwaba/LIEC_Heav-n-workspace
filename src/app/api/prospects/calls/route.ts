@@ -1,9 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { authenticateServerRequest, evaluateModuleAccess } from '@/lib/rbac';
 
 export async function GET(req: NextRequest) {
   try {
     const db = await getDb();
+    const auth = await authenticateServerRequest(req, db);
+    if (!auth.success) return auth.response;
+
+    const access = evaluateModuleAccess(auth.user, 'prospects');
+    if (!access.allowed) {
+      return NextResponse.json(
+        { error: 'Access Denied / 403 Forbidden: Insufficient permissions for Prospects module.' },
+        { status: 403 }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const prospectId = searchParams.get('prospect_id');
 
@@ -25,6 +37,17 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const db = await getDb();
+    const auth = await authenticateServerRequest(req, db);
+    if (!auth.success) return auth.response;
+
+    const access = evaluateModuleAccess(auth.user, 'prospects');
+    if (!access.allowed) {
+      return NextResponse.json(
+        { error: 'Access Denied / 403 Forbidden: Insufficient permissions for Prospects module.' },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
 
     const {
@@ -36,7 +59,9 @@ export async function POST(req: NextRequest) {
       notes,
     } = body;
 
-    if (!prospect_id || !scheduled_date || !scheduled_time || !assigned_to) {
+    const effectiveAssignedTo = assigned_to || auth.user.name;
+
+    if (!prospect_id || !scheduled_date || !scheduled_time || !effectiveAssignedTo) {
       return NextResponse.json(
         { error: 'Champs requis manquants (prospect_id, date, heure, conseiller)' },
         { status: 400 }
@@ -49,7 +74,7 @@ export async function POST(req: NextRequest) {
       `INSERT INTO prospect_calls (prospect_id, scheduled_date, scheduled_time, subject, assigned_to, notes, status)
        VALUES ($1, $2, $3, $4, $5, $6, 'Scheduled')
        RETURNING *`,
-      [Number(prospect_id), scheduled_date, scheduled_time, callSubject, assigned_to, notes || '']
+      [Number(prospect_id), scheduled_date, scheduled_time, callSubject, effectiveAssignedTo, notes || '']
     );
 
     // Update prospect's meta_right to reflect the scheduled call on the card
@@ -65,7 +90,7 @@ export async function POST(req: NextRequest) {
     await db.query(
       `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
        VALUES ($1, $2, $3, 'Succès')`,
-      [assigned_to, `Planification appel prospect (${scheduled_date} à ${scheduled_time})`, `PROSPECT-${prospect_id}`]
+      [auth.user.name, `Planification appel prospect (${scheduled_date} à ${scheduled_time})`, `PROSPECT-${prospect_id}`]
     );
 
     return NextResponse.json({ call: insertRes.rows[0], ok: true });
@@ -77,6 +102,17 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const db = await getDb();
+    const auth = await authenticateServerRequest(req, db);
+    if (!auth.success) return auth.response;
+
+    const access = evaluateModuleAccess(auth.user, 'prospects');
+    if (!access.allowed) {
+      return NextResponse.json(
+        { error: 'Access Denied / 403 Forbidden: Insufficient permissions for Prospects module.' },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
     const { id, status, notes } = body;
 

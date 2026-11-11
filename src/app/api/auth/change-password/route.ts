@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { verifyPassword, hashPassword, validatePasswordPolicy } from '@/lib/passwordSecurity';
+import { generateBase32Secret, getTotpSetup } from '@/lib/totp';
+import { encryptMfaSecret } from '@/lib/mfa';
+import { signMfaPendingToken } from '@/lib/session';
 
 export async function POST(req: NextRequest) {
   try {
@@ -40,7 +43,8 @@ export async function POST(req: NextRequest) {
     const db = await getDb();
     const userRes = await db.query(
       `SELECT u.id, u.name, u.first_name, u.last_name, u.user_id, u.email, u.business_profile, u.role, u.title, u.initials,
-              u.active, u.password_hash, u.password_salt, u.must_change_password
+              u.active, u.password_hash, u.password_salt, u.must_change_password, u.session_version,
+              u.mfa_enrolled, u.mfa_secret_encrypted
        FROM users u
        WHERE LOWER(u.email) = $1 OR LOWER(COALESCE(u.user_id, '')) = $1`,
       [email]
@@ -78,15 +82,27 @@ export async function POST(req: NextRequest) {
     // Hash new personal password
     const { hash: newHash, salt: newSalt } = hashPassword(newPassword);
 
-    // Update in database
-    await db.query(
+    // Update in database: atomically increment session_version to invalidate prior sessions
+    const updateRes = await db.query(
       `UPDATE users
        SET password_hash = $1,
            password_salt = $2,
            must_change_password = FALSE,
-           password_updated_at = CURRENT_TIMESTAMP
-       WHERE id = $3`,
+           password_updated_at = CURRENT_TIMESTAMP,
+           session_version = COALESCE(session_version, 1) + 1
+       WHERE id = $3
+       RETURNING session_version`,
       [newHash, newSalt, user.id]
+    );
+
+    const newSessionVersion = updateRes.rows[0]?.session_version ?? 2;
+
+    // Revoke all existing server-side sessions for this user in user_sessions
+    await db.query(
+      `UPDATE user_sessions
+       SET revoked = TRUE, revoked_at = CURRENT_TIMESTAMP
+       WHERE user_id = $1 AND revoked = FALSE`,
+      [user.id]
     );
 
     // Audit log entry
@@ -96,7 +112,7 @@ export async function POST(req: NextRequest) {
       [
         user.name,
         `USER-${user.id}`,
-        `User completed mandatory first-login password change and set their personal secure password.`,
+        `User completed mandatory first-login password change and set their personal secure password. Session version incremented to ${newSessionVersion}.`,
       ]
     );
 
@@ -112,23 +128,61 @@ export async function POST(req: NextRequest) {
       title: user.title,
       initials: user.initials,
       must_change_password: false,
+      session_version: newSessionVersion,
     };
 
-    const res = NextResponse.json({
+    // -------------------------------------------------------------------------
+    // MANDATORY MFA: Do NOT issue workspace session yet!
+    // Sequence: Email/password -> MFA verification -> Signed session issued -> RBAC
+    // -------------------------------------------------------------------------
+    const isEnrolled = Boolean(user.mfa_enrolled && user.mfa_secret_encrypted);
+
+    const mfaPendingToken = signMfaPendingToken({
+      userId: user.id,
+      email: user.email,
+      role: user.role || 'secretary',
+      businessProfile: user.business_profile || 'Secretary',
+      isEnrolled,
+    });
+
+    if (!isEnrolled) {
+      const rawSecret = generateBase32Secret(20);
+      const encryptedSecret = encryptMfaSecret(rawSecret);
+
+      await db.query(
+        `UPDATE users
+         SET mfa_secret_encrypted = $1
+         WHERE id = $2`,
+        [encryptedSecret, user.id]
+      );
+
+      const setup = getTotpSetup(user.email, rawSecret);
+
+      return NextResponse.json({
+        success: true,
+        requiresMfaSetup: true,
+        requires2Fa: true,
+        isFirstLogin: true,
+        mfaPendingToken,
+        email: user.email,
+        secret: setup.secret,
+        uri: setup.uri,
+        qrSvg: setup.qrSvg,
+        user: userPayload,
+        message: 'Password successfully updated. Please complete Google Authenticator MFA enrollment to access workspace.',
+      });
+    }
+
+    return NextResponse.json({
       success: true,
-      message: 'Password successfully updated. Access granted.',
+      requiresMfa: true,
+      requires2Fa: true,
+      isFirstLogin: false,
+      mfaPendingToken,
+      email: user.email,
       user: userPayload,
+      message: 'Password successfully updated. Please complete Google Authenticator MFA verification.',
     });
-
-    res.cookies.set({
-      name: 'liec_user_email',
-      value: user.email,
-      path: '/',
-      maxAge: 604800,
-      sameSite: 'lax',
-    });
-
-    return res;
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

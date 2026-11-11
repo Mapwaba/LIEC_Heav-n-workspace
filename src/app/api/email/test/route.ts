@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { authenticateServerRequest } from '@/lib/rbac';
 import { resolveSenderAddress, isPreviewEnvironment } from '@/lib/emailService';
 
 export async function GET(req: NextRequest) {
   try {
     const db = await getDb();
+    const auth = await authenticateServerRequest(req, db);
+    if (!auth.success) return auth.response;
+
+    const user = auth.user;
+    if (user.role !== 'admin' && user.business_profile !== 'Admin') {
+      return NextResponse.json(
+        { error: 'Access Denied / 403 Forbidden: Email test diagnostics are restricted to Platform Administrators.' },
+        { status: 403 }
+      );
+    }
+
     const resendApiKey = process.env.RESEND_API_KEY?.trim() || '';
     const configuredFrom = process.env.RESEND_FROM?.trim() || '';
     const resolvedFrom = resolveSenderAddress();
@@ -105,8 +117,9 @@ export async function GET(req: NextRequest) {
     // Log diagnostic in audit_logs
     await db.query(
       `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
-       VALUES ('System Diagnostic', 'Resend Delivery Test', 'RESEND-TEST', $1, $2)`,
+       VALUES ($1, 'Resend Delivery Test', 'RESEND-TEST', $2, $3)`,
       [
+        user.name,
         primaryRes.ok ? 'Succès' : 'Echec',
         primaryRes.ok
           ? `Delivered to ${testRecipient}. Message ID: ${primaryBody?.id || 'N/A'}`

@@ -1,5 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { DBClient, getDb } from './db';
+import { NextRequest, NextResponse } from 'next/server.js';
+import { getDb, type DBClient } from './db.ts';
+import {
+  verifySessionToken,
+  SESSION_COOKIE_NAME,
+  IDLE_TIMEOUT_SECONDS,
+  getMaxSessionLifetimeSeconds,
+} from './session.ts';
 
 /**
  * LIEC_Heav'n Enterprise Role-Based Access Control (RBAC)
@@ -82,6 +88,7 @@ export interface AuthenticatedUserContext {
   initials: string;
   active: boolean;
   must_change_password?: boolean;
+  session_version?: number;
   suspended_at?: string | null;
   suspended_by?: string | null;
 }
@@ -445,65 +452,67 @@ export async function authenticateServerRequest(
   req: NextRequest,
   dbClient?: DBClient
 ): Promise<
-  | { success: true; user: AuthenticatedUserContext }
-  | { success: false; response: NextResponse }
+  | { success: true; authenticated: true; user: AuthenticatedUserContext }
+  | { success: false; authenticated: false; response: NextResponse }
 > {
-  // Extract requester email from various standard headers and params
-  const headerEmail =
-    req.headers.get('x-user-email') ||
-    req.headers.get('X-User-Email') ||
-    req.headers.get('user-email');
-
+  // Extract cryptographically signed session token from HttpOnly cookie or Authorization Bearer header
+  const sessionCookie = req.cookies.get(SESSION_COOKIE_NAME)?.value;
   const authHeader = req.headers.get('authorization') || '';
-  let bearerEmail = '';
+  let bearerToken = '';
   if (authHeader.toLowerCase().startsWith('bearer ')) {
-    bearerEmail = authHeader.slice(7).trim();
+    bearerToken = authHeader.slice(7).trim();
   }
 
-  const url = new URL(req.url);
-  const queryEmail =
-    url.searchParams.get('user_email') ||
-    url.searchParams.get('requester_email') ||
-    url.searchParams.get('email');
+  const rawToken = (sessionCookie || bearerToken || '').trim();
 
-  const cookieEmail = req.cookies.get('liec_user_email')?.value;
-
-  const rawEmail = (
-    headerEmail ||
-    bearerEmail ||
-    queryEmail ||
-    cookieEmail ||
-    ''
-  ).trim();
-
-  if (!rawEmail) {
+  // Fail-closed: Unsigned identity cookies or raw headers are strictly rejected
+  if (!rawToken) {
     return {
       success: false,
+      authenticated: false,
       response: NextResponse.json(
         {
           error: 'Accès non autorisé / Unauthorized',
-          message: 'Session ou identifiants manquants. Veuillez vous connecter sur /login.',
+          code: 'AUTHENTICATION_REQUIRED',
+          message: 'Session manquante. Veuillez vous connecter sur /login.',
         },
         { status: 401 }
       ),
     };
   }
 
-  const targetEmail = canonicalizeUserEmail(rawEmail);
+  // 1. Verify HMAC-SHA256 signature and expiration of the signed token
+  const verified = verifySessionToken(rawToken);
+  if (!verified.valid) {
+    return {
+      success: false,
+      authenticated: false,
+      response: NextResponse.json(
+        {
+          error: 'Session invalide ou falsifiée / Invalid session token',
+          code: 'INVALID_SESSION',
+          message: verified.reason,
+        },
+        { status: 401 }
+      ),
+    };
+  }
 
+  const sessionPayload = verified.payload;
   let user: AuthenticatedUserContext | null = null;
+  let db: DBClient;
 
   try {
-    const db = dbClient || (await getDb());
+    db = dbClient || (await getDb());
     const res = await db.query(
       `SELECT u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials,
-              u.active, u.suspended_at, u.suspended_by, u.must_change_password,
+              u.active, u.suspended_at, u.suspended_by, u.must_change_password, u.session_version,
               COALESCE(ARRAY_AGG(ur.role_id) FILTER (WHERE ur.role_id IS NOT NULL), ARRAY[]::VARCHAR[]) as technical_roles
        FROM users u
        LEFT JOIN user_roles ur ON u.id = ur.user_id
-       WHERE LOWER(u.email) = $1
-       GROUP BY u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials, u.active, u.suspended_at, u.suspended_by, u.must_change_password`,
-      [targetEmail]
+       WHERE u.id = $1
+       GROUP BY u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials, u.active, u.suspended_at, u.suspended_by, u.must_change_password, u.session_version`,
+      [sessionPayload.userId]
     );
 
     if (res.rows.length > 0) {
@@ -528,19 +537,29 @@ export async function authenticateServerRequest(
         suspended_at: r.suspended_at,
         suspended_by: r.suspended_by,
         must_change_password: Boolean(r.must_change_password),
+        session_version: r.session_version !== null && r.session_version !== undefined ? Number(r.session_version) : 1,
       };
     }
   } catch (err) {
-    console.warn('DB lookup for user RBAC context failed, falling back to preconfigured:', err);
+    console.error('Database authentication check failed:', err);
+    return {
+      success: false,
+      authenticated: false,
+      response: NextResponse.json(
+        {
+          error: 'Service indisponible / Database unavailable',
+          message: 'Impossible de vérifier les autorisations dans la base de données. Veuillez réessayer ultérieurement.',
+        },
+        { status: 503 }
+      ),
+    };
   }
 
-  if (!user) {
-    user = PRECONFIGURED_USERS_RBAC[targetEmail] || null;
-  }
-
+  // PostgreSQL is single authoritative source of truth: Fail securely if user not found
   if (!user) {
     return {
       success: false,
+      authenticated: false,
       response: NextResponse.json(
         {
           error: 'Utilisateur non reconnu / User not found',
@@ -551,10 +570,113 @@ export async function authenticateServerRequest(
     };
   }
 
+  // 2. Validate signed sessionVersion against authoritative database record
+  const currentSessionVersion = user.session_version ?? 1;
+  if (sessionPayload.sessionVersion !== currentSessionVersion) {
+    return {
+      success: false,
+      authenticated: false,
+      response: NextResponse.json(
+        {
+          error: 'Session révoquée / Session revoked',
+          code: 'SESSION_REVOKED',
+          message: 'Votre session a été invalidée suite à une modification de mot de passe ou est obsolète. Veuillez vous reconnecter.',
+        },
+        { status: 401 }
+      ),
+    };
+  }
+
+  // 3. Validate server-side session state in user_sessions (jti revocation, idle timeout, lifetime)
+  if (sessionPayload.jti) {
+    const sessRes = await db.query(
+      `SELECT id, revoked, last_active_at, expires_at, created_at
+       FROM user_sessions
+       WHERE jti = $1`,
+      [sessionPayload.jti]
+    );
+
+    if (sessRes.rows.length === 0 || sessRes.rows[0].revoked) {
+      return {
+        success: false,
+        authenticated: false,
+        response: NextResponse.json(
+          {
+            error: 'Session révoquée / Session revoked',
+            code: 'SESSION_REVOKED',
+            message: 'Votre session a été révoquée ou déconnectée. Veuillez vous reconnecter.',
+          },
+          { status: 401 }
+        ),
+      };
+    }
+
+    const sessRow = sessRes.rows[0];
+    const nowMs = Date.now();
+
+    // Check 30-minute server-side idle timeout against last_active_at
+    const lastActiveMs = new Date(sessRow.last_active_at).getTime();
+    if (nowMs - lastActiveMs > IDLE_TIMEOUT_SECONDS * 1000) {
+      await db.query(
+        `UPDATE user_sessions SET revoked = TRUE, revoked_at = CURRENT_TIMESTAMP WHERE jti = $1`,
+        [sessionPayload.jti]
+      );
+      return {
+        success: false,
+        authenticated: false,
+        response: NextResponse.json(
+          {
+            error: 'Session expirée pour inactivité / Session idle timeout',
+            code: 'SESSION_IDLE_TIMEOUT',
+            message: "Votre session a expiré suite à 30 minutes d'inactivité. Veuillez vous reconnecter.",
+          },
+          { status: 401 }
+        ),
+      };
+    }
+
+    // Check absolute lifetime against user role policy (Admin/Finance: 8h, Secretary: 12h)
+    const maxLifetimeSec = getMaxSessionLifetimeSeconds(user.role);
+    const sessionAgeSec = Math.floor((nowMs - new Date(sessRow.created_at).getTime()) / 1000);
+    const expiresMs = new Date(sessRow.expires_at).getTime();
+
+    if (nowMs > expiresMs || sessionAgeSec > maxLifetimeSec) {
+      await db.query(
+        `UPDATE user_sessions SET revoked = TRUE, revoked_at = CURRENT_TIMESTAMP WHERE jti = $1`,
+        [sessionPayload.jti]
+      );
+      return {
+        success: false,
+        authenticated: false,
+        response: NextResponse.json(
+          {
+            error: 'Session expirée / Session expired',
+            code: 'SESSION_EXPIRED',
+            message: 'La durée de validité maximale de votre session a expiré. Veuillez vous reconnecter.',
+          },
+          { status: 401 }
+        ),
+      };
+    }
+
+    // Throttled touch of last_active_at: update only if older than 30 seconds
+    try {
+      await db.query(
+        `UPDATE user_sessions
+         SET last_active_at = CURRENT_TIMESTAMP
+         WHERE jti = $1 AND last_active_at < CURRENT_TIMESTAMP - INTERVAL '30 seconds'`,
+        [sessionPayload.jti]
+      );
+    } catch (touchErr) {
+      console.warn('[RBAC] Could not touch last_active_at:', touchErr);
+    }
+  }
+
   // Check account suspension status
   if (!user.active) {
     return {
       success: false,
+      authenticated: false,
       response: NextResponse.json(
         {
           error: 'Compte suspendu / Account Suspended',
@@ -570,6 +692,7 @@ export async function authenticateServerRequest(
   if (user.must_change_password) {
     return {
       success: false,
+      authenticated: false,
       response: NextResponse.json(
         {
           error: 'Changement de mot de passe obligatoire / Password Change Required',
@@ -583,7 +706,7 @@ export async function authenticateServerRequest(
     };
   }
 
-  return { success: true, user };
+  return { success: true, authenticated: true, user };
 }
 
 /**

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { getDb } from '@/lib/db';
 import { hashPassword, validatePasswordPolicy } from '@/lib/passwordSecurity';
+import { generateBase32Secret, getTotpSetup } from '@/lib/totp';
+import { encryptMfaSecret } from '@/lib/mfa';
+import { signMfaPendingToken } from '@/lib/session';
 
 // In-memory rate limiting map for invitation endpoint: IP -> { attempts, lastAttempt }
 const invitationRateLimit = new Map<string, { count: number; resetAt: number }>();
@@ -54,16 +57,18 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         {
           valid: false,
-          error: 'This invitation link is invalid, expired, or has already been used. Please contact your administrator for a new invitation.',
+          error:
+            'Invitation link is invalid, expired, or has already been used. Please contact your system administrator.',
         },
-        { status: 400 }
+        { status: 404 }
       );
     }
 
     const user = userRes.rows[0];
+
     if (!user.active) {
       return NextResponse.json(
-        { valid: false, error: 'This account has been suspended by an administrator.' },
+        { valid: false, error: 'This user account is suspended. Access cannot be activated.' },
         { status: 403 }
       );
     }
@@ -74,10 +79,10 @@ export async function GET(req: NextRequest) {
         name: user.name,
         firstName: user.first_name,
         lastName: user.last_name,
-        email: user.email,
         userId: user.user_id,
+        email: user.email,
         businessProfile: user.business_profile,
-        expiresAt: user.invitation_token_expires_at,
+        role: user.role,
       },
     });
   } catch (error: any) {
@@ -88,7 +93,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const ip = req.headers.get('x-forwarded-for') || '127.0.0.1';
   if (!checkRateLimit(ip)) {
-    return NextResponse.json({ error: 'Too many attempts. Please wait a minute.' }, { status: 429 });
+    return NextResponse.json({ error: 'Too many requests. Please wait a moment.' }, { status: 429 });
   }
 
   try {
@@ -136,9 +141,10 @@ export async function POST(req: NextRequest) {
            invitation_token = NULL,
            invitation_token_expires_at = NULL,
            must_change_password = FALSE,
-           password_updated_at = CURRENT_TIMESTAMP
+           password_updated_at = CURRENT_TIMESTAMP,
+           session_version = COALESCE(session_version, 1) + 1
        WHERE invitation_token = $3 AND invitation_token_expires_at > CURRENT_TIMESTAMP
-       RETURNING id, name, first_name, last_name, user_id, email, business_profile, role, title, initials`,
+       RETURNING id, name, first_name, last_name, user_id, email, business_profile, role, title, initials, session_version, mfa_enrolled`,
       [passwordHash, passwordSalt, tokenHash]
     );
 
@@ -164,22 +170,40 @@ export async function POST(req: NextRequest) {
       ]
     );
 
-    const res = NextResponse.json({
+    // -------------------------------------------------------------------------
+    // MANDATORY MFA: Trigger MFA setup, no workspace session issued yet
+    // -------------------------------------------------------------------------
+    const rawSecret = generateBase32Secret(20);
+    const encryptedSecret = encryptMfaSecret(rawSecret);
+
+    await db.query(
+      `UPDATE users
+       SET mfa_secret_encrypted = $1
+       WHERE id = $2`,
+      [encryptedSecret, user.id]
+    );
+
+    const setup = getTotpSetup(user.email, rawSecret);
+    const mfaPendingToken = signMfaPendingToken({
+      userId: user.id,
+      email: user.email,
+      role: user.role || 'secretary',
+      businessProfile: user.business_profile || 'Secretary',
+      isEnrolled: false,
+    });
+
+    return NextResponse.json({
       success: true,
-      message: 'Password established successfully. Welcome to LIEC Heav\'n Workspace!',
-      user,
+      requiresMfaSetup: true,
+      requires2Fa: true,
+      isFirstLogin: true,
+      mfaPendingToken,
+      email: user.email,
+      secret: setup.secret,
+      uri: setup.uri,
+      qrSvg: setup.qrSvg,
+      message: 'Password established successfully. Please configure Google Authenticator MFA to complete setup.',
     });
-
-    // Establish secure session cookie
-    res.cookies.set({
-      name: 'liec_user_email',
-      value: user.email,
-      path: '/',
-      maxAge: 604800,
-      sameSite: 'lax',
-    });
-
-    return res;
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

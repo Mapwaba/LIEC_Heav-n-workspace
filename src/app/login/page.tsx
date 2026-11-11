@@ -7,6 +7,8 @@ import Link from 'next/link';
 interface TwoFaSetupData {
   email: string;
   isFirstLogin: boolean;
+  requiresMfaSetup?: boolean;
+  mfaPendingToken?: string;
   secret?: string;
   uri?: string;
   qrSvg?: string;
@@ -33,12 +35,21 @@ function getRedirectTarget(): string {
 
 export default function LoginPage() {
   const router = useRouter();
-  const [step, setStep] = useState<'credentials' | '2fa' | 'first_login_password_change' | 'invitation_setup'>('credentials');
+  const [step, setStep] = useState<'credentials' | '2fa' | 'first_login_password_change' | 'invitation_setup' | 'forgot_password' | 'recovery_codes' | 'mfa_enrollment_auth'>('credentials');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [mfaEnrollmentToken, setMfaEnrollmentToken] = useState('');
   const [totpCode, setTotpCode] = useState('');
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
+  const [recoveryCodeInput, setRecoveryCodeInput] = useState('');
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const [copiedRecoveryCodes, setCopiedRecoveryCodes] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotSuccess, setForgotSuccess] = useState(false);
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotMessage, setForgotMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [twoFaData, setTwoFaData] = useState<TwoFaSetupData | null>(null);
@@ -120,30 +131,6 @@ export default function LoginPage() {
     setMousePos({ x, y });
   };
 
-  const OFFLINE_STAFF_CREDENTIALS = [
-    {
-      role: 'admin' as const,
-      user_id: 'bmapwaba',
-      email: 'bmapwabantoro@liecconsulting.com',
-      password: 'Admin@LIEC2026!',
-      passwords: ['Admin@LIEC2026!', 'ReRxpnn@%9tX5ro#'],
-    },
-    {
-      role: 'admin' as const,
-      user_id: 'admin',
-      email: 'admin@liecconsulting.com',
-      password: 'Admin@LIEC2026!',
-      passwords: ['Admin@LIEC2026!', 'ReRxpnn@%9tX5ro#'],
-    },
-    {
-      role: 'secretary' as const,
-      user_id: 'omandeke',
-      email: 'contacts@liecconsulting.com',
-      password: 'Admin@LIEC2026!',
-      passwords: ['Admin@LIEC2026!', 'ReRxpnn@%9tX5ro#'],
-    },
-  ];
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -169,6 +156,11 @@ export default function LoginPage() {
         setStep('first_login_password_change');
         setError(null);
         return;
+      } else if (res.ok && data.requiresMfaEnrollmentAuthorization) {
+        // Enrolment requires admin-issued authorization token
+        setStep('mfa_enrollment_auth');
+        setMfaEnrollmentToken('');
+        setError(null);
       } else if (res.ok && data.requires2Fa) {
         // When 2FA is active
         setTwoFaData(data);
@@ -179,43 +171,13 @@ export default function LoginPage() {
         localStorage.setItem('liec_user', JSON.stringify(data.user));
         localStorage.setItem('liec_role', data.user.role);
         document.cookie = `liec_user_email=${encodeURIComponent(data.user.email)}; path=/; max-age=604800; SameSite=Lax`;
+        document.cookie = `liec_session_version=${encodeURIComponent(String(data.user.session_version || 1))}; path=/; max-age=604800; SameSite=Lax`;
         window.location.replace(getRedirectTarget());
       } else {
         setError(data.error || 'Invalid credentials. Please check your email and password.');
       }
     } catch {
-      // Offline fallback validation
-      const lower = email.trim().toLowerCase();
-      const pass = password.trim();
-
-      const matched = OFFLINE_STAFF_CREDENTIALS.find(
-        (t) =>
-          (t.email.toLowerCase() === lower ||
-            (t as any).user_id?.toLowerCase() === lower ||
-            lower === 'bmapwabantoro@liecconsulting.com' ||
-            lower === 'bmapwaba' ||
-            lower === 'omandeke' ||
-            lower === 'admin@liecconsulting.com') &&
-          (t.passwords ? t.passwords.includes(pass) : t.password === pass)
-      );
-
-      if (matched) {
-        const fallbackUser = {
-          id: 1,
-          name: 'Barthelemy MAPWABA NTORO',
-          email: 'bmapwabantoro@liecconsulting.com',
-          role: 'admin',
-          title: 'Platform Administrator & Managing Director',
-          initials: 'BM',
-        };
-
-        localStorage.setItem('liec_user', JSON.stringify(fallbackUser));
-        localStorage.setItem('liec_role', fallbackUser.role);
-        document.cookie = `liec_user_email=${encodeURIComponent(fallbackUser.email)}; path=/; max-age=604800; SameSite=Lax`;
-        window.location.replace(getRedirectTarget());
-      } else {
-        setError('Invalid credentials. Please check your email address and password.');
-      }
+      setError('Unable to reach the authentication server. Please check your network connection.');
     } finally {
       setLoading(false);
     }
@@ -227,8 +189,13 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
 
-    const cleanCode = totpCode.trim();
-    if (cleanCode.length !== 6) {
+    const cleanCode = useRecoveryCode ? recoveryCodeInput.trim() : totpCode.trim();
+    if (!cleanCode) {
+      setError(useRecoveryCode ? 'Please enter a recovery code.' : 'Veuillez saisir le code à 6 chiffres.');
+      setLoading(false);
+      return;
+    }
+    if (!useRecoveryCode && cleanCode.length !== 6) {
       setError('Veuillez saisir le code complet à 6 chiffres affiché dans Google Authenticator.');
       setLoading(false);
       return;
@@ -239,9 +206,8 @@ export default function LoginPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: twoFaData.email,
+          mfaPendingToken: twoFaData.mfaPendingToken,
           code: cleanCode,
-          isFirstLogin: twoFaData.isFirstLogin,
         }),
       });
       const data = await res.json();
@@ -250,22 +216,95 @@ export default function LoginPage() {
         localStorage.setItem('liec_user', JSON.stringify(data.user));
         localStorage.setItem('liec_role', data.user.role);
         document.cookie = `liec_user_email=${encodeURIComponent(data.user.email)}; path=/; max-age=604800; SameSite=Lax`;
-        window.location.replace(getRedirectTarget());
+        document.cookie = `liec_session_version=${encodeURIComponent(String(data.user.session_version || 1))}; path=/; max-age=604800; SameSite=Lax`;
+
+        if (data.recoveryCodes && Array.isArray(data.recoveryCodes) && data.recoveryCodes.length > 0) {
+          setRecoveryCodes(data.recoveryCodes);
+          setStep('recovery_codes');
+        } else {
+          window.location.replace(getRedirectTarget());
+        }
       } else {
         setError(data.error || 'Code Google Authenticator invalide ou expiré.');
       }
     } catch {
-      // Offline fallback: simulate TOTP success on valid input
-      if (/^\d{6}$/.test(cleanCode)) {
-        localStorage.setItem('liec_user', JSON.stringify(twoFaData.user));
-        localStorage.setItem('liec_role', twoFaData.user.role);
-        document.cookie = `liec_user_email=${encodeURIComponent(twoFaData.user.email)}; path=/; max-age=604800; SameSite=Lax`;
-        window.location.replace(getRedirectTarget());
-      } else {
-        setError('Code à 6 chiffres invalide.');
-      }
+      setError('Network error during 2FA verification. Please check your connection.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleEnrollmentAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    const cleanToken = mfaEnrollmentToken.trim();
+    if (!cleanToken) {
+      setError('Please enter your MFA enrollment authorization token.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-lang': 'en',
+        },
+        body: JSON.stringify({
+          email: email.trim(),
+          password: password.trim(),
+          enrollmentToken: cleanToken,
+          remember,
+          lang: 'en',
+        }),
+      });
+      const data = await res.json();
+
+      if (res.ok && data.requires2Fa) {
+        setTwoFaData(data);
+        setStep('2fa');
+        setTotpCode('');
+      } else {
+        setError(data.error || 'Invalid or expired MFA enrollment authorization token.');
+      }
+    } catch {
+      setError('Network error while verifying enrollment authorization. Please check your connection.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotLoading(true);
+    setError(null);
+
+    const cleanEmail = forgotEmail.trim();
+    if (!cleanEmail) {
+      setError('Please provide your professional email address.');
+      setForgotLoading(false);
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail }),
+      });
+      const data = await res.json();
+      setForgotSuccess(true);
+      setForgotMessage(
+        data.message ||
+          'If an account associated with this email address exists, password reset instructions have been sent.'
+      );
+    } catch {
+      setError('Unable to reach recovery server. Please try again later.');
+    } finally {
+      setForgotLoading(false);
     }
   };
 
@@ -293,11 +332,14 @@ export default function LoginPage() {
       });
 
       const data = await res.json();
-      if (res.ok && data.success && data.user) {
-        localStorage.setItem('liec_user', JSON.stringify(data.user));
-        localStorage.setItem('liec_role', data.user.role);
-        document.cookie = `liec_user_email=${encodeURIComponent(data.user.email)}; path=/; max-age=604800; SameSite=Lax`;
-        window.location.replace(getRedirectTarget());
+      if (res.ok && data.success) {
+        if (data.requires2Fa || data.requiresMfaSetup || data.requiresMfa) {
+          setTwoFaData(data);
+          setStep('2fa');
+          setError(null);
+        } else if (data.user) {
+          window.location.replace(getRedirectTarget());
+        }
       } else {
         setError(data.error || 'Erreur lors du changement de mot de passe.');
       }
@@ -313,6 +355,13 @@ export default function LoginPage() {
     navigator.clipboard.writeText(twoFaData.secret);
     setCopiedKey(true);
     setTimeout(() => setCopiedKey(false), 3000);
+  };
+
+  const handleCopyRecoveryCodes = () => {
+    if (recoveryCodes.length === 0) return;
+    navigator.clipboard.writeText(recoveryCodes.join('\n'));
+    setCopiedRecoveryCodes(true);
+    setTimeout(() => setCopiedRecoveryCodes(false), 3000);
   };
 
   const handleInvitationPasswordSetup = async (e: React.FormEvent) => {
@@ -338,11 +387,14 @@ export default function LoginPage() {
         }),
       });
       const data = await res.json();
-      if (res.ok && data.success && data.user) {
-        localStorage.setItem('liec_user', JSON.stringify(data.user));
-        localStorage.setItem('liec_role', data.user.role);
-        document.cookie = `liec_user_email=${encodeURIComponent(data.user.email)}; path=/; max-age=604800; SameSite=Lax`;
-        window.location.replace(getRedirectTarget());
+      if (res.ok && data.success) {
+        if (data.requires2Fa || data.requiresMfaSetup || data.requiresMfa) {
+          setTwoFaData(data);
+          setStep('2fa');
+          setError(null);
+        } else if (data.user) {
+          window.location.replace(getRedirectTarget());
+        }
       } else {
         setError(data.error || 'Failed to activate account. The invitation link may have expired.');
       }
@@ -975,12 +1027,14 @@ export default function LoginPage() {
                       Remember me
                     </label>
                     <a
-                      href="#"
+                      href="#forgot-password"
                       onClick={(e) => {
                         e.preventDefault();
-                        setError(
-                          'Veuillez contacter l’administrateur système LIEC pour réinitialiser vos identifiants.'
-                        );
+                        setError(null);
+                        setForgotEmail(email.trim());
+                        setForgotSuccess(false);
+                        setForgotMessage(null);
+                        setStep('forgot_password');
                       }}
                     >
                       Forgot password?
@@ -992,6 +1046,89 @@ export default function LoginPage() {
                     <span aria-hidden="true">→</span>
                   </button>
                 </form>
+              </>
+            ) : step === 'forgot_password' ? (
+              <>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#d8f6ea', color: '#0c685a', padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
+                  <span>🔐 ACCOUNT RECOVERY</span>
+                </div>
+                <h2>Reset Your Password</h2>
+                <p className="sub">
+                  Enter your professional email address. If an account is associated with it, we will send you a secure link to reset your password.
+                </p>
+
+                {error && <div className="error">{error}</div>}
+
+                {forgotSuccess ? (
+                  <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                    <div style={{
+                      background: '#ecfdf5',
+                      border: '1px solid #a7f3d0',
+                      borderRadius: '10px',
+                      padding: '16px',
+                      color: '#065f46',
+                      marginBottom: '20px',
+                      fontSize: '13px',
+                      lineHeight: 1.5,
+                      textAlign: 'left'
+                    }}>
+                      <strong>Recovery Request Submitted</strong><br />
+                      {forgotMessage}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStep('credentials');
+                        setError(null);
+                      }}
+                      className="submit"
+                      style={{ width: '100%' }}
+                    >
+                      Return to Sign In
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={handleForgotPassword}>
+                    <div className="field">
+                      <label htmlFor="forgotEmail">Professional Email Address</label>
+                      <input
+                        id="forgotEmail"
+                        name="forgotEmail"
+                        type="email"
+                        placeholder="e.g. bmapwabantoro@liecconsulting.com"
+                        value={forgotEmail}
+                        onChange={(e) => setForgotEmail(e.target.value)}
+                        required
+                        autoFocus
+                      />
+                    </div>
+
+                    <button className="submit" type="submit" disabled={forgotLoading}>
+                      <span>{forgotLoading ? 'Sending link...' : 'Send Recovery Link'}</span>
+                      <span aria-hidden="true">→</span>
+                    </button>
+
+                    <div style={{ textAlign: 'center', marginTop: '14px' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStep('credentials');
+                          setError(null);
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#64748b',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ← Return to Sign In
+                      </button>
+                    </div>
+                  </form>
+                )}
               </>
             ) : step === 'invitation_setup' ? (
               <>
@@ -1256,6 +1393,114 @@ export default function LoginPage() {
                   </div>
                 </form>
               </>
+            ) : step === 'mfa_enrollment_auth' ? (
+              <>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#e0f2fe', color: '#0369a1', padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
+                  <span>🛡️ MFA ENROLLMENT AUTHORIZATION</span>
+                </div>
+                <h2>Administrator Authorization Required</h2>
+                <p className="sub">
+                  Multi-Factor Authentication (MFA) enrollment requires a one-time activation token generated by an authorized Platform Administrator.
+                </p>
+
+                {error && <div className="error">{error}</div>}
+
+                <form onSubmit={handleEnrollmentAuthSubmit}>
+                  <div className="field">
+                    <label htmlFor="mfaEnrollmentToken">Administrator One-Time Authorization Token</label>
+                    <input
+                      id="mfaEnrollmentToken"
+                      name="mfaEnrollmentToken"
+                      type="text"
+                      placeholder="Paste your 64-character token here"
+                      value={mfaEnrollmentToken}
+                      onChange={(e) => setMfaEnrollmentToken(e.target.value)}
+                      required
+                      autoFocus
+                      style={{ fontFamily: 'monospace', fontSize: '12px' }}
+                    />
+                  </div>
+
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px', margin: '14px 0', fontSize: '11px', color: '#475569', lineHeight: 1.5 }}>
+                    💡 <strong>Need an authorization token?</strong><br />
+                    Contact your Security Administrator to obtain an MFA enrollment token. In Preview environments, administrators can generate tokens using the administrative CLI or endpoint.
+                  </div>
+
+                  <button className="submit" type="submit" disabled={loading}>
+                    <span>{loading ? 'Verifying token...' : 'Unlock MFA Setup'}</span>
+                    <span aria-hidden="true">→</span>
+                  </button>
+
+                  <div style={{ textAlign: 'center', marginTop: '14px' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStep('credentials');
+                        setError(null);
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#64748b',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ← Return to Sign In
+                    </button>
+                  </div>
+                </form>
+              </>
+            ) : step === 'recovery_codes' ? (
+              <>
+                <h2>Codes de récupération d’urgence</h2>
+                <p className="sub">
+                  Conservez précieusement ces 8 codes uniques à usage unique. Si vous perdez l’accès à votre application Google Authenticator, chacun de ces codes vous permettra de déverrouiller votre session une seule fois.
+                </p>
+
+                <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '12px', padding: '16px', margin: '18px 0' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontFamily: 'monospace', fontSize: '13px', fontWeight: 700, color: '#0f172a', textAlign: 'center' }}>
+                    {recoveryCodes.map((c, i) => (
+                      <div key={i} style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '8px 4px', letterSpacing: '1px' }}>
+                        {c}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ marginTop: '14px', textAlign: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={handleCopyRecoveryCodes}
+                      style={{
+                        background: '#007da7',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '6px 14px',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {copiedRecoveryCodes ? '✓ Codes copiés !' : '📋 Copier tous les codes'}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '8px', padding: '10px', fontSize: '11px', color: '#92400e', marginBottom: '16px' }}>
+                  ⚠️ Ces codes ne seront plus jamais réaffichés. Assurez-vous de les avoir notés ou copiés dans un gestionnaire de mots de passe sécurisé avant de continuer.
+                </div>
+
+                <button
+                  className="submit"
+                  type="button"
+                  onClick={() => window.location.replace(getRedirectTarget())}
+                >
+                  <span>J’ai sauvegardé mes codes & Accéder au Workspace</span>
+                  <span aria-hidden="true">→</span>
+                </button>
+              </>
             ) : (
               <>
                 {/* 2FA Step with Google Authenticator (Available when ENABLE_2FA is active) */}
@@ -1298,25 +1543,67 @@ export default function LoginPage() {
                 )}
 
                 <form onSubmit={handleVerify2Fa}>
-                  <div className="field">
-                    <label htmlFor="totpCode">
-                      Code Google Authenticator à 6 chiffres
-                    </label>
-                    <input
-                      id="totpCode"
-                      name="totpCode"
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      maxLength={6}
-                      placeholder="000000"
-                      autoComplete="one-time-code"
-                      className="totp-code-input"
-                      value={totpCode}
-                      onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                      required
-                      autoFocus
-                    />
+                  {!useRecoveryCode ? (
+                    <div className="field">
+                      <label htmlFor="totpCode">
+                        Code Google Authenticator à 6 chiffres
+                      </label>
+                      <input
+                        id="totpCode"
+                        name="totpCode"
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        maxLength={6}
+                        placeholder="000000"
+                        autoComplete="one-time-code"
+                        className="totp-code-input"
+                        value={totpCode}
+                        onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        required
+                        autoFocus
+                      />
+                    </div>
+                  ) : (
+                    <div className="field">
+                      <label htmlFor="recoveryCode">
+                        Code de récupération d’urgence à usage unique
+                      </label>
+                      <input
+                        id="recoveryCode"
+                        name="recoveryCode"
+                        type="text"
+                        placeholder="Ex: A1B2C-D3E4F"
+                        className="totp-code-input"
+                        value={recoveryCodeInput}
+                        onChange={(e) => setRecoveryCodeInput(e.target.value.toUpperCase())}
+                        required
+                        autoFocus
+                        style={{ fontFamily: 'monospace', letterSpacing: '2px' }}
+                      />
+                    </div>
+                  )}
+
+                  <div style={{ textAlign: 'right', marginBottom: '12px' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUseRecoveryCode(!useRecoveryCode);
+                        setError(null);
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#007da7',
+                        fontSize: '11px',
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                      }}
+                    >
+                      {useRecoveryCode
+                        ? '← Utiliser l’application Google Authenticator'
+                        : 'Téléphone indisponible ? Utiliser un code de secours'}
+                    </button>
                   </div>
 
                   <button className="submit" type="submit" disabled={loading}>
@@ -1337,6 +1624,8 @@ export default function LoginPage() {
                         setStep('credentials');
                         setError(null);
                         setTotpCode('');
+                        setRecoveryCodeInput('');
+                        setUseRecoveryCode(false);
                       }}
                       style={{
                         background: 'none',

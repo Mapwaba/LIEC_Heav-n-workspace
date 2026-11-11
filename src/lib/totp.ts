@@ -6,7 +6,7 @@ import crypto from 'crypto';
 
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
-export function generateBase32Secret(length = 20): string {
+export function generateBase32Secret(length = 32): string {
   const bytes = crypto.randomBytes(length);
   let result = '';
   for (let i = 0; i < bytes.length; i++) {
