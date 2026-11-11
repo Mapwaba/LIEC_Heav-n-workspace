@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { getDb } from '@/lib/db';
 import { sendPasswordResetEmail } from '@/lib/emailService';
+import { checkPasswordRecoveryRateLimit } from '@/lib/rateLimit';
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,6 +21,22 @@ export async function POST(req: NextRequest) {
     }
 
     const db = await getDb();
+
+    // Distributed Rate Limiting: Max 5 requests per IP and per account per 15 mins
+    const rateCheck = await checkPasswordRecoveryRateLimit(req, rawEmail, db);
+    if (!rateCheck.allowed) {
+      console.warn(`[RATE-LIMIT] Forgot password request throttled for ${rawEmail}: ${rateCheck.reason}`);
+      try {
+        await db.query(
+          `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+           VALUES ($1, 'PASSWORD_RESET_THROTTLED', 'AUTH-RATE-LIMIT', 'THROTTLED', $2)`,
+          [rawEmail, rateCheck.reason]
+        );
+      } catch {}
+      // Return identical generic response to avoid leaking rate limit state or account presence
+      return NextResponse.json(genericResponse);
+    }
+
     const userRes = await db.query(
       `SELECT id, name, email, active FROM users WHERE LOWER(email) = $1`,
       [rawEmail]

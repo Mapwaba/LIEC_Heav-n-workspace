@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { DBClient, getDb } from './db';
+import { NextRequest, NextResponse } from 'next/server.js';
+import { getDb, type DBClient } from './db.ts';
+import { verifySessionToken, SESSION_COOKIE_NAME } from './session.ts';
 
 /**
  * LIEC_Heav'n Enterprise Role-Based Access Control (RBAC)
@@ -449,73 +450,50 @@ export async function authenticateServerRequest(
   | { success: true; authenticated: true; user: AuthenticatedUserContext }
   | { success: false; authenticated: false; response: NextResponse }
 > {
-  // Extract requester email from various standard headers and params
-  const headerEmail =
-    req.headers.get('x-user-email') ||
-    req.headers.get('X-User-Email') ||
-    req.headers.get('user-email');
-
+  // Extract cryptographically signed session token from HttpOnly cookie or Authorization Bearer header
+  const sessionCookie = req.cookies.get(SESSION_COOKIE_NAME)?.value;
   const authHeader = req.headers.get('authorization') || '';
-  let bearerEmail = '';
-  let bearerSessionVersion: string | null = null;
+  let bearerToken = '';
   if (authHeader.toLowerCase().startsWith('bearer ')) {
-    const tokenPart = authHeader.slice(7).trim();
-    if (tokenPart.startsWith('{') && tokenPart.endsWith('}')) {
-      try {
-        const parsed = JSON.parse(tokenPart);
-        if (parsed.email) bearerEmail = String(parsed.email).trim();
-        if (parsed.sessionVersion !== undefined) bearerSessionVersion = String(parsed.sessionVersion).trim();
-      } catch {}
-    } else if (tokenPart.includes(':')) {
-      const parts = tokenPart.split(':');
-      bearerEmail = parts[0].trim();
-      bearerSessionVersion = parts[1].trim();
-    } else {
-      bearerEmail = tokenPart;
-    }
+    bearerToken = authHeader.slice(7).trim();
   }
 
-  const url = new URL(req.url);
-  const queryEmail =
-    url.searchParams.get('user_email') ||
-    url.searchParams.get('requester_email') ||
-    url.searchParams.get('email');
+  const rawToken = (sessionCookie || bearerToken || '').trim();
 
-  const cookieEmail = req.cookies.get('liec_user_email')?.value;
-
-  const rawEmail = (
-    headerEmail ||
-    bearerEmail ||
-    queryEmail ||
-    cookieEmail ||
-    ''
-  ).trim();
-
-  // Extract session version from headers, cookies, token or query params
-  const rawSessionVersion =
-    req.headers.get('x-session-version') ||
-    req.headers.get('X-Session-Version') ||
-    bearerSessionVersion ||
-    req.cookies.get('liec_session_version')?.value ||
-    url.searchParams.get('session_version') ||
-    url.searchParams.get('sessionVersion');
-
-  if (!rawEmail) {
+  // Fail-closed: Unsigned identity cookies or raw headers are strictly rejected
+  if (!rawToken) {
     return {
       success: false,
       authenticated: false,
       response: NextResponse.json(
         {
           error: 'Accès non autorisé / Unauthorized',
-          message: 'Session ou identifiants manquants. Veuillez vous connecter sur /login.',
+          code: 'AUTHENTICATION_REQUIRED',
+          message: 'Session manquante. Veuillez vous connecter sur /login.',
         },
         { status: 401 }
       ),
     };
   }
 
-  const targetEmail = canonicalizeUserEmail(rawEmail);
+  // 1. Verify HMAC-SHA256 signature and expiration of the signed token
+  const verified = verifySessionToken(rawToken);
+  if (!verified.valid) {
+    return {
+      success: false,
+      authenticated: false,
+      response: NextResponse.json(
+        {
+          error: 'Session invalide ou falsifiée / Invalid session token',
+          code: 'INVALID_SESSION',
+          message: verified.reason,
+        },
+        { status: 401 }
+      ),
+    };
+  }
 
+  const sessionPayload = verified.payload;
   let user: AuthenticatedUserContext | null = null;
 
   try {
@@ -526,9 +504,9 @@ export async function authenticateServerRequest(
               COALESCE(ARRAY_AGG(ur.role_id) FILTER (WHERE ur.role_id IS NOT NULL), ARRAY[]::VARCHAR[]) as technical_roles
        FROM users u
        LEFT JOIN user_roles ur ON u.id = ur.user_id
-       WHERE LOWER(u.email) = $1
+       WHERE u.id = $1
        GROUP BY u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials, u.active, u.suspended_at, u.suspended_by, u.must_change_password, u.session_version`,
-      [targetEmail]
+      [sessionPayload.userId]
     );
 
     if (res.rows.length > 0) {
@@ -586,26 +564,9 @@ export async function authenticateServerRequest(
     };
   }
 
-  // Validate session version against authoritative database record
-  if (rawSessionVersion === undefined || rawSessionVersion === null || String(rawSessionVersion).trim() === '') {
-    return {
-      success: false,
-      authenticated: false,
-      response: NextResponse.json(
-        {
-          error: 'Version de session manquante / Session version required',
-          code: 'SESSION_VERSION_REQUIRED',
-          message: 'Identifiant de version de session manquant. Veuillez vous reconnecter.',
-        },
-        { status: 401 }
-      ),
-    };
-  }
-
-  const clientSessionVersion = parseInt(String(rawSessionVersion).trim(), 10);
+  // 2. Validate signed sessionVersion against authoritative database record
   const currentSessionVersion = user.session_version ?? 1;
-
-  if (isNaN(clientSessionVersion) || clientSessionVersion !== currentSessionVersion) {
+  if (sessionPayload.sessionVersion !== currentSessionVersion) {
     return {
       success: false,
       authenticated: false,

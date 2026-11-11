@@ -1,9 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { authenticateServerRequest, evaluateModuleAccess } from '@/lib/rbac';
 
 export async function GET(req: NextRequest) {
   try {
     const db = await getDb();
+    const auth = await authenticateServerRequest(req, db);
+    if (!auth.success) return auth.response;
+
+    const access = evaluateModuleAccess(auth.user, 'prospects');
+    if (!access.allowed) {
+      return NextResponse.json(
+        { error: 'Access Denied / 403 Forbidden: Insufficient permissions for Prospects module.' },
+        { status: 403 }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const prospectId = searchParams.get('prospect_id');
 
@@ -25,13 +37,21 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const db = await getDb();
+    const auth = await authenticateServerRequest(req, db);
+    if (!auth.success) return auth.response;
+
+    const access = evaluateModuleAccess(auth.user, 'prospects');
+    if (!access.allowed) {
+      return NextResponse.json(
+        { error: 'Access Denied / 403 Forbidden: Insufficient permissions for Prospects module.' },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
 
     const {
       prospect_id,
-      author_name,
-      author_email,
-      author_role,
       content,
     } = body;
 
@@ -42,7 +62,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const author = author_name || 'Staff LIEC';
+    const authorName = body.author_name || auth.user.name;
+    const authorEmail = auth.user.email;
+    const authorRole = auth.user.business_profile || auth.user.role || 'Staff';
 
     const insertRes = await db.query(
       `INSERT INTO prospect_notes (prospect_id, author_name, author_email, author_role, content)
@@ -50,9 +72,9 @@ export async function POST(req: NextRequest) {
        RETURNING *`,
       [
         Number(prospect_id),
-        author,
-        author_email || null,
-        author_role || 'Staff',
+        authorName,
+        authorEmail,
+        authorRole,
         content.trim(),
       ]
     );
@@ -61,7 +83,7 @@ export async function POST(req: NextRequest) {
     await db.query(
       `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
        VALUES ($1, $2, $3, 'Succès')`,
-      [author, `Ajout commentaire sur prospect`, `PROSPECT-${prospect_id}`]
+      [authorName, `Ajout commentaire sur prospect`, `PROSPECT-${prospect_id}`]
     );
 
     return NextResponse.json({ comment: insertRes.rows[0], ok: true });

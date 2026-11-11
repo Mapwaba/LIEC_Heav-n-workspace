@@ -7,6 +7,8 @@ import Link from 'next/link';
 interface TwoFaSetupData {
   email: string;
   isFirstLogin: boolean;
+  requiresMfaSetup?: boolean;
+  mfaPendingToken?: string;
   secret?: string;
   uri?: string;
   qrSvg?: string;
@@ -33,10 +35,14 @@ function getRedirectTarget(): string {
 
 export default function LoginPage() {
   const router = useRouter();
-  const [step, setStep] = useState<'credentials' | '2fa' | 'first_login_password_change' | 'invitation_setup' | 'forgot_password'>('credentials');
+  const [step, setStep] = useState<'credentials' | '2fa' | 'first_login_password_change' | 'invitation_setup' | 'forgot_password' | 'recovery_codes'>('credentials');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
+  const [recoveryCodeInput, setRecoveryCodeInput] = useState('');
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const [copiedRecoveryCodes, setCopiedRecoveryCodes] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
   const [forgotEmail, setForgotEmail] = useState('');
@@ -177,8 +183,13 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
 
-    const cleanCode = totpCode.trim();
-    if (cleanCode.length !== 6) {
+    const cleanCode = useRecoveryCode ? recoveryCodeInput.trim() : totpCode.trim();
+    if (!cleanCode) {
+      setError(useRecoveryCode ? 'Please enter a recovery code.' : 'Veuillez saisir le code à 6 chiffres.');
+      setLoading(false);
+      return;
+    }
+    if (!useRecoveryCode && cleanCode.length !== 6) {
       setError('Veuillez saisir le code complet à 6 chiffres affiché dans Google Authenticator.');
       setLoading(false);
       return;
@@ -189,9 +200,8 @@ export default function LoginPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: twoFaData.email,
+          mfaPendingToken: twoFaData.mfaPendingToken,
           code: cleanCode,
-          isFirstLogin: twoFaData.isFirstLogin,
         }),
       });
       const data = await res.json();
@@ -201,7 +211,13 @@ export default function LoginPage() {
         localStorage.setItem('liec_role', data.user.role);
         document.cookie = `liec_user_email=${encodeURIComponent(data.user.email)}; path=/; max-age=604800; SameSite=Lax`;
         document.cookie = `liec_session_version=${encodeURIComponent(String(data.user.session_version || 1))}; path=/; max-age=604800; SameSite=Lax`;
-        window.location.replace(getRedirectTarget());
+
+        if (data.recoveryCodes && Array.isArray(data.recoveryCodes) && data.recoveryCodes.length > 0) {
+          setRecoveryCodes(data.recoveryCodes);
+          setStep('recovery_codes');
+        } else {
+          window.location.replace(getRedirectTarget());
+        }
       } else {
         setError(data.error || 'Code Google Authenticator invalide ou expiré.');
       }
@@ -267,11 +283,14 @@ export default function LoginPage() {
       });
 
       const data = await res.json();
-      if (res.ok && data.success && data.user) {
-        localStorage.setItem('liec_user', JSON.stringify(data.user));
-        localStorage.setItem('liec_role', data.user.role);
-        document.cookie = `liec_user_email=${encodeURIComponent(data.user.email)}; path=/; max-age=604800; SameSite=Lax`;
-        window.location.replace(getRedirectTarget());
+      if (res.ok && data.success) {
+        if (data.requires2Fa || data.requiresMfaSetup || data.requiresMfa) {
+          setTwoFaData(data);
+          setStep('2fa');
+          setError(null);
+        } else if (data.user) {
+          window.location.replace(getRedirectTarget());
+        }
       } else {
         setError(data.error || 'Erreur lors du changement de mot de passe.');
       }
@@ -287,6 +306,13 @@ export default function LoginPage() {
     navigator.clipboard.writeText(twoFaData.secret);
     setCopiedKey(true);
     setTimeout(() => setCopiedKey(false), 3000);
+  };
+
+  const handleCopyRecoveryCodes = () => {
+    if (recoveryCodes.length === 0) return;
+    navigator.clipboard.writeText(recoveryCodes.join('\n'));
+    setCopiedRecoveryCodes(true);
+    setTimeout(() => setCopiedRecoveryCodes(false), 3000);
   };
 
   const handleInvitationPasswordSetup = async (e: React.FormEvent) => {
@@ -312,11 +338,14 @@ export default function LoginPage() {
         }),
       });
       const data = await res.json();
-      if (res.ok && data.success && data.user) {
-        localStorage.setItem('liec_user', JSON.stringify(data.user));
-        localStorage.setItem('liec_role', data.user.role);
-        document.cookie = `liec_user_email=${encodeURIComponent(data.user.email)}; path=/; max-age=604800; SameSite=Lax`;
-        window.location.replace(getRedirectTarget());
+      if (res.ok && data.success) {
+        if (data.requires2Fa || data.requiresMfaSetup || data.requiresMfa) {
+          setTwoFaData(data);
+          setStep('2fa');
+          setError(null);
+        } else if (data.user) {
+          window.location.replace(getRedirectTarget());
+        }
       } else {
         setError(data.error || 'Failed to activate account. The invitation link may have expired.');
       }
@@ -1315,6 +1344,55 @@ export default function LoginPage() {
                   </div>
                 </form>
               </>
+            ) : step === 'recovery_codes' ? (
+              <>
+                <h2>Codes de récupération d’urgence</h2>
+                <p className="sub">
+                  Conservez précieusement ces 8 codes uniques à usage unique. Si vous perdez l’accès à votre application Google Authenticator, chacun de ces codes vous permettra de déverrouiller votre session une seule fois.
+                </p>
+
+                <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '12px', padding: '16px', margin: '18px 0' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontFamily: 'monospace', fontSize: '13px', fontWeight: 700, color: '#0f172a', textAlign: 'center' }}>
+                    {recoveryCodes.map((c, i) => (
+                      <div key={i} style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '8px 4px', letterSpacing: '1px' }}>
+                        {c}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ marginTop: '14px', textAlign: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={handleCopyRecoveryCodes}
+                      style={{
+                        background: '#007da7',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '6px 14px',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {copiedRecoveryCodes ? '✓ Codes copiés !' : '📋 Copier tous les codes'}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '8px', padding: '10px', fontSize: '11px', color: '#92400e', marginBottom: '16px' }}>
+                  ⚠️ Ces codes ne seront plus jamais réaffichés. Assurez-vous de les avoir notés ou copiés dans un gestionnaire de mots de passe sécurisé avant de continuer.
+                </div>
+
+                <button
+                  className="submit"
+                  type="button"
+                  onClick={() => window.location.replace(getRedirectTarget())}
+                >
+                  <span>J’ai sauvegardé mes codes & Accéder au Workspace</span>
+                  <span aria-hidden="true">→</span>
+                </button>
+              </>
             ) : (
               <>
                 {/* 2FA Step with Google Authenticator (Available when ENABLE_2FA is active) */}
@@ -1357,25 +1435,67 @@ export default function LoginPage() {
                 )}
 
                 <form onSubmit={handleVerify2Fa}>
-                  <div className="field">
-                    <label htmlFor="totpCode">
-                      Code Google Authenticator à 6 chiffres
-                    </label>
-                    <input
-                      id="totpCode"
-                      name="totpCode"
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      maxLength={6}
-                      placeholder="000000"
-                      autoComplete="one-time-code"
-                      className="totp-code-input"
-                      value={totpCode}
-                      onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                      required
-                      autoFocus
-                    />
+                  {!useRecoveryCode ? (
+                    <div className="field">
+                      <label htmlFor="totpCode">
+                        Code Google Authenticator à 6 chiffres
+                      </label>
+                      <input
+                        id="totpCode"
+                        name="totpCode"
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        maxLength={6}
+                        placeholder="000000"
+                        autoComplete="one-time-code"
+                        className="totp-code-input"
+                        value={totpCode}
+                        onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        required
+                        autoFocus
+                      />
+                    </div>
+                  ) : (
+                    <div className="field">
+                      <label htmlFor="recoveryCode">
+                        Code de récupération d’urgence à usage unique
+                      </label>
+                      <input
+                        id="recoveryCode"
+                        name="recoveryCode"
+                        type="text"
+                        placeholder="Ex: A1B2C-D3E4F"
+                        className="totp-code-input"
+                        value={recoveryCodeInput}
+                        onChange={(e) => setRecoveryCodeInput(e.target.value.toUpperCase())}
+                        required
+                        autoFocus
+                        style={{ fontFamily: 'monospace', letterSpacing: '2px' }}
+                      />
+                    </div>
+                  )}
+
+                  <div style={{ textAlign: 'right', marginBottom: '12px' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUseRecoveryCode(!useRecoveryCode);
+                        setError(null);
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#007da7',
+                        fontSize: '11px',
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                      }}
+                    >
+                      {useRecoveryCode
+                        ? '← Utiliser l’application Google Authenticator'
+                        : 'Téléphone indisponible ? Utiliser un code de secours'}
+                    </button>
                   </div>
 
                   <button className="submit" type="submit" disabled={loading}>
@@ -1396,6 +1516,8 @@ export default function LoginPage() {
                         setStep('credentials');
                         setError(null);
                         setTotpCode('');
+                        setRecoveryCodeInput('');
+                        setUseRecoveryCode(false);
                       }}
                       style={{
                         background: 'none',
