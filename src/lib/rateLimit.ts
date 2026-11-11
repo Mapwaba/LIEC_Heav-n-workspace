@@ -32,15 +32,16 @@ export function hashRateLimitKey(prefix: string, identifier: string): string {
 
 /**
  * Database-backed atomic distributed rate limiter
+ * Enforces strict FAIL-CLOSED policy: if the database or rate limiter fails,
+ * access is DENIED (allowed: false) to protect authentication endpoints.
  */
 export async function checkRateLimit(
   key: string,
   maxRequests: number,
   windowSeconds: number,
   dbClient?: DBClient
-): Promise<{ allowed: boolean; count: number; remaining: number; resetAt: Date }> {
+): Promise<{ allowed: boolean; count: number; remaining: number; resetAt: Date; error?: boolean }> {
   const db = dbClient || (await getDb());
-  const now = new Date();
 
   // Atomic UPSERT: If record exists and has expired, reset count to 1 and update reset_at.
   // Otherwise, increment count.
@@ -68,21 +69,28 @@ export async function checkRateLimit(
     const remaining = Math.max(0, maxRequests - currentCount);
 
     return { allowed, count: currentCount, remaining, resetAt };
-  } catch (err) {
-    console.warn('[RATE-LIMIT] DB rate limit check failed, failing safe (allowing request):', err);
-    return { allowed: true, count: 1, remaining: maxRequests - 1, resetAt: new Date(Date.now() + windowSeconds * 1000) };
+  } catch (err: any) {
+    console.error('[SECURITY FAIL-CLOSED] Rate limiter database check failed. Enforcing FAIL-CLOSED protection:', err?.message || err);
+    return {
+      allowed: false,
+      count: maxRequests + 1,
+      remaining: 0,
+      resetAt: new Date(Date.now() + windowSeconds * 1000),
+      error: true,
+    };
   }
 }
 
 /**
  * Combined IP and Account Rate Limiter for Password Recovery
  * Limits: 5 requests per IP / 15 mins AND 5 requests per account / 15 mins.
+ * Strictly FAILS CLOSED on database errors to prevent unrestricted recovery spam.
  */
 export async function checkPasswordRecoveryRateLimit(
   reqOrIp: NextRequest | string,
   email: string,
   dbClient?: DBClient
-): Promise<{ allowed: boolean; reason?: string }> {
+): Promise<{ allowed: boolean; reason?: string; isSystemFailure?: boolean }> {
   const windowSeconds = 15 * 60; // 15 minutes
   const maxPerWindow = 5;
 
@@ -93,7 +101,10 @@ export async function checkPasswordRecoveryRateLimit(
   if (!ipLimit.allowed) {
     return {
       allowed: false,
-      reason: `Too many password reset requests from this IP. Please wait until ${ipLimit.resetAt.toISOString()}.`,
+      reason: ipLimit.error
+        ? 'Rate limiter service temporarily unavailable. Request blocked under fail-closed security policy.'
+        : `Too many password reset requests from this IP. Please wait until ${ipLimit.resetAt.toISOString()}.`,
+      isSystemFailure: Boolean(ipLimit.error),
     };
   }
 
@@ -104,7 +115,10 @@ export async function checkPasswordRecoveryRateLimit(
     if (!acctLimit.allowed) {
       return {
         allowed: false,
-        reason: `Too many password reset requests for this account. Please wait until ${acctLimit.resetAt.toISOString()}.`,
+        reason: acctLimit.error
+          ? 'Rate limiter service temporarily unavailable. Request blocked under fail-closed security policy.'
+          : `Too many password reset requests for this account. Please wait until ${acctLimit.resetAt.toISOString()}.`,
+        isSystemFailure: Boolean(acctLimit.error),
       };
     }
   }

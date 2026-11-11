@@ -759,6 +759,33 @@ export async function initSchemaDDL(client: DBClient): Promise<void> {
       reset_at TIMESTAMP WITH TIME ZONE NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_rate_limit_reset ON rate_limit_buckets(reset_at);
+
+    CREATE TABLE IF NOT EXISTS mfa_enrollment_authorizations (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash VARCHAR(64) NOT NULL UNIQUE,
+      created_by INTEGER REFERENCES users(id),
+      expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+      used_at TIMESTAMP WITH TIME ZONE,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_mfa_auth_user ON mfa_enrollment_authorizations(user_id);
+    CREATE INDEX IF NOT EXISTS idx_mfa_auth_hash ON mfa_enrollment_authorizations(token_hash);
+
+    CREATE TABLE IF NOT EXISTS user_sessions (
+      id SERIAL PRIMARY KEY,
+      jti VARCHAR(64) NOT NULL UNIQUE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role VARCHAR(40) NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      last_active_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+      revoked BOOLEAN NOT NULL DEFAULT FALSE,
+      revoked_at TIMESTAMP WITH TIME ZONE
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_sessions_jti ON user_sessions(jti);
+    CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expires_at);
   `);
 }
 

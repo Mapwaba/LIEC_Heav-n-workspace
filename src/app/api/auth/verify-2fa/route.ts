@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { getDb } from '@/lib/db';
-import { verifyMfaPendingToken, signSessionToken, SESSION_COOKIE_NAME } from '@/lib/session';
+import {
+  verifyMfaPendingToken,
+  signSessionToken,
+  SESSION_COOKIE_NAME,
+  registerDatabaseSession,
+  getMaxSessionLifetimeSeconds,
+} from '@/lib/session';
 import { decryptMfaSecret, verifyTotpWithReplayProtection, generateRecoveryCodes } from '@/lib/mfa';
 
 export async function POST(req: NextRequest) {
@@ -70,13 +76,30 @@ export async function POST(req: NextRequest) {
 
     if (/^\d{6}$/.test(rawCode)) {
       const totpCheck = verifyTotpWithReplayProtection(secret, rawCode, newTimestep);
-      if (totpCheck.valid) {
-        verified = true;
-        newTimestep = totpCheck.currentTimestep;
-        await db.query(`UPDATE users SET mfa_last_timestep = $1 WHERE id = $2`, [newTimestep, user.id]);
-      } else if (totpCheck.reason) {
-        return NextResponse.json({ error: totpCheck.reason }, { status: 401 });
+      if (!totpCheck.valid) {
+        return NextResponse.json({ error: totpCheck.reason || 'Invalid TOTP code.' }, { status: 401 });
       }
+
+      newTimestep = totpCheck.currentTimestep;
+      // ATOMIC CONDITIONAL UPDATE:
+      // PostgreSQL atomic row write lock guarantees that if multiple concurrent requests submit the same code,
+      // only the first transaction updates the row and returns a row; concurrent racers match 0 rows.
+      const updateRes = await db.query(
+        `UPDATE users
+         SET mfa_last_timestep = $1
+         WHERE id = $2 AND (mfa_last_timestep IS NULL OR mfa_last_timestep < $1)
+         RETURNING id, mfa_last_timestep`,
+        [newTimestep, user.id]
+      );
+
+      if (updateRes.rows.length === 0) {
+        return NextResponse.json(
+          { error: 'This TOTP code has already been used (concurrent replay blocked). Please wait for the next 30-second code.' },
+          { status: 401 }
+        );
+      }
+
+      verified = true;
     } else {
       // 4. Input may be an emergency recovery code (e.g. ABCDE-FGHIJ)
       const cleanRecovery = rawCode.toUpperCase().replace(/\s+/g, '');
@@ -165,7 +188,7 @@ export async function POST(req: NextRequest) {
       } catch {}
     }
 
-    // 6. ISSUE CRYPTOGRAPHICALLY SIGNED SESSION TOKEN
+    // 6. ISSUE CRYPTOGRAPHICALLY SIGNED SESSION TOKEN & REGISTER IN DATABASE
     const sessionVersion = user.session_version ?? 1;
     const sessionToken = signSessionToken({
       userId: user.id,
@@ -174,6 +197,11 @@ export async function POST(req: NextRequest) {
       businessProfile: user.business_profile || 'Secretary',
       sessionVersion,
     });
+
+    const parsedSession = verifySessionToken(sessionToken);
+    if (parsedSession.valid) {
+      await registerDatabaseSession(db, parsedSession.payload);
+    }
 
     const userPayload = {
       id: user.id,
@@ -192,13 +220,14 @@ export async function POST(req: NextRequest) {
       recoveryCodes: recoveryCodesToDisplay,
     });
 
-    // Set secure HttpOnly session cookie
+    // Set secure HttpOnly session cookie matching enterprise role lifetime
+    const lifetimeSec = getMaxSessionLifetimeSeconds(user.role);
     res.cookies.set(SESSION_COOKIE_NAME, sessionToken, {
       path: '/',
       httpOnly: true,
       sameSite: 'lax',
       secure: process.env.NODE_ENV === 'production',
-      maxAge: 7 * 24 * 3600,
+      maxAge: lifetimeSec,
     });
 
     return res;

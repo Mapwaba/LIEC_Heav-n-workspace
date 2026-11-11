@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server.js';
 import { getDb, type DBClient } from './db.ts';
-import { verifySessionToken, SESSION_COOKIE_NAME } from './session.ts';
+import {
+  verifySessionToken,
+  SESSION_COOKIE_NAME,
+  IDLE_TIMEOUT_SECONDS,
+  getMaxSessionLifetimeSeconds,
+} from './session.ts';
 
 /**
  * LIEC_Heav'n Enterprise Role-Based Access Control (RBAC)
@@ -579,6 +584,91 @@ export async function authenticateServerRequest(
         { status: 401 }
       ),
     };
+  }
+
+  // 3. Validate server-side session state in user_sessions (jti revocation, idle timeout, lifetime)
+  if (sessionPayload.jti) {
+    const sessRes = await db.query(
+      `SELECT id, revoked, last_active_at, expires_at, created_at
+       FROM user_sessions
+       WHERE jti = $1`,
+      [sessionPayload.jti]
+    );
+
+    if (sessRes.rows.length === 0 || sessRes.rows[0].revoked) {
+      return {
+        success: false,
+        authenticated: false,
+        response: NextResponse.json(
+          {
+            error: 'Session révoquée / Session revoked',
+            code: 'SESSION_REVOKED',
+            message: 'Votre session a été révoquée ou déconnectée. Veuillez vous reconnecter.',
+          },
+          { status: 401 }
+        ),
+      };
+    }
+
+    const sessRow = sessRes.rows[0];
+    const nowMs = Date.now();
+
+    // Check 30-minute server-side idle timeout against last_active_at
+    const lastActiveMs = new Date(sessRow.last_active_at).getTime();
+    if (nowMs - lastActiveMs > IDLE_TIMEOUT_SECONDS * 1000) {
+      await db.query(
+        `UPDATE user_sessions SET revoked = TRUE, revoked_at = CURRENT_TIMESTAMP WHERE jti = $1`,
+        [sessionPayload.jti]
+      );
+      return {
+        success: false,
+        authenticated: false,
+        response: NextResponse.json(
+          {
+            error: 'Session expirée pour inactivité / Session idle timeout',
+            code: 'SESSION_IDLE_TIMEOUT',
+            message: "Votre session a expiré suite à 30 minutes d'inactivité. Veuillez vous reconnecter.",
+          },
+          { status: 401 }
+        ),
+      };
+    }
+
+    // Check absolute lifetime against user role policy (Admin/Finance: 8h, Secretary: 12h)
+    const maxLifetimeSec = getMaxSessionLifetimeSeconds(user.role);
+    const sessionAgeSec = Math.floor((nowMs - new Date(sessRow.created_at).getTime()) / 1000);
+    const expiresMs = new Date(sessRow.expires_at).getTime();
+
+    if (nowMs > expiresMs || sessionAgeSec > maxLifetimeSec) {
+      await db.query(
+        `UPDATE user_sessions SET revoked = TRUE, revoked_at = CURRENT_TIMESTAMP WHERE jti = $1`,
+        [sessionPayload.jti]
+      );
+      return {
+        success: false,
+        authenticated: false,
+        response: NextResponse.json(
+          {
+            error: 'Session expirée / Session expired',
+            code: 'SESSION_EXPIRED',
+            message: 'La durée de validité maximale de votre session a expiré. Veuillez vous reconnecter.',
+          },
+          { status: 401 }
+        ),
+      };
+    }
+
+    // Throttled touch of last_active_at: update only if older than 30 seconds
+    try {
+      await db.query(
+        `UPDATE user_sessions
+         SET last_active_at = CURRENT_TIMESTAMP
+         WHERE jti = $1 AND last_active_at < CURRENT_TIMESTAMP - INTERVAL '30 seconds'`,
+        [sessionPayload.jti]
+      );
+    } catch (touchErr) {
+      console.warn('[RBAC] Could not touch last_active_at:', touchErr);
+    }
   }
 
   // Check account suspension status

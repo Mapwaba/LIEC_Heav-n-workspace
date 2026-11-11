@@ -22,18 +22,23 @@ export async function POST(req: NextRequest) {
 
     const db = await getDb();
 
-    // Distributed Rate Limiting: Max 5 requests per IP and per account per 15 mins
+    // Distributed Rate Limiting: Max 5 requests per IP and per account per 15 mins (Fails CLOSED on DB failure)
     const rateCheck = await checkPasswordRecoveryRateLimit(req, rawEmail, db);
     if (!rateCheck.allowed) {
-      console.warn(`[RATE-LIMIT] Forgot password request throttled for ${rawEmail}: ${rateCheck.reason}`);
+      console.warn(`[RATE-LIMIT] Forgot password request blocked for ${rawEmail}: ${rateCheck.reason}`);
       try {
         await db.query(
           `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
-           VALUES ($1, 'PASSWORD_RESET_THROTTLED', 'AUTH-RATE-LIMIT', 'THROTTLED', $2)`,
-          [rawEmail, rateCheck.reason]
+           VALUES ($1, $2, 'AUTH-RATE-LIMIT', $3, $4)`,
+          [
+            rawEmail,
+            rateCheck.isSystemFailure ? 'PASSWORD_RESET_RATE_LIMITER_FAILURE' : 'PASSWORD_RESET_THROTTLED',
+            rateCheck.isSystemFailure ? 'BLOCKED_FAIL_CLOSED' : 'THROTTLED',
+            rateCheck.reason,
+          ]
         );
       } catch {}
-      // Return identical generic response to avoid leaking rate limit state or account presence
+      // Return identical generic response to avoid leaking rate limit state, errors, or account presence
       return NextResponse.json(genericResponse);
     }
 

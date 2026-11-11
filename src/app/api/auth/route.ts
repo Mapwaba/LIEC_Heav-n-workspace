@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/db';
-import { verifyPassword } from '@/lib/passwordSecurity';
-import { generateBase32Secret, getTotpSetup } from '@/lib/totp';
-import { encryptMfaSecret } from '@/lib/mfa';
-import { signMfaPendingToken } from '@/lib/session';
+import { NextRequest, NextResponse } from 'next/server.js';
+import crypto from 'crypto';
+import { getDb } from '@/lib/db.ts';
+import { verifyPassword } from '@/lib/passwordSecurity.ts';
+import { generateBase32Secret, getTotpSetup } from '@/lib/totp.ts';
+import { encryptMfaSecret } from '@/lib/mfa.ts';
+import { signMfaPendingToken } from '@/lib/session.ts';
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,6 +13,7 @@ export async function POST(req: NextRequest) {
     const isEn = !langHeader.toLowerCase().startsWith('fr');
     const rawIdentifier = String(body.email || body.identifier || body.username || '').trim().toLowerCase();
     const password = String(body.password || '').trim();
+    const enrollmentToken = String(body.enrollmentToken || body.mfaEnrollmentToken || '').trim();
 
     if (!rawIdentifier || !password) {
       return NextResponse.json(
@@ -107,8 +109,60 @@ export async function POST(req: NextRequest) {
     });
 
     if (!isEnrolled) {
-      // First-time MFA Enrolment: Generate secret, encrypt at rest, return provisioning URI & QR Code
-      const rawSecret = generateBase32Secret(20);
+      // Controlled Initial Enrolment:
+      // Password alone CANNOT initiate enrolment. An administrator-authorized one-time token is REQUIRED.
+      if (!enrollmentToken) {
+        return NextResponse.json({
+          requiresMfaEnrollmentAuthorization: true,
+          requires2Fa: false,
+          isFirstLogin: true,
+          email: dbUser.email,
+          user: userPayload,
+          message: isEn
+            ? 'MFA enrollment requires an administrator-authorized one-time enrollment token. Please provide your authorization token.'
+            : 'L’activation de Google Authenticator requiert un jeton d’enrôlement à usage unique fourni par un administrateur.',
+        });
+      }
+
+      // Validate administrator enrolment authorization token
+      const tokenHash = crypto.createHash('sha256').update(enrollmentToken).digest('hex');
+      const authRes = await db.query(
+        `SELECT id, expires_at, used_at FROM mfa_enrollment_authorizations
+         WHERE user_id = $1 AND token_hash = $2
+         FOR UPDATE`,
+        [dbUser.id, tokenHash]
+      );
+
+      if (authRes.rows.length === 0) {
+        return NextResponse.json(
+          { error: isEn ? 'Invalid or unknown MFA enrollment authorization token.' : 'Jeton d’enrôlement MFA invalide ou inconnu.' },
+          { status: 401 }
+        );
+      }
+
+      const authRecord = authRes.rows[0];
+      if (authRecord.used_at) {
+        return NextResponse.json(
+          { error: isEn ? 'This MFA enrollment authorization token has already been used.' : 'Ce jeton d’enrôlement MFA a déjà été utilisé.' },
+          { status: 401 }
+        );
+      }
+
+      if (Date.now() > new Date(authRecord.expires_at).getTime()) {
+        return NextResponse.json(
+          { error: isEn ? 'This MFA enrollment authorization token has expired.' : 'Ce jeton d’enrôlement MFA a expiré.' },
+          { status: 401 }
+        );
+      }
+
+      // Atomically consume authorization token
+      await db.query(
+        `UPDATE mfa_enrollment_authorizations SET used_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [authRecord.id]
+      );
+
+      // Generate secret, encrypt at rest, and return setup data
+      const rawSecret = generateBase32Secret(32);
       const encryptedSecret = encryptMfaSecret(rawSecret);
 
       await db.query(
@@ -123,7 +177,7 @@ export async function POST(req: NextRequest) {
       try {
         await db.query(
           `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
-           VALUES ($1, 'MFA_ENROLMENT_INITIATED', $2, 'SUCCESS', 'User prompted to enroll Google Authenticator.')`,
+           VALUES ($1, 'MFA_ENROLMENT_AUTHORIZED_CONSUMED', $2, 'SUCCESS', 'Administrator one-time authorization token validated. Google Authenticator secret provisioned.')`,
           [dbUser.name, `USER-${dbUser.id}`]
         );
       } catch {}

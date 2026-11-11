@@ -1,8 +1,10 @@
 import crypto from 'crypto';
+import type { DBClient } from './db.ts';
 
 export const SESSION_COOKIE_NAME = 'liec_session';
 
 export interface SessionPayload {
+  jti: string;
   userId: number;
   email: string;
   role: string;
@@ -23,14 +25,32 @@ export interface MfaPendingPayload {
   expiresAt: number;
 }
 
+/**
+ * Enterprise Session Lifetime Policy:
+ * - Admin: 8 hours (28,800s)
+ * - Finance Officer: 8 hours (28,800s)
+ * - Secretary: 12 hours (43,200s)
+ * - Idle Timeout: 30 minutes (1,800s) for all roles
+ */
+export function getMaxSessionLifetimeSeconds(role?: string): number {
+  const r = (role || '').trim().toLowerCase();
+  if (r === 'admin' || r === 'lh_security_admin') {
+    return 8 * 3600; // 8 hours for Admin
+  }
+  if (r === 'avi' || r === 'finance' || r === 'lh_finance') {
+    return 8 * 3600; // 8 hours for Finance Officer
+  }
+  return 12 * 3600; // 12 hours for Secretary
+}
+
+export const IDLE_TIMEOUT_SECONDS = 30 * 60; // 30 minutes
+
 function getSessionSecret(): string {
   const secret = process.env.SESSION_SECRET?.trim();
   if (!secret || secret.length < 32) {
-    // In production or preview, fail closed if secret is missing or insecure
     if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
       throw new Error('[SECURITY FATAL] SESSION_SECRET is missing or has insufficient entropy (minimum 32 characters required).');
     }
-    // Fallback secret for local test execution only
     return '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
   }
   return secret;
@@ -40,15 +60,19 @@ function getSessionSecret(): string {
  * Creates a cryptographically signed session token: <base64url(payload)>.<hmac-sha256>
  */
 export function signSessionToken(
-  data: Omit<SessionPayload, 'issuedAt' | 'expiresAt'>,
-  expiresInSeconds = 7 * 24 * 3600
+  data: Omit<SessionPayload, 'issuedAt' | 'expiresAt'> & { jti?: string },
+  expiresInSeconds?: number
 ): string {
   const secret = getSessionSecret();
   const now = Math.floor(Date.now() / 1000);
+  const jti = data.jti || crypto.randomBytes(32).toString('hex');
+  const lifetime = expiresInSeconds ?? getMaxSessionLifetimeSeconds(data.role);
+
   const fullPayload: SessionPayload = {
     ...data,
+    jti,
     issuedAt: now,
-    expiresAt: now + expiresInSeconds,
+    expiresAt: now + lifetime,
   };
 
   const encodedPayload = Buffer.from(JSON.stringify(fullPayload)).toString('base64url');
@@ -103,7 +127,7 @@ export function verifySessionToken(
       return { valid: false, reason: 'Session token has expired.' };
     }
 
-    if (!payload.userId || !payload.email || typeof payload.sessionVersion !== 'number') {
+    if (!payload.jti || !payload.userId || !payload.email || typeof payload.sessionVersion !== 'number') {
       return { valid: false, reason: 'Incomplete session payload.' };
     }
 
@@ -111,6 +135,40 @@ export function verifySessionToken(
   } catch (err: any) {
     return { valid: false, reason: `Token decode error: ${err?.message || 'unknown error'}` };
   }
+}
+
+/**
+ * Registers an active session in the database for per-session tracking and server-side revocation
+ */
+export async function registerDatabaseSession(
+  db: DBClient,
+  payload: SessionPayload
+): Promise<void> {
+  const expiresAt = new Date(payload.expiresAt * 1000);
+  await db.query(
+    `INSERT INTO user_sessions (jti, user_id, role, expires_at, last_active_at, revoked)
+     VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, FALSE)
+     ON CONFLICT (jti) DO NOTHING`,
+    [payload.jti, payload.userId, payload.role, expiresAt]
+  );
+}
+
+/**
+ * Revokes an individual session server-side by its unique jti
+ */
+export async function revokeDatabaseSession(
+  db: DBClient,
+  jti: string
+): Promise<boolean> {
+  if (!jti) return false;
+  const res = await db.query(
+    `UPDATE user_sessions
+     SET revoked = TRUE, revoked_at = CURRENT_TIMESTAMP
+     WHERE jti = $1 AND revoked = FALSE
+     RETURNING id`,
+    [jti]
+  );
+  return (res.rowCount ?? res.rows.length) > 0;
 }
 
 /**

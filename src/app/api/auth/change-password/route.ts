@@ -97,6 +97,14 @@ export async function POST(req: NextRequest) {
 
     const newSessionVersion = updateRes.rows[0]?.session_version ?? 2;
 
+    // Revoke all existing server-side sessions for this user in user_sessions
+    await db.query(
+      `UPDATE user_sessions
+       SET revoked = TRUE, revoked_at = CURRENT_TIMESTAMP
+       WHERE user_id = $1 AND revoked = FALSE`,
+      [user.id]
+    );
+
     // Audit log entry
     await db.query(
       `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
