@@ -5,6 +5,7 @@ import { verifyPassword } from '@/lib/passwordSecurity';
 import { generateBase32Secret, getTotpSetup } from '@/lib/totp';
 import { encryptMfaSecret } from '@/lib/mfa';
 import { signMfaPendingToken } from '@/lib/session';
+import { calculatePasswordExpiry } from '@/lib/passwordExpiry';
 
 export async function POST(req: NextRequest) {
   try {
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
     const dbUserRes = await db.query(
       `SELECT u.id, u.name, u.first_name, u.last_name, u.user_id, u.email, u.business_profile, u.role, u.title, u.initials,
               u.active, u.password_hash, u.password_salt, u.must_change_password, u.session_version,
-              u.mfa_enrolled, u.mfa_secret_encrypted
+              u.mfa_enrolled, u.mfa_secret_encrypted, u.password_updated_at, u.created_at, u.password_expiry_transition_deadline
        FROM users u
        WHERE LOWER(u.email) = $1 OR LOWER(COALESCE(u.user_id, '')) = $1`,
       [rawIdentifier]
@@ -79,6 +80,45 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // -------------------------------------------------------------------------
+    // PASSWORD EXPIRY POLICY A: 90-DAY LIFECYCLE (ZERO GRACE PERIOD)
+    // -------------------------------------------------------------------------
+    const expiryInfo = calculatePasswordExpiry({
+      password_updated_at: dbUser.password_updated_at,
+      created_at: dbUser.created_at,
+      password_expiry_transition_deadline: dbUser.password_expiry_transition_deadline,
+    });
+
+    if (expiryInfo.isExpired) {
+      try {
+        await db.query(
+          `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+           VALUES ($1, 'PASSWORD_EXPIRED_LOGIN_BLOCKED', $2, 'BLOCKED', $3)`,
+          [
+            dbUser.name || rawIdentifier,
+            `USER-${dbUser.id}`,
+            `User authentication denied due to password expiration (>90 days since last change). Expired at ${expiryInfo.expiresAt.toISOString()}.`,
+          ]
+        );
+      } catch {}
+
+      return NextResponse.json(
+        {
+          passwordExpired: true,
+          requirePasswordRenewal: true,
+          email: dbUser.email,
+          user_id: dbUser.user_id,
+          name: dbUser.name,
+          expiresAt: expiryInfo.expiresAt.toISOString(),
+          daysRemaining: 0,
+          error: isEn
+            ? `Your password expired on ${expiryInfo.expiresAt.toISOString().replace('T', ' ').substring(0, 16)} UTC. You must renew your password to access the workspace.`
+            : `Votre mot de passe a expiré le ${expiryInfo.expiresAt.toISOString().replace('T', ' ').substring(0, 16)} UTC. Vous devez renouveler votre mot de passe pour accéder à l'espace de travail.`,
+        },
+        { status: 403 }
+      );
+    }
+
     const userPayload = {
       id: dbUser.id,
       name: dbUser.name,
@@ -92,6 +132,9 @@ export async function POST(req: NextRequest) {
       initials: dbUser.initials,
       must_change_password: false,
       session_version: dbUser.session_version ?? 1,
+      passwordExpiresAt: expiryInfo.expiresAt.toISOString(),
+      passwordDaysRemaining: expiryInfo.daysRemaining,
+      passwordExpiryStatus: expiryInfo.status,
     };
 
     // -------------------------------------------------------------------------

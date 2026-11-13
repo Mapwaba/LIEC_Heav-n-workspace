@@ -147,6 +147,17 @@ export default function LoginPage() {
       });
       const data = await res.json();
 
+      if (data.passwordExpired || data.requirePasswordRenewal) {
+        // Intercept expired password: route immediately to secure password renewal
+        setFirstLoginUser(data);
+        setCurrentTempPassword(password.trim());
+        setNewPassword('');
+        setConfirmPassword('');
+        setStep('first_login_password_change');
+        setError(data.error || 'Your password has expired. You must set a new password to continue.');
+        return;
+      }
+
       if (res.ok && data.requirePasswordChange) {
         // Intercept first login: require mandatory password change
         setFirstLoginUser(data);

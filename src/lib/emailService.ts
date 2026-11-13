@@ -1259,3 +1259,124 @@ export async function sendPasswordResetEmail(payload: PasswordResetEmailPayload)
     allowSimulation: true,
   });
 }
+
+export interface PasswordExpiryEmailPayload {
+  to: string;
+  name: string;
+  milestone: 'day_76_warning' | 'day_83_warning' | 'day_89_warning' | 'day_90_expired';
+  daysRemaining: number;
+  expiresAt: Date;
+  renewalUrl: string;
+  idempotencyKey?: string;
+}
+
+export function renderPasswordExpiryWarningHtml(data: PasswordExpiryEmailPayload): string {
+  const isExpired = data.milestone === 'day_90_expired' || data.daysRemaining <= 0;
+  const badgeColor = isExpired ? '#dc2626' : data.daysRemaining <= 1 ? '#ea580c' : '#d97706';
+  const badgeText = isExpired
+    ? 'Password Expired'
+    : `Expires in ${data.daysRemaining} Day${data.daysRemaining === 1 ? '' : 's'}`;
+  const bannerTitle = isExpired
+    ? 'Your LIEC Heav’n Password Has Expired'
+    : `Password Expiry Notice: ${data.daysRemaining} Days Remaining`;
+  const formattedExpiry = data.expiresAt.toISOString().replace('T', ' ').substring(0, 16) + ' UTC';
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${bannerTitle}</title>
+</head>
+<body style="font-family: Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+    <tr>
+      <td style="background: linear-gradient(135deg, #092342 0%, #0c685a 100%); padding: 32px 24px; text-align: center;">
+        <h1 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: 700;">LIEC Heav'n Security</h1>
+        <p style="color: #d8f6ea; margin: 6px 0 0 0; font-size: 14px;">Centrally Enforced Password Expiry Policy A</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 32px 24px;">
+        <div style="display: inline-block; background-color: ${badgeColor}; color: #ffffff; font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 9999px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px;">
+          ${badgeText}
+        </div>
+        <p style="font-size: 16px; color: #1e293b; margin: 0 0 16px 0;">Hello <strong>${data.name}</strong>,</p>
+        <p style="font-size: 14px; color: #475569; line-height: 1.6; margin: 0 0 20px 0;">
+          ${isExpired
+            ? `Your password expired on <strong>${formattedExpiry}</strong>. In accordance with enterprise security policy, your access to protected workspace modules is temporarily blocked until your password is renewed.`
+            : `This is an automated security reminder that your LIEC Heav’n password will reach its 90-day validity limit on <strong>${formattedExpiry}</strong>.`
+          }
+        </p>
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+          <table width="100%" cellpadding="4" cellspacing="0" style="font-size: 13px; color: #334155;">
+            <tr>
+              <td style="font-weight: 600; width: 40%;">Policy:</td>
+              <td>90-Day Standard Expiry</td>
+            </tr>
+            <tr>
+              <td style="font-weight: 600;">Effective Expiry Date:</td>
+              <td style="color: ${badgeColor}; font-weight: 700;">${formattedExpiry}</td>
+            </tr>
+            <tr>
+              <td style="font-weight: 600;">Days Remaining:</td>
+              <td style="font-weight: 700;">${data.daysRemaining} day(s)</td>
+            </tr>
+          </table>
+        </div>
+        <div style="text-align: center; margin: 28px 0;">
+          <a href="${data.renewalUrl}" style="background-color: #0c685a; color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 8px; font-weight: 600; font-size: 15px; display: inline-block;">
+            ${isExpired ? 'Renew Password Now &rarr;' : 'Update Password &rarr;'}
+          </a>
+        </div>
+        <p style="font-size: 12px; color: #64748b; line-height: 1.5; margin: 24px 0 0 0;">
+          Direct link: <a href="${data.renewalUrl}" style="color: #0c685a; word-break: break-all;">${data.renewalUrl}</a>
+        </p>
+        <div style="background: #f1f5f9; border-radius: 6px; padding: 12px; margin-top: 20px; font-size: 12px; color: #475569;">
+          <strong>Security Note:</strong> Logging in does not extend your password's expiration date. Only a successful password change resets the 90-day lifecycle.
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td style="background: #f8fafc; padding: 20px 24px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8;">
+        &copy; ${new Date().getFullYear()} LIEC Heav'n Education &bull; Confidential Internal Security Notice
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+export async function sendPasswordExpiryNotificationEmail(payload: PasswordExpiryEmailPayload): Promise<EmailSendResult> {
+  const recipient = cleanSenderAddress(payload.to);
+  const isExpired = payload.milestone === 'day_90_expired' || payload.daysRemaining <= 0;
+  const subject = isExpired
+    ? `[LIEC Heav’n] Account Alert: Password has expired`
+    : `[LIEC Heav’n] Password Expiry Notice: ${payload.daysRemaining} days remaining`;
+  const htmlContent = renderPasswordExpiryWarningHtml(payload);
+  const textContent = [
+    `LIEC Heav'n Education - Password Expiry Notification`,
+    `Hello ${payload.name},`,
+    '',
+    isExpired
+      ? `Your password expired on ${payload.expiresAt.toISOString()}. Please renew your password immediately:`
+      : `Your password expires in ${payload.daysRemaining} days (on ${payload.expiresAt.toISOString()}).`,
+    `Renew your password at: ${payload.renewalUrl}`,
+    '',
+    `Policy: 90-Day Standard Expiry`,
+    `Notice: Logging in does not extend password validity. Only a successful password change resets the 90-day validity period.`,
+    '',
+    `LIEC Heav'n Education - Confidential Internal Security Notice`,
+  ].join('\n');
+
+  const idempotencyKey = payload.idempotencyKey || `pwd_exp_${payload.milestone}_${Date.now()}`;
+
+  return sendEmail({
+    to: recipient,
+    subject,
+    html: htmlContent,
+    text: textContent,
+    idempotencyKey,
+    workflow: 'general',
+    allowSimulation: true,
+  });
+}

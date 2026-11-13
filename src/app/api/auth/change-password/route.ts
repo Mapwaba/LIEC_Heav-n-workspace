@@ -4,6 +4,7 @@ import { verifyPassword, hashPassword, validatePasswordPolicy } from '@/lib/pass
 import { generateBase32Secret, getTotpSetup } from '@/lib/totp';
 import { encryptMfaSecret } from '@/lib/mfa';
 import { signMfaPendingToken } from '@/lib/session';
+import { calculatePasswordExpiry } from '@/lib/passwordExpiry';
 
 export async function POST(req: NextRequest) {
   try {
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
     const userRes = await db.query(
       `SELECT u.id, u.name, u.first_name, u.last_name, u.user_id, u.email, u.business_profile, u.role, u.title, u.initials,
               u.active, u.password_hash, u.password_salt, u.must_change_password, u.session_version,
-              u.mfa_enrolled, u.mfa_secret_encrypted
+              u.mfa_enrolled, u.mfa_secret_encrypted, u.password_updated_at, u.created_at, u.password_expiry_transition_deadline
        FROM users u
        WHERE LOWER(u.email) = $1 OR LOWER(COALESCE(u.user_id, '')) = $1`,
       [email]
@@ -105,15 +106,29 @@ export async function POST(req: NextRequest) {
       [user.id]
     );
 
-    // Audit log entry
+    // Audit log entry: distinguish first login, renewal of expired password, and proactive update
+    const wasExpired = calculatePasswordExpiry({
+      password_updated_at: user.password_updated_at,
+      created_at: user.created_at,
+      password_expiry_transition_deadline: user.password_expiry_transition_deadline,
+    }).isExpired;
+
+    const auditAction = user.must_change_password
+      ? 'FIRST_LOGIN_PASSWORD_CHANGED'
+      : wasExpired
+      ? 'PASSWORD_EXPIRED_RENEWAL_COMPLETED'
+      : 'PASSWORD_CHANGED_SUCCESS';
+
+    const auditDetails = wasExpired
+      ? `User successfully renewed expired password. New 90-day expiry period established. Session version incremented to ${newSessionVersion}.`
+      : user.must_change_password
+      ? `User completed mandatory first-login password change and set their personal secure password. Session version incremented to ${newSessionVersion}.`
+      : `User updated personal password. New 90-day expiry period established. Session version incremented to ${newSessionVersion}.`;
+
     await db.query(
       `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
-       VALUES ($1, 'FIRST_LOGIN_PASSWORD_CHANGED', $2, 'SUCCESS', $3)`,
-      [
-        user.name,
-        `USER-${user.id}`,
-        `User completed mandatory first-login password change and set their personal secure password. Session version incremented to ${newSessionVersion}.`,
-      ]
+       VALUES ($1, $2, $3, 'SUCCESS', $4)`,
+      [user.name, auditAction, `USER-${user.id}`, auditDetails]
     );
 
     const userPayload = {
@@ -129,6 +144,9 @@ export async function POST(req: NextRequest) {
       initials: user.initials,
       must_change_password: false,
       session_version: newSessionVersion,
+      passwordExpiresAt: new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString(),
+      passwordDaysRemaining: 90,
+      passwordExpiryStatus: 'valid',
     };
 
     // -------------------------------------------------------------------------

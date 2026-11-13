@@ -6,6 +6,7 @@ import {
   IDLE_TIMEOUT_SECONDS,
   getMaxSessionLifetimeSeconds,
 } from './session.ts';
+import { calculatePasswordExpiry } from './passwordExpiry.ts';
 
 /**
  * LIEC_Heav'n Enterprise Role-Based Access Control (RBAC)
@@ -91,6 +92,9 @@ export interface AuthenticatedUserContext {
   session_version?: number;
   suspended_at?: string | null;
   suspended_by?: string | null;
+  password_expires_at?: string;
+  password_days_remaining?: number;
+  password_expired?: boolean;
 }
 
 // Fallback seed definitions if DB lookup encounters delay
@@ -507,11 +511,12 @@ export async function authenticateServerRequest(
     const res = await db.query(
       `SELECT u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials,
               u.active, u.suspended_at, u.suspended_by, u.must_change_password, u.session_version,
+              u.password_updated_at, u.created_at, u.password_expiry_transition_deadline,
               COALESCE(ARRAY_AGG(ur.role_id) FILTER (WHERE ur.role_id IS NOT NULL), ARRAY[]::VARCHAR[]) as technical_roles
        FROM users u
        LEFT JOIN user_roles ur ON u.id = ur.user_id
        WHERE u.id = $1
-       GROUP BY u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials, u.active, u.suspended_at, u.suspended_by, u.must_change_password, u.session_version`,
+       GROUP BY u.id, u.name, u.email, u.business_profile, u.role, u.title, u.initials, u.active, u.suspended_at, u.suspended_by, u.must_change_password, u.session_version, u.password_updated_at, u.created_at, u.password_expiry_transition_deadline`,
       [sessionPayload.userId]
     );
 
@@ -521,6 +526,13 @@ export async function authenticateServerRequest(
         r.role === 'admin' ||
         r.business_profile === 'Admin' ||
         r.email === 'bmapwabantoro@liecconsulting.com';
+
+      const expiryInfo = calculatePasswordExpiry({
+        password_updated_at: r.password_updated_at,
+        created_at: r.created_at,
+        password_expiry_transition_deadline: r.password_expiry_transition_deadline,
+      });
+
       user = {
         id: r.id,
         name: r.name,
@@ -538,6 +550,9 @@ export async function authenticateServerRequest(
         suspended_by: r.suspended_by,
         must_change_password: Boolean(r.must_change_password),
         session_version: r.session_version !== null && r.session_version !== undefined ? Number(r.session_version) : 1,
+        password_expires_at: expiryInfo.expiresAt.toISOString(),
+        password_days_remaining: expiryInfo.daysRemaining,
+        password_expired: expiryInfo.isExpired,
       };
     }
   } catch (err) {
@@ -704,6 +719,40 @@ export async function authenticateServerRequest(
         { status: 403 }
       ),
     };
+  }
+
+  // Enforce Password Expiry Policy A: 90-day lifecycle (zero grace period)
+  if (user.password_expired) {
+    let pathname = '';
+    try {
+      pathname = req.nextUrl?.pathname || new URL(req.url).pathname || '';
+    } catch {
+      pathname = '';
+    }
+
+    const isAllowedRenewal =
+      pathname.startsWith('/api/auth/change-password') ||
+      pathname.startsWith('/api/auth/reset-password') ||
+      pathname.startsWith('/api/auth/logout');
+
+    if (!isAllowedRenewal) {
+      return {
+        success: false,
+        authenticated: false,
+        response: NextResponse.json(
+          {
+            error: 'Mot de passe expiré / Password expired',
+            code: 'PASSWORD_EXPIRED',
+            message: 'Votre mot de passe a expiré (validité de 90 jours atteinte). Vous devez le renouveler pour continuer.',
+            passwordExpired: true,
+            requirePasswordRenewal: true,
+            expiresAt: user.password_expires_at,
+            daysRemaining: 0,
+          },
+          { status: 403 }
+        ),
+      };
+    }
   }
 
   return { success: true, authenticated: true, user };

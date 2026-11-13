@@ -10,6 +10,7 @@ import {
   getMaxSessionLifetimeSeconds,
 } from '@/lib/session';
 import { decryptMfaSecret, verifyTotpWithReplayProtection, generateRecoveryCodes } from '@/lib/mfa';
+import { calculatePasswordExpiry } from '@/lib/passwordExpiry';
 
 export async function POST(req: NextRequest) {
   try {
@@ -38,7 +39,8 @@ export async function POST(req: NextRequest) {
 
     const userRes = await db.query(
       `SELECT u.id, u.name, u.email, u.role, u.business_profile, u.title, u.initials,
-              u.active, u.session_version, u.mfa_enrolled, u.mfa_secret_encrypted, u.mfa_last_timestep
+              u.active, u.session_version, u.mfa_enrolled, u.mfa_secret_encrypted, u.mfa_last_timestep,
+              u.password_updated_at, u.created_at, u.password_expiry_transition_deadline
        FROM users u
        WHERE u.id = $1`,
       [userId]
@@ -191,6 +193,25 @@ export async function POST(req: NextRequest) {
     }
 
     // 6. ISSUE CRYPTOGRAPHICALLY SIGNED SESSION TOKEN & REGISTER IN DATABASE
+    const expiryInfo = calculatePasswordExpiry({
+      password_updated_at: user.password_updated_at,
+      created_at: user.created_at,
+      password_expiry_transition_deadline: user.password_expiry_transition_deadline,
+    });
+
+    if (expiryInfo.isExpired) {
+      return NextResponse.json(
+        {
+          authenticated: false,
+          passwordExpired: true,
+          requirePasswordRenewal: true,
+          error: 'Your password has expired. Password renewal required.',
+          expiresAt: expiryInfo.expiresAt.toISOString(),
+        },
+        { status: 403 }
+      );
+    }
+
     const sessionVersion = user.session_version ?? 1;
     const sessionToken = signSessionToken({
       userId: user.id,
@@ -214,6 +235,9 @@ export async function POST(req: NextRequest) {
       title: user.title,
       initials: user.initials,
       session_version: sessionVersion,
+      passwordExpiresAt: expiryInfo.expiresAt.toISOString(),
+      passwordDaysRemaining: expiryInfo.daysRemaining,
+      passwordExpiryStatus: expiryInfo.status,
     };
 
     const res = NextResponse.json({

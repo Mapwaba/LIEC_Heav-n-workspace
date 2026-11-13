@@ -2456,6 +2456,40 @@ export default function LiecWorkspacePage() {
                   Neon PostgreSQL
                 </span>
               </div>
+
+              {/* Password Expiry Policy A Status Card */}
+              <div className="rounded-xl border border-slate-200 p-3 space-y-1.5 bg-[#fbfcfe]">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    {isEn ? 'PASSWORD VALIDITY (POLICY A)' : 'VALIDITÉ DU MOT DE PASSE (POLITIQUE A)'}
+                  </span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${
+                    currentUser?.passwordExpiryStatus === 'expired'
+                      ? 'bg-red-100 text-red-700'
+                      : currentUser?.passwordExpiryStatus === 'expiring_soon'
+                      ? 'bg-amber-100 text-amber-700'
+                      : 'bg-emerald-100 text-emerald-700'
+                  }`}>
+                    {currentUser?.passwordExpiryStatus === 'expired'
+                      ? (isEn ? 'Expired' : 'Expiré')
+                      : isEn
+                      ? `${currentUser?.passwordDaysRemaining ?? 90}d remaining`
+                      : `${currentUser?.passwordDaysRemaining ?? 90}j restants`}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-600 flex items-center justify-between">
+                  <span>{isEn ? 'Policy Window:' : 'Cycle de validité :'} <strong>90 {isEn ? 'days' : 'jours'}</strong></span>
+                  {currentUser?.passwordExpiresAt && (
+                    <span className="text-slate-500 font-mono text-[10px]">
+                      {new Date(currentUser.passwordExpiresAt).toLocaleDateString(isEn ? 'en-US' : 'fr-FR', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="border-t border-slate-100 pt-3 flex items-center justify-between gap-3">
