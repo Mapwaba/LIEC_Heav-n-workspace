@@ -147,17 +147,6 @@ export default function LoginPage() {
       });
       const data = await res.json();
 
-      if (data.passwordExpired || data.requirePasswordRenewal) {
-        // Intercept expired password: route immediately to secure password renewal
-        setFirstLoginUser(data);
-        setCurrentTempPassword(password.trim());
-        setNewPassword('');
-        setConfirmPassword('');
-        setStep('first_login_password_change');
-        setError(data.error || 'Your password has expired. You must set a new password to continue.');
-        return;
-      }
-
       if (res.ok && data.requirePasswordChange) {
         // Intercept first login: require mandatory password change
         setFirstLoginUser(data);
@@ -224,6 +213,21 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (res.ok && data.authenticated && data.user) {
+        if (data.restrictedRenewal || data.passwordExpired || data.requirePasswordRenewal) {
+          // SEC-W2-001: MFA successfully verified for expired account.
+          // Restricted renewal session is active. Route immediately to password change.
+          setFirstLoginUser(data.user);
+          setCurrentTempPassword('');
+          setNewPassword('');
+          setConfirmPassword('');
+          setStep('first_login_password_change');
+          setError(
+            data.message ||
+              'Your password has reached its 90-day validity limit and expired. Please enter your current password and set a new personal password.'
+          );
+          return;
+        }
+
         localStorage.setItem('liec_user', JSON.stringify(data.user));
         localStorage.setItem('liec_role', data.user.role);
         document.cookie = `liec_user_email=${encodeURIComponent(data.user.email)}; path=/; max-age=604800; SameSite=Lax`;

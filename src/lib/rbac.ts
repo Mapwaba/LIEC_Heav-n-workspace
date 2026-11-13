@@ -95,6 +95,7 @@ export interface AuthenticatedUserContext {
   password_expires_at?: string;
   password_days_remaining?: number;
   password_expired?: boolean;
+  restricted_renewal?: boolean;
 }
 
 // Fallback seed definitions if DB lookup encounters delay
@@ -553,6 +554,7 @@ export async function authenticateServerRequest(
         password_expires_at: expiryInfo.expiresAt.toISOString(),
         password_days_remaining: expiryInfo.daysRemaining,
         password_expired: expiryInfo.isExpired,
+        restricted_renewal: Boolean(sessionPayload.restricted_renewal || expiryInfo.isExpired),
       };
     }
   } catch (err) {
@@ -722,7 +724,11 @@ export async function authenticateServerRequest(
   }
 
   // Enforce Password Expiry Policy A: 90-day lifecycle (zero grace period)
-  if (user.password_expired) {
+  // SEC-W2-001: Deny protected workspace modules if user password has expired OR if
+  // session token was issued as a restricted renewal session.
+  const isRestrictedRenewalSession = Boolean(user.password_expired || user.restricted_renewal || sessionPayload?.restricted_renewal);
+
+  if (isRestrictedRenewalSession) {
     let pathname = '';
     try {
       pathname = req.nextUrl?.pathname || new URL(req.url).pathname || '';
@@ -745,6 +751,7 @@ export async function authenticateServerRequest(
             code: 'PASSWORD_EXPIRED',
             message: 'Votre mot de passe a expiré (validité de 90 jours atteinte). Vous devez le renouveler pour continuer.',
             passwordExpired: true,
+            restrictedRenewal: true,
             requirePasswordRenewal: true,
             expiresAt: user.password_expires_at,
             daysRemaining: 0,

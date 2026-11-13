@@ -12,6 +12,7 @@ export interface SessionPayload {
   sessionVersion: number;
   issuedAt: number;
   expiresAt: number;
+  restricted_renewal?: boolean;
 }
 
 export interface MfaPendingPayload {

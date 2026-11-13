@@ -84,12 +84,14 @@ export async function POST(req: NextRequest) {
     const { hash: newHash, salt: newSalt } = hashPassword(newPassword);
 
     // Update in database: atomically increment session_version to invalidate prior sessions
+    // Clear any one-time legacy transition deadline and establish new 90-day validity period
     const updateRes = await db.query(
       `UPDATE users
        SET password_hash = $1,
            password_salt = $2,
            must_change_password = FALSE,
            password_updated_at = CURRENT_TIMESTAMP,
+           password_expiry_transition_deadline = NULL,
            session_version = COALESCE(session_version, 1) + 1
        WHERE id = $3
        RETURNING session_version`,

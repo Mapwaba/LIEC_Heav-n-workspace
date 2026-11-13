@@ -17,19 +17,20 @@ WHERE password_updated_at IS NULL
   AND created_at < CURRENT_TIMESTAMP - INTERVAL '90 days'
   AND password_expiry_transition_deadline IS NULL;
 
--- 2. Milestone Notification Tracking Table (§2 & §3)
+-- 2. Milestone Notification Tracking Table (§2 & §3, Remediation SEC-W2-002)
 -- Tracks milestone dispatches: Day 76 (14d), Day 83 (7d), Day 89 (1d), Day 90 (Expired).
--- Composite UNIQUE constraint guarantees strict mathematical idempotency per password cycle.
+-- Composite UNIQUE constraint on (user_id, milestone, notification_cycle_reference)
+-- guarantees strict mathematical idempotency per password cycle without PostgreSQL NULL traps.
 CREATE TABLE IF NOT EXISTS password_expiry_notifications (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   milestone VARCHAR(30) NOT NULL, -- 'day_76_warning', 'day_83_warning', 'day_89_warning', 'day_90_expired'
-  password_updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  notification_cycle_reference TIMESTAMP WITH TIME ZONE NOT NULL,
   recipient_email VARCHAR(160) NOT NULL,
   sent_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
   provider_message_id VARCHAR(100),
-  CONSTRAINT uq_pwd_notif_cycle UNIQUE (user_id, milestone, password_updated_at)
+  CONSTRAINT uq_pwd_notif_cycle UNIQUE (user_id, milestone, notification_cycle_reference)
 );
 
 CREATE INDEX IF NOT EXISTS idx_pwd_notif_user ON password_expiry_notifications(user_id);
-CREATE INDEX IF NOT EXISTS idx_pwd_notif_cycle ON password_expiry_notifications(user_id, password_updated_at);
+CREATE INDEX IF NOT EXISTS idx_pwd_notif_cycle ON password_expiry_notifications(user_id, notification_cycle_reference);

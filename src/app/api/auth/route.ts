@@ -82,6 +82,9 @@ export async function POST(req: NextRequest) {
 
     // -------------------------------------------------------------------------
     // PASSWORD EXPIRY POLICY A: 90-DAY LIFECYCLE (ZERO GRACE PERIOD)
+    // SEC-W2-001: Determine password expiration state. Do NOT bypass MFA!
+    // Expired users must still complete mandatory TOTP MFA before receiving a
+    // restricted renewal session.
     // -------------------------------------------------------------------------
     const expiryInfo = calculatePasswordExpiry({
       password_updated_at: dbUser.password_updated_at,
@@ -93,30 +96,14 @@ export async function POST(req: NextRequest) {
       try {
         await db.query(
           `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
-           VALUES ($1, 'PASSWORD_EXPIRED_LOGIN_BLOCKED', $2, 'BLOCKED', $3)`,
+           VALUES ($1, 'PASSWORD_EXPIRED_MFA_CHALLENGED', $2, 'CHALLENGED', $3)`,
           [
             dbUser.name || rawIdentifier,
             `USER-${dbUser.id}`,
-            `User authentication denied due to password expiration (>90 days since last change). Expired at ${expiryInfo.expiresAt.toISOString()}.`,
+            `Password expired (>90 days since last change). Mandatory TOTP MFA challenged prior to restricted renewal session. Expired at ${expiryInfo.expiresAt.toISOString()}.`,
           ]
         );
       } catch {}
-
-      return NextResponse.json(
-        {
-          passwordExpired: true,
-          requirePasswordRenewal: true,
-          email: dbUser.email,
-          user_id: dbUser.user_id,
-          name: dbUser.name,
-          expiresAt: expiryInfo.expiresAt.toISOString(),
-          daysRemaining: 0,
-          error: isEn
-            ? `Your password expired on ${expiryInfo.expiresAt.toISOString().replace('T', ' ').substring(0, 16)} UTC. You must renew your password to access the workspace.`
-            : `Votre mot de passe a expiré le ${expiryInfo.expiresAt.toISOString().replace('T', ' ').substring(0, 16)} UTC. Vous devez renouveler votre mot de passe pour accéder à l'espace de travail.`,
-        },
-        { status: 403 }
-      );
     }
 
     const userPayload = {
@@ -135,6 +122,8 @@ export async function POST(req: NextRequest) {
       passwordExpiresAt: expiryInfo.expiresAt.toISOString(),
       passwordDaysRemaining: expiryInfo.daysRemaining,
       passwordExpiryStatus: expiryInfo.status,
+      passwordExpired: expiryInfo.isExpired,
+      requirePasswordRenewal: expiryInfo.isExpired,
     };
 
     // -------------------------------------------------------------------------

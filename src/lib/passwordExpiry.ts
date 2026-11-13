@@ -39,6 +39,25 @@ export interface UserPasswordRecord {
 }
 
 /**
+ * Resolves the immutable notification cycle reference timestamp for a user.
+ * Requirement SEC-W2-002:
+ * COALESCE(users.password_updated_at, users.password_expiry_transition_deadline, users.created_at)
+ * Strictly guarantees that NULL is never used in the unique constraint.
+ */
+export function getNotificationCycleReference(user: UserPasswordRecord): Date {
+  if (user.password_updated_at) {
+    return new Date(user.password_updated_at);
+  }
+  if (user.password_expiry_transition_deadline) {
+    return new Date(user.password_expiry_transition_deadline);
+  }
+  if (user.created_at) {
+    return new Date(user.created_at);
+  }
+  return new Date('1970-01-01T00:00:00.000Z');
+}
+
+/**
  * Calculates exact password expiration status and days remaining.
  * Strictly adheres to UTC timestamp calculation (no midnight rounding).
  */

@@ -193,37 +193,49 @@ export async function POST(req: NextRequest) {
     }
 
     // 6. ISSUE CRYPTOGRAPHICALLY SIGNED SESSION TOKEN & REGISTER IN DATABASE
+    // SEC-W2-001: If password has expired (>90 days), issue a cryptographically signed
+    // RESTRICTED RENEWAL SESSION (lifetime: 30 minutes / 1800s).
+    // The restricted renewal session is protected server-side by HMAC-SHA256 signature
+    // and database session tracking, permitting ONLY password renewal and logout.
     const expiryInfo = calculatePasswordExpiry({
       password_updated_at: user.password_updated_at,
       created_at: user.created_at,
       password_expiry_transition_deadline: user.password_expiry_transition_deadline,
     });
 
-    if (expiryInfo.isExpired) {
-      return NextResponse.json(
-        {
-          authenticated: false,
-          passwordExpired: true,
-          requirePasswordRenewal: true,
-          error: 'Your password has expired. Password renewal required.',
-          expiresAt: expiryInfo.expiresAt.toISOString(),
-        },
-        { status: 403 }
-      );
-    }
-
+    const isRestrictedRenewal = expiryInfo.isExpired;
+    const sessionLifetime = isRestrictedRenewal ? 1800 : undefined; // 30 mins for renewal vs full role lifetime
     const sessionVersion = user.session_version ?? 1;
-    const sessionToken = signSessionToken({
-      userId: user.id,
-      email: user.email,
-      role: user.role || 'secretary',
-      businessProfile: user.business_profile || 'Secretary',
-      sessionVersion,
-    });
+
+    const sessionToken = signSessionToken(
+      {
+        userId: user.id,
+        email: user.email,
+        role: user.role || 'secretary',
+        businessProfile: user.business_profile || 'Secretary',
+        sessionVersion,
+        restricted_renewal: isRestrictedRenewal,
+      },
+      sessionLifetime
+    );
 
     const parsedSession = verifySessionToken(sessionToken);
     if (parsedSession.valid) {
       await registerDatabaseSession(db, parsedSession.payload);
+    }
+
+    if (isRestrictedRenewal) {
+      try {
+        await db.query(
+          `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+           VALUES ($1, 'PASSWORD_EXPIRED_RESTRICTED_SESSION_ISSUED', $2, 'SUCCESS', $3)`,
+          [
+            user.name,
+            `USER-${user.id}`,
+            `MFA successfully verified for expired account. Cryptographically signed restricted renewal session issued (JTI: ${parsedSession.valid ? parsedSession.payload.jti : 'unknown'}, max-age: 1800s). Workspace APIs locked.`,
+          ]
+        );
+      } catch {}
     }
 
     const userPayload = {
@@ -238,16 +250,25 @@ export async function POST(req: NextRequest) {
       passwordExpiresAt: expiryInfo.expiresAt.toISOString(),
       passwordDaysRemaining: expiryInfo.daysRemaining,
       passwordExpiryStatus: expiryInfo.status,
+      passwordExpired: isRestrictedRenewal,
+      requirePasswordRenewal: isRestrictedRenewal,
+      restrictedRenewal: isRestrictedRenewal,
     };
 
     const res = NextResponse.json({
       authenticated: true,
       user: userPayload,
       recoveryCodes: recoveryCodesToDisplay,
+      restrictedRenewal: isRestrictedRenewal,
+      passwordExpired: isRestrictedRenewal,
+      requirePasswordRenewal: isRestrictedRenewal,
+      message: isRestrictedRenewal
+        ? 'Password expired. Restricted renewal session established. Password change required to access workspace.'
+        : 'Authentication successful.',
     });
 
-    // Set secure HttpOnly session cookie matching enterprise role lifetime
-    const lifetimeSec = getMaxSessionLifetimeSeconds(user.role);
+    // Set secure HttpOnly session cookie matching enterprise role lifetime (or 1800s for restricted renewal)
+    const lifetimeSec = isRestrictedRenewal ? 1800 : getMaxSessionLifetimeSeconds(user.role);
     res.cookies.set(SESSION_COOKIE_NAME, sessionToken, {
       path: '/',
       httpOnly: true,
