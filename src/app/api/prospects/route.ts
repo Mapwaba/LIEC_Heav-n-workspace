@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { authenticateServerRequest, canAssignAdvisor, canPerformManualStatusOverride, canVerifyFinancialPayments, canManageProspects } from '@/lib/rbac';
 import { sendAdvisorAssignmentEmail } from '@/lib/emailService';
-import { verifyFirstInstalmentPayment } from '@/lib/paymentVerification';
+import {
+  verifyFirstInstalmentPayment,
+  validateRawbankSlip,
+  validateRawbankOpCode,
+  checkDuplicateRawbankTransaction,
+  resolveApplicableInstalmentAmount,
+} from '@/lib/paymentVerification';
 
 const COUNTRY_FLAGS: Record<string, string> = {
   RDC: '🇨🇩',
@@ -409,8 +415,15 @@ export async function PATCH(req: NextRequest) {
       const notes = (body.notes || '').trim();
       const assessedBy = (body.assessed_by || 'Barthelemy MAPWABA NTORO').trim();
 
-      const badgeTone = eligibilityStatus === 'Eligible' ? 'mint' : eligibilityStatus === 'Not Eligible' ? 'urgent' : 'amber';
-      const badgeText = eligibilityStatus === 'Eligible' ? 'Éligible LIEC' : eligibilityStatus === 'Not Eligible' ? 'Non Éligible' : 'Éligibilité en cours';
+      if ((eligibilityStatus === 'Not Eligible' || eligibilityStatus === 'Rejected') && !notes) {
+        return NextResponse.json(
+          { error: 'A justification note is strictly mandatory when rejecting admission eligibility.' },
+          { status: 400 }
+        );
+      }
+
+      const badgeTone = eligibilityStatus === 'Eligible' ? 'mint' : eligibilityStatus === 'Not Eligible' || eligibilityStatus === 'Rejected' ? 'urgent' : 'amber';
+      const badgeText = eligibilityStatus === 'Eligible' ? 'Éligible LIEC' : eligibilityStatus === 'Not Eligible' || eligibilityStatus === 'Rejected' ? 'Non Éligible' : 'Éligibilité en cours';
 
       const updateRes = await db.query(
         `UPDATE prospects SET
@@ -440,6 +453,19 @@ export async function PATCH(req: NextRequest) {
       const p = updateRes.rows[0];
       if (!p) return NextResponse.json({ error: 'Prospect not found.' }, { status: 404 });
 
+      // Synchronize with matching demande
+      if (p.full_name) {
+        await db.query(
+          `UPDATE demandes SET
+             eligibility_status = $1,
+             eligibility_notes = $2,
+             eligibility_assessed_by = $3,
+             eligibility_date = CURRENT_TIMESTAMP
+           WHERE LOWER(full_name) = LOWER($4)`,
+          [eligibilityStatus, notes, assessedBy, p.full_name]
+        );
+      }
+
       const logNote = `[BILAN ÉLIGIBILITÉ] Statut: ${eligibilityStatus}. Évaluateur: ${assessedBy}.${notes ? ` Justification: ${notes}` : ''}`;
       await db.query(
         `INSERT INTO prospect_notes (prospect_id, author, content) VALUES ($1, $2, $3)`,
@@ -449,7 +475,7 @@ export async function PATCH(req: NextRequest) {
       await db.query(
         `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
          VALUES ($1, 'Évaluation Éligibilité Prospect', $2, 'Succès', $3)`,
-        [assessedBy, `PROSPECT-${pId}`, `Statut: ${eligibilityStatus}`]
+        [assessedBy, `PROSPECT-${pId}`, `Statut: ${eligibilityStatus}${notes ? ` | Notes: ${notes}` : ''}`]
       );
 
       return NextResponse.json({ ok: true, prospect: p, message: 'Eligibility assessment recorded successfully.' });
@@ -459,15 +485,41 @@ export async function PATCH(req: NextRequest) {
       const pId = Number(id);
       if (!pId) return NextResponse.json({ error: 'Valid prospect ID is required.' }, { status: 400 });
 
+      const verifiedBy = (body.verified_by || 'Barthelemy MAPWABA NTORO').trim();
+      const notes = (body.notes || 'Dossier administratif complet et vérifié').trim();
+
       const updateRes = await db.query(
         `UPDATE prospects SET
           registration_completed = TRUE,
+          registration_verified_by = $1,
+          registration_notes = $2,
           registration_date = CURRENT_TIMESTAMP
-         WHERE id = $1
+         WHERE id = $3
          RETURNING *`,
-        [pId]
+        [verifiedBy, notes, pId]
       );
-      return NextResponse.json({ ok: true, prospect: updateRes.rows[0], message: 'Registration marked completed.' });
+      const p = updateRes.rows[0];
+
+      // Synchronize with matching demande
+      if (p?.full_name) {
+        await db.query(
+          `UPDATE demandes SET
+             registration_completed = TRUE,
+             registration_verified_by = $1,
+             registration_notes = $2,
+             registration_date = CURRENT_TIMESTAMP
+           WHERE LOWER(full_name) = LOWER($3)`,
+          [verifiedBy, notes, p.full_name]
+        );
+      }
+
+      await db.query(
+        `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+         VALUES ($1, 'Inscription Administrative Prospect', $2, 'Succès', $3)`,
+        [verifiedBy, `PROSPECT-${pId}`, notes]
+      );
+
+      return NextResponse.json({ ok: true, prospect: p, message: 'Registration marked completed.' });
     }
 
     if (action === 'verify_first_instalment') {
@@ -482,42 +534,133 @@ export async function PATCH(req: NextRequest) {
       const pId = Number(id);
       if (!pId) return NextResponse.json({ error: 'Valid prospect ID is required.' }, { status: 400 });
 
-      const pRes = await db.query(`SELECT full_name, first_instalment_ref FROM prospects WHERE id = $1`, [pId]);
+      const pRes = await db.query(`SELECT * FROM prospects WHERE id = $1`, [pId]);
       const p = pRes.rows[0];
       if (!p) return NextResponse.json({ error: 'Prospect not found.' }, { status: 404 });
 
-      let amount = Number(body.amount) || 1800;
-      let paymentRef = (body.payment_ref || body.ref || `INST1-P${pId}`).trim();
+      const verifiedBy = (body.verified_by || 'Finance Officer').trim();
 
-      // Check authoritative payment verification
-      const paymentOutcome = await verifyFirstInstalmentPayment(db, {
+      // 1. Mandatory Rawbank slip number (6 digits)
+      const slipCheck = validateRawbankSlip(body.rawbank_slip_number);
+      if (!slipCheck.valid) {
+        return NextResponse.json({ error: slipCheck.error }, { status: 400 });
+      }
+
+      // 2. Mandatory Rawbank operation code (3 digits)
+      const opCheck = validateRawbankOpCode(body.rawbank_operation_code);
+      if (!opCheck.valid) {
+        return NextResponse.json({ error: opCheck.error }, { status: 400 });
+      }
+
+      const slipNumber = slipCheck.value;
+      const opCode = opCheck.value;
+
+      // 3. Anti-Duplicate Transaction Check
+      const dupCheck = await checkDuplicateRawbankTransaction(db, slipNumber, opCode, null);
+      if (dupCheck.isDuplicate) {
+        return NextResponse.json(
+          {
+            error: `Rawbank transaction slip #${slipNumber} / op code ${opCode} has already been registered for ${dupCheck.existingApplicant} (${dupCheck.existingRef}). Duplicate transaction reuse is strictly prohibited.`,
+            isDuplicate: true,
+            existingRef: dupCheck.existingRef,
+          },
+          { status: 409 }
+        );
+      }
+
+      // 4. Resolve Dynamic Applicable Instalment Amount
+      const applicable = await resolveApplicableInstalmentAmount(db, {
         fullName: p.full_name,
+        email: p.email,
+      });
+
+      const requiredAmount = applicable.amount;
+
+      // 5. Authoritative Ledger Cross-Check
+      const paymentOutcome = await verifyFirstInstalmentPayment(db, {
+        studentRef: p.converted_candidate_ref,
+        fullName: p.full_name,
+        email: p.email,
+        rawbankSlipNumber: slipNumber,
+        rawbankOperationCode: opCode,
+        requiredAmount,
         knownPaymentRef: body.payment_ref || p.first_instalment_ref,
       });
 
-      if (paymentOutcome.verified) {
-        paymentRef = paymentOutcome.paymentRef || paymentRef;
-        amount = paymentOutcome.amount || amount;
+      if (paymentOutcome.status === 'AMBIGUOUS_REQUIRES_FINANCE') {
+        return NextResponse.json(
+          {
+            error: `Ambiguous payment match: ${paymentOutcome.reason}. An authoritative manual clearance by Finance is required.`,
+            status: 'AMBIGUOUS_REQUIRES_FINANCE',
+          },
+          { status: 422 }
+        );
       }
+
+      const manualNotes = (body.notes || '').trim();
+      if (!paymentOutcome.verified && !manualNotes) {
+        return NextResponse.json(
+          {
+            error: `No matching validated instalment payment found in the authoritative ledger (prepa_payments or invoices) for Rawbank slip #${slipNumber} / op code ${opCode} and applicant "${p.full_name}". Payment must be recorded and cleared in the financial ledger before gate validation.`,
+            status: 'NOT_FOUND',
+            applicableAmount: requiredAmount,
+          },
+          { status: 422 }
+        );
+      }
+
+      const verifiedAmount = paymentOutcome.verified ? (paymentOutcome.amount || requiredAmount) : (Number(body.amount) || requiredAmount);
+      const verifiedRef = paymentOutcome.verified ? (paymentOutcome.paymentRef || `RAW-${slipNumber}-${opCode}`) : `RAW-${slipNumber}-${opCode}`;
+      const notes = manualNotes || (paymentOutcome.verified ? `Vérifié via ${paymentOutcome.source} (${paymentOutcome.paymentRef})` : 'Validation manuelle finance');
 
       const updateRes = await db.query(
         `UPDATE prospects SET
           first_instalment_paid = TRUE,
           first_instalment_amount = $1,
           first_instalment_ref = $2,
+          rawbank_slip_number = $3,
+          rawbank_operation_code = $4,
+          first_instalment_verified_by = $5,
+          first_instalment_notes = $6,
           first_instalment_date = CURRENT_TIMESTAMP
-         WHERE id = $3
+         WHERE id = $7
          RETURNING *`,
-        [amount, paymentRef, pId]
+        [verifiedAmount, verifiedRef, slipNumber, opCode, verifiedBy, notes, pId]
+      );
+
+      // Synchronize with matching demande
+      if (p.full_name) {
+        await db.query(
+          `UPDATE demandes SET
+             first_instalment_paid = TRUE,
+             first_instalment_amount = $1,
+             first_instalment_ref = $2,
+             rawbank_slip_number = $3,
+             rawbank_operation_code = $4,
+             first_instalment_verified_by = $5,
+             first_instalment_notes = $6,
+             first_instalment_date = CURRENT_TIMESTAMP
+           WHERE LOWER(full_name) = LOWER($7)`,
+          [verifiedAmount, verifiedRef, slipNumber, opCode, verifiedBy, notes, p.full_name]
+        );
+      }
+
+      await db.query(
+        `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+         VALUES ($1, 'Validation 1er Versement Rawbank Prospect', $2, 'Succès', $3)`,
+        [verifiedBy, `PROSPECT-${pId}`, `Montant: ${verifiedAmount} EUR | Slip: ${slipNumber} | OpCode: ${opCode} | Ref: ${verifiedRef}`]
       );
 
       return NextResponse.json({
         ok: true,
         prospect: updateRes.rows[0],
         first_instalment_paid: true,
-        amount,
-        paymentRef,
-        message: 'First instalment verified and recorded.',
+        amount: verifiedAmount,
+        paymentRef: verifiedRef,
+        rawbankSlipNumber: slipNumber,
+        rawbankOperationCode: opCode,
+        verifiedBy,
+        message: 'First instalment verified and recorded with Rawbank slip.',
       });
     }
 
@@ -550,6 +693,8 @@ export async function PATCH(req: NextRequest) {
       const paymentOutcome = await verifyFirstInstalmentPayment(db, {
         studentRef: currProspect.converted_candidate_ref,
         fullName: currProspect.full_name,
+        rawbankSlipNumber: currProspect.rawbank_slip_number,
+        rawbankOperationCode: currProspect.rawbank_operation_code,
         knownPaymentRef: currProspect.first_instalment_ref,
       });
 
@@ -565,10 +710,12 @@ export async function PATCH(req: NextRequest) {
 
       if (paymentOutcome.verified) {
         firstInstalmentPaid = true;
-        await db.query(
-          `UPDATE prospects SET first_instalment_paid = TRUE, first_instalment_ref = $1, first_instalment_amount = $2, first_instalment_date = CURRENT_TIMESTAMP WHERE id = $3`,
-          [paymentOutcome.paymentRef, paymentOutcome.amount || 1800, pId]
-        );
+      }
+
+      // Check Rawbank slip / op code presence
+      const hasRawbankDetails = !!(currProspect.rawbank_slip_number && currProspect.rawbank_operation_code);
+      if (firstInstalmentPaid && !hasRawbankDetails && !paymentOutcome.verified && !currProspect.first_instalment_verified_by) {
+        firstInstalmentPaid = false;
       }
 
       const missingConditions: string[] = [];
@@ -579,7 +726,7 @@ export async function PATCH(req: NextRequest) {
         missingConditions.push('Condition 2 Failed: Prospect registration is not completed.');
       }
       if (!firstInstalmentPaid) {
-        missingConditions.push('Condition 3 Failed: First instalment payment is not recorded or verified in authoritative financial records.');
+        missingConditions.push('Condition 3 Failed: First instalment payment is not recorded or verified in authoritative financial records with valid Rawbank details.');
       }
 
       if (missingConditions.length > 0) {

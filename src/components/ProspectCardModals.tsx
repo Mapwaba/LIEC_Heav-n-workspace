@@ -1212,6 +1212,11 @@ export function QualifyProspectModal({
   const [completingReg, setCompletingReg] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [rawbankSlipNumber, setRawbankSlipNumber] = useState(prospect.rawbank_slip_number || '');
+  const [rawbankOperationCode, setRawbankOperationCode] = useState(prospect.rawbank_operation_code || '');
+  const [paymentAmount, setPaymentAmount] = useState<number>(prospect.first_instalment_amount || 1800);
+
   const isEligible = prospect.eligibility_status === 'Eligible';
   const isRegistered = Boolean(prospect.registration_completed);
   const isFirstInstalmentPaid = Boolean(prospect.first_instalment_paid);
@@ -1237,16 +1242,35 @@ export function QualifyProspectModal({
   };
 
   const handleVerifyPayment = async () => {
+    setError(null);
+    const slip = rawbankSlipNumber.trim();
+    if (!/^\d{6}$/.test(slip)) {
+      setError(isEn ? 'Rawbank slip number must be exactly 6 numerical digits.' : 'Le bordereau Rawbank doit comporter exactement 6 chiffres numériques.');
+      return;
+    }
+    const opCode = rawbankOperationCode.trim();
+    if (!/^\d{3}$/.test(opCode)) {
+      setError(isEn ? 'Rawbank operation code must be exactly 3 numerical digits.' : 'Le code opération Rawbank doit comporter exactement 3 chiffres numériques.');
+      return;
+    }
+
     setVerifyingPayment(true);
     try {
       const res = await fetch('/api/prospects', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: prospect.id, action: 'verify_first_instalment' }),
+        body: JSON.stringify({
+          id: prospect.id,
+          action: 'verify_first_instalment',
+          rawbank_slip_number: slip,
+          rawbank_operation_code: opCode,
+          amount: paymentAmount,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Failed to verify payment');
-      onNotify(data.message || (isEn ? 'First instalment verified.' : 'Premier versement vérifié.'));
+      onNotify(data.message || (isEn ? 'First instalment verified with Rawbank slip.' : 'Premier versement vérifié avec bordereau Rawbank.'));
+      setShowPaymentForm(false);
       onSaved();
     } catch (err: any) {
       setError(err?.message);
@@ -1387,37 +1411,85 @@ export function QualifyProspectModal({
             </div>
 
             {/* Condition 3 */}
-            <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                {isFirstInstalmentPaid ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                ) : (
-                  <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                )}
-                <div>
-                  <span className="font-bold text-slate-800 block">
-                    {isEn ? '3. First Instalment Payment' : '3. Premier Versement Encaissé'}
-                  </span>
-                  <span className="text-[11px] text-slate-500">
-                    {isFirstInstalmentPaid
-                      ? (isEn ? 'Payment verified in financial ledger' : 'Paiement vérifié en comptabilité')
-                      : (isEn ? 'Awaiting payment verification' : 'En attente d’encaissement')}
-                  </span>
+            <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  {isFirstInstalmentPaid ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                  )}
+                  <div>
+                    <span className="font-bold text-slate-800 block">
+                      {isEn ? '3. First Instalment Payment (Rawbank)' : '3. Premier Versement Encaissé (Rawbank)'}
+                    </span>
+                    <span className="text-[11px] text-slate-500">
+                      {isFirstInstalmentPaid
+                        ? `${isEn ? 'Verified' : 'Vérifié'}${prospect.rawbank_slip_number ? ` (Slip #${prospect.rawbank_slip_number})` : ''}`
+                        : (isEn ? 'Requires 6-digit slip & 3-digit op code' : 'Bordereau 6 chiffres & Code op 3 chiffres')}
+                    </span>
+                  </div>
                 </div>
+                {isFirstInstalmentPaid ? (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                    {isEn ? 'Verified' : 'Vérifié'}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowPaymentForm(!showPaymentForm)}
+                    className="px-2.5 py-1 text-[11px] font-bold text-white bg-[#0c685a] hover:bg-[#094f46] rounded-lg cursor-pointer"
+                  >
+                    {showPaymentForm ? (isEn ? 'Hide' : 'Fermer') : (isEn ? 'Enter Slip' : 'Saisir Bordereau')}
+                  </button>
+                )}
               </div>
-              {isFirstInstalmentPaid ? (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                  {isEn ? 'Verified' : 'Vérifié'}
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleVerifyPayment}
-                  disabled={verifyingPayment}
-                  className="px-2.5 py-1 text-[11px] font-bold text-white bg-[#0c685a] hover:bg-[#094f46] rounded-lg cursor-pointer disabled:opacity-50"
-                >
-                  {verifyingPayment ? '...' : (isEn ? 'Verify in DB' : 'Vérifier')}
-                </button>
+
+              {showPaymentForm && !isFirstInstalmentPaid && (
+                <div className="pt-2 border-t border-slate-200/80 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-700 block mb-0.5">
+                        {isEn ? 'Slip Number (6 digits) *' : 'N° Bordereau (6 chiffres) *'}
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={6}
+                        value={rawbankSlipNumber}
+                        onChange={(e) => setRawbankSlipNumber(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        placeholder="052658"
+                        className="w-full p-1.5 text-xs font-mono rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-700 block mb-0.5">
+                        {isEn ? 'Op Code (3 digits) *' : 'Code Op (3 chiffres) *'}
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={3}
+                        value={rawbankOperationCode}
+                        onChange={(e) => setRawbankOperationCode(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                        placeholder="012"
+                        className="w-full p-1.5 text-xs font-mono rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[11px] text-slate-500">
+                      {isEn ? 'Applicable obligation:' : 'Montant dû :'} <strong>{paymentAmount} EUR</strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleVerifyPayment}
+                      disabled={verifyingPayment || rawbankSlipNumber.length !== 6 || rawbankOperationCode.length !== 3}
+                      className="px-3 py-1 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg cursor-pointer disabled:opacity-50"
+                    >
+                      {verifyingPayment ? '...' : (isEn ? 'Verify in Ledger' : 'Vérifier & Valider')}
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           </div>

@@ -104,6 +104,25 @@ export default function DemandesScreen({
   const [isOverridingStatus, setIsOverridingStatus] = useState(false);
   const [isResumingWorkflow, setIsResumingWorkflow] = useState(false);
 
+  // Qualification Gates Modals State
+  const [showEligibilityModal, setShowEligibilityModal] = useState(false);
+  const [eligibilityChoice, setEligibilityChoice] = useState<'Eligible' | 'Rejected'>('Eligible');
+  const [eligibilityNotes, setEligibilityNotes] = useState('');
+  const [isSubmittingEligibility, setIsSubmittingEligibility] = useState(false);
+
+  const [showRegistrationModal, setShowRegistrationModal] = useState(false);
+  const [registrationAttestation, setRegistrationAttestation] = useState(false);
+  const [registrationNotes, setRegistrationNotes] = useState('Dossier administratif complet et vérifié');
+  const [isSubmittingRegistration, setIsSubmittingRegistration] = useState(false);
+
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [rawbankSlipNumber, setRawbankSlipNumber] = useState('');
+  const [rawbankOperationCode, setRawbankOperationCode] = useState('');
+  const [paymentAmount, setPaymentAmount] = useState<number>(1800);
+  const [paymentNotes, setPaymentNotes] = useState('');
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+
   // Safe normalization of dataset
   const safeDemandes = Array.isArray(demandes) ? demandes.filter(Boolean) : [];
   const safeNotes = Array.isArray(demandeNotes) ? demandeNotes.filter(Boolean) : [];
@@ -389,6 +408,93 @@ export default function DemandesScreen({
       if (onRefresh) onRefresh();
     } catch (e: any) {
       onNotify('Error updating qualification condition: ' + e?.message);
+    }
+  };
+
+  const handleSubmitEligibility = async () => {
+    if (!selectedDemande) return;
+    if (eligibilityChoice === 'Rejected' && !eligibilityNotes.trim()) {
+      onNotify(isEn ? 'Rejection reason is mandatory.' : 'Le motif de rejet est obligatoire.');
+      return;
+    }
+    setIsSubmittingEligibility(true);
+    try {
+      await handleUpdateCondition('record_eligibility', {
+        eligibility_status: eligibilityChoice,
+        notes: eligibilityNotes.trim(),
+        assessed_by: currentUser?.name || currentUser?.email || 'Admin',
+      });
+      setShowEligibilityModal(false);
+      setEligibilityNotes('');
+    } finally {
+      setIsSubmittingEligibility(false);
+    }
+  };
+
+  const handleSubmitRegistration = async () => {
+    if (!selectedDemande) return;
+    if (!registrationAttestation) {
+      onNotify(isEn ? 'Please confirm the registration checklist.' : 'Veuillez attester la conformité des pièces d’inscription.');
+      return;
+    }
+    setIsSubmittingRegistration(true);
+    try {
+      await handleUpdateCondition('complete_registration', {
+        notes: registrationNotes.trim(),
+        verified_by: currentUser?.name || currentUser?.email || 'Admin',
+      });
+      setShowRegistrationModal(false);
+    } finally {
+      setIsSubmittingRegistration(false);
+    }
+  };
+
+  const handleSubmitPayment = async () => {
+    if (!selectedDemande) return;
+    setPaymentError(null);
+
+    const slip = rawbankSlipNumber.trim();
+    if (!/^\d{6}$/.test(slip)) {
+      setPaymentError(isEn ? 'Rawbank slip number must be exactly 6 numerical digits.' : 'Le bordereau Rawbank doit comporter exactement 6 chiffres numériques.');
+      return;
+    }
+
+    const opCode = rawbankOperationCode.trim();
+    if (!/^\d{3}$/.test(opCode)) {
+      setPaymentError(isEn ? 'Rawbank operation code must be exactly 3 numerical digits.' : 'Le code opération Rawbank doit comporter exactement 3 chiffres numériques.');
+      return;
+    }
+
+    setIsSubmittingPayment(true);
+    try {
+      const res = await fetch('/api/demandes', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ref: selectedDemande.ref,
+          action: 'verify_first_instalment',
+          rawbank_slip_number: slip,
+          rawbank_operation_code: opCode,
+          amount: paymentAmount,
+          notes: paymentNotes.trim(),
+          verified_by: currentUser?.name || currentUser?.email || 'Finance Officer',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPaymentError(data.error || 'Failed to verify payment.');
+        return;
+      }
+      onNotify(data.message || (isEn ? 'Payment verified with Rawbank slip.' : 'Premier versement vérifié avec bordereau Rawbank.'));
+      setShowPaymentModal(false);
+      setRawbankSlipNumber('');
+      setRawbankOperationCode('');
+      setPaymentNotes('');
+      if (onRefresh) onRefresh();
+    } catch (e: any) {
+      setPaymentError(e?.message || 'Network error');
+    } finally {
+      setIsSubmittingPayment(false);
     }
   };
 
@@ -1519,16 +1625,33 @@ export default function DemandesScreen({
                           </span>
                         </div>
                         {isEligible ? (
-                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
-                            {isEn ? 'Eligible' : 'Éligible'}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                              {isEn ? 'Eligible' : 'Éligible'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEligibilityChoice('Eligible');
+                                setEligibilityNotes(selectedDemande.eligibility_notes || '');
+                                setShowEligibilityModal(true);
+                              }}
+                              className="text-[10px] text-slate-400 hover:text-slate-600 underline cursor-pointer"
+                            >
+                              {isEn ? 'Review' : 'Revoir'}
+                            </button>
+                          </div>
                         ) : (
                           <button
                             type="button"
-                            onClick={() => handleUpdateCondition('record_eligibility', { eligibility_status: 'Eligible' })}
+                            onClick={() => {
+                              setEligibilityChoice('Eligible');
+                              setEligibilityNotes('');
+                              setShowEligibilityModal(true);
+                            }}
                             className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
                           >
-                            {isEn ? 'Mark Eligible' : 'Valider'}
+                            {isEn ? 'Review & Validate' : 'Évaluer & Valider'}
                           </button>
                         )}
                       </div>
@@ -1546,16 +1669,33 @@ export default function DemandesScreen({
                           </span>
                         </div>
                         {isRegistrationDone ? (
-                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
-                            {isEn ? 'Completed' : 'Complétée'}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                              {isEn ? 'Completed' : 'Complétée'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRegistrationAttestation(true);
+                                setRegistrationNotes(selectedDemande.registration_notes || 'Dossier administratif complet et vérifié');
+                                setShowRegistrationModal(true);
+                              }}
+                              className="text-[10px] text-slate-400 hover:text-slate-600 underline cursor-pointer"
+                            >
+                              {isEn ? 'Review' : 'Revoir'}
+                            </button>
+                          </div>
                         ) : (
                           <button
                             type="button"
-                            onClick={() => handleUpdateCondition('complete_registration')}
+                            onClick={() => {
+                              setRegistrationAttestation(false);
+                              setRegistrationNotes('Dossier administratif complet et vérifié');
+                              setShowRegistrationModal(true);
+                            }}
                             className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
                           >
-                            {isEn ? 'Mark Complete' : 'Compléter'}
+                            {isEn ? 'Review Checklist' : 'Vérifier Dossier'}
                           </button>
                         )}
                       </div>
@@ -1573,16 +1713,39 @@ export default function DemandesScreen({
                           </span>
                         </div>
                         {isFirstInstalmentPaid ? (
-                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
-                            {isEn ? 'Verified' : 'Vérifié'}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                              {selectedDemande.rawbank_slip_number ? `Rawbank #${selectedDemande.rawbank_slip_number}` : (isEn ? 'Verified' : 'Vérifié')}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRawbankSlipNumber(selectedDemande.rawbank_slip_number || '');
+                                setRawbankOperationCode(selectedDemande.rawbank_operation_code || '');
+                                setPaymentAmount(selectedDemande.first_instalment_amount || 1800);
+                                setPaymentNotes(selectedDemande.first_instalment_notes || '');
+                                setPaymentError(null);
+                                setShowPaymentModal(true);
+                              }}
+                              className="text-[10px] text-slate-400 hover:text-slate-600 underline cursor-pointer"
+                            >
+                              {isEn ? 'Details' : 'Détails'}
+                            </button>
+                          </div>
                         ) : (
                           <button
                             type="button"
-                            onClick={() => handleUpdateCondition('verify_first_instalment')}
+                            onClick={() => {
+                              setRawbankSlipNumber(selectedDemande.rawbank_slip_number || '');
+                              setRawbankOperationCode(selectedDemande.rawbank_operation_code || '');
+                              setPaymentAmount(selectedDemande.first_instalment_amount || 1800);
+                              setPaymentNotes('');
+                              setPaymentError(null);
+                              setShowPaymentModal(true);
+                            }}
                             className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
                           >
-                            {isEn ? 'Verify in DB' : 'Vérifier'}
+                            {isEn ? 'Verify Payment' : 'Valider Versement'}
                           </button>
                         )}
                       </div>
@@ -1925,6 +2088,377 @@ export default function DemandesScreen({
                   : isEn
                   ? 'Confirm & Create Student Record'
                   : 'Confirmer et Créer le Dossier'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Gate 1 — Admission Eligibility Review */}
+      {showEligibilityModal && selectedDemande && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-blue-600" />
+                <h3 className="text-base font-extrabold text-[#092342]">
+                  {isEn ? 'Gate 1 — Admission & Programme Eligibility Assessment' : 'Jalon 1 — Évaluation de l’Éligibilité Admission'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowEligibilityModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500">{isEn ? 'Applicant:' : 'Candidat :'}</span>
+                <span className="font-bold text-slate-900">{selectedDemande.full_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">{isEn ? 'Target Programme:' : 'Programme visé :'}</span>
+                <span className="font-semibold text-slate-800">{selectedDemande.program}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">{isEn ? 'Academic Level:' : 'Niveau d’études :'}</span>
+                <span className="text-slate-800">{selectedDemande.current_level || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">{isEn ? 'Budget / Financial Guarantee:' : 'Garantie financière :'}</span>
+                <span className="text-slate-800">{selectedDemande.budget_range || 'Standard'}</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-800 block">
+                {isEn ? 'Assessment Decision:' : 'Décision d’évaluation :'}
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setEligibilityChoice('Eligible')}
+                  className={`p-3 rounded-xl border text-left transition cursor-pointer ${
+                    eligibilityChoice === 'Eligible'
+                      ? 'border-emerald-500 bg-emerald-50/50 text-emerald-900 ring-2 ring-emerald-500/20'
+                      : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 font-bold text-xs">
+                    <CheckCircle2 className={`w-4 h-4 ${eligibilityChoice === 'Eligible' ? 'text-emerald-600' : 'text-slate-400'}`} />
+                    <span>{isEn ? 'Approve (Eligible)' : 'Approuver (Éligible)'}</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    {isEn ? 'Applicant meets academic and program requirements.' : 'Le candidat remplit tous les prérequis académiques.'}
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setEligibilityChoice('Rejected')}
+                  className={`p-3 rounded-xl border text-left transition cursor-pointer ${
+                    eligibilityChoice === 'Rejected'
+                      ? 'border-red-500 bg-red-50/50 text-red-900 ring-2 ring-red-500/20'
+                      : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 font-bold text-xs">
+                    <AlertTriangle className={`w-4 h-4 ${eligibilityChoice === 'Rejected' ? 'text-red-600' : 'text-slate-400'}`} />
+                    <span>{isEn ? 'Reject (Not Eligible)' : 'Refuser (Non Éligible)'}</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    {isEn ? 'Applicant does not meet requirements (mandatory reason).' : 'Le candidat ne remplit pas les conditions (motif requis).'}
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-800 block">
+                {eligibilityChoice === 'Rejected'
+                  ? (isEn ? 'Mandatory Justification / Rejection Reason *' : 'Motif obligatoire du refus *')
+                  : (isEn ? 'Reviewer Notes (Optional)' : 'Commentaires de l’évaluateur (Optionnel)')}
+              </label>
+              <textarea
+                value={eligibilityNotes}
+                onChange={(e) => setEligibilityNotes(e.target.value)}
+                rows={3}
+                placeholder={
+                  eligibilityChoice === 'Rejected'
+                    ? (isEn ? 'Specify the exact reason for rejection...' : 'Indiquez le motif précis du refus d’éligibilité...')
+                    : (isEn ? 'Add any relevant academic evaluation notes...' : 'Ajoutez d’éventuelles remarques sur le dossier...')
+                }
+                className={`w-full p-2.5 text-xs rounded-xl border focus:outline-none focus:ring-2 ${
+                  eligibilityChoice === 'Rejected' && !eligibilityNotes.trim()
+                    ? 'border-red-300 focus:ring-red-500/20 bg-red-50/20'
+                    : 'border-slate-200 focus:ring-blue-500/20 bg-white'
+                }`}
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowEligibilityModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 cursor-pointer"
+              >
+                {isEn ? 'Cancel' : 'Annuler'}
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitEligibility}
+                disabled={isSubmittingEligibility || (eligibilityChoice === 'Rejected' && !eligibilityNotes.trim())}
+                className={`px-4 py-2 text-xs font-bold text-white rounded-xl shadow-sm cursor-pointer disabled:opacity-50 ${
+                  eligibilityChoice === 'Eligible' ? 'bg-[#092342] hover:bg-[#12365a]' : 'bg-red-600 hover:bg-red-700'
+                }`}
+              >
+                {isSubmittingEligibility ? '...' : isEn ? 'Save Eligibility Decision' : 'Enregistrer la décision'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Gate 2 — Administrative Registration Checklist */}
+      {showRegistrationModal && selectedDemande && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                <h3 className="text-base font-extrabold text-[#092342]">
+                  {isEn ? 'Gate 2 — Administrative Registration Review' : 'Jalon 2 — Vérification Inscription Administrative'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRegistrationModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500">{isEn ? 'Applicant:' : 'Candidat :'}</span>
+                <span className="font-bold text-slate-900">{selectedDemande.full_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">{isEn ? 'Ref:' : 'Réf. Demande :'}</span>
+                <span className="font-mono text-slate-700">{selectedDemande.ref}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">{isEn ? 'Assigned Staff:' : 'Conseiller assigné :'}</span>
+                <span className="text-slate-800">{selectedDemande.adviser || 'LIEC Admin'}</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <span className="text-xs font-bold text-slate-800 block">
+                {isEn ? 'Mandatory Onboarding Documents Checklist:' : 'Pièces administratives obligatoires vérifiées :'}
+              </span>
+              <div className="space-y-2 text-xs">
+                <div className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 bg-slate-50">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  <span className="text-slate-700 font-medium">
+                    {isEn ? '1. Biometric Passport / Valid National Identity Document' : '1. Passeport biométrique / Pièce d’identité nationale en cours de validité'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 bg-slate-50">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  <span className="text-slate-700 font-medium">
+                    {isEn ? '2. Academic Transcripts and Highest Diploma Certified Copies' : '2. Relevés de notes et copies certifiées du diplôme d’études le plus élevé'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 bg-slate-50">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  <span className="text-slate-700 font-medium">
+                    {isEn ? '3. LIEC Student Engagement Agreement & Signed Terms' : '3. Contrat d’engagement étudiant LIEC signé et approuvé'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200 text-xs text-amber-900 flex items-start gap-2.5">
+              <input
+                type="checkbox"
+                id="demande-reg-attest"
+                checked={registrationAttestation}
+                onChange={(e) => setRegistrationAttestation(e.target.checked)}
+                className="mt-0.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+              />
+              <label htmlFor="demande-reg-attest" className="cursor-pointer select-none">
+                <strong className="block mb-0.5">{isEn ? 'Attestation of Document Compliance' : 'Attestation de conformité documentaire'}</strong>
+                {isEn
+                  ? 'I confirm that all required registration files have been authenticated and comply with LIEC admissions policy.'
+                  : 'J’atteste sur l’honneur avoir vérifié la conformité des pièces d’inscription administrative requises.'}
+              </label>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-800 block">
+                {isEn ? 'Registration Notes / Archiving Reference' : 'Notes / Référence d’archivage du dossier'}
+              </label>
+              <input
+                type="text"
+                value={registrationNotes}
+                onChange={(e) => setRegistrationNotes(e.target.value)}
+                className="w-full p-2.5 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                placeholder={isEn ? 'e.g. Dossier administratif complet et archivé' : 'ex. Dossier administratif complet et archivé'}
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowRegistrationModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 cursor-pointer"
+              >
+                {isEn ? 'Cancel' : 'Annuler'}
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitRegistration}
+                disabled={isSubmittingRegistration || !registrationAttestation}
+                className="px-4 py-2 text-xs font-bold text-white bg-[#092342] hover:bg-[#12365a] rounded-xl shadow-sm cursor-pointer disabled:opacity-50"
+              >
+                {isSubmittingRegistration ? '...' : isEn ? 'Validate Registration' : 'Valider l’inscription'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Gate 3 — First Instalment Payment Verification (Rawbank Standards) */}
+      {showPaymentModal && selectedDemande && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                <h3 className="text-base font-extrabold text-[#092342]">
+                  {isEn ? 'Gate 3 — First Instalment Payment Verification' : 'Jalon 3 — Validation Versement Bancaire Rawbank'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPaymentModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {paymentError && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                <span>{paymentError}</span>
+              </div>
+            )}
+
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500">{isEn ? 'Applicant Name:' : 'Nom du candidat :'}</span>
+                <span className="font-bold text-slate-900">{selectedDemande.full_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">{isEn ? 'Program:' : 'Programme visé :'}</span>
+                <span className="text-slate-800">{selectedDemande.program}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">{isEn ? 'Instalment Obligation:' : 'Montant 1er Versement exigé :'}</span>
+                <span className="font-bold text-emerald-700">{paymentAmount} EUR</span>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                {/* Field A: Rawbank Slip Number (6 digits) */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-800 flex items-center justify-between">
+                    <span>{isEn ? 'Rawbank Slip No. *' : 'Bordereau Rawbank *'}</span>
+                    <span className="text-[10px] text-slate-400 font-mono">6 chiffres</span>
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={rawbankSlipNumber}
+                    onChange={(e) => setRawbankSlipNumber(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="ex: 052658"
+                    className="w-full p-2.5 text-xs font-mono tracking-wider rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  />
+                  <p className="text-[10px] text-slate-500">
+                    {isEn ? 'Bordereau de versement devises (6 digits, keep leading zeros)' : 'Bordereau de versement devises (ex: 052658)'}
+                  </p>
+                </div>
+
+                {/* Field B: Rawbank Operation Code (3 digits) */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-800 flex items-center justify-between">
+                    <span>{isEn ? 'Operation Code *' : 'Code Opération *'}</span>
+                    <span className="text-[10px] text-slate-400 font-mono">3 chiffres</span>
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={3}
+                    value={rawbankOperationCode}
+                    onChange={(e) => setRawbankOperationCode(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                    placeholder="ex: 012"
+                    className="w-full p-2.5 text-xs font-mono tracking-wider rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  />
+                  <p className="text-[10px] text-slate-500">
+                    {isEn ? 'Rawbank operation code (3 digits)' : 'Code transaction bancaire (ex: 012)'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Amount field */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-800 block">
+                  {isEn ? 'Validated Amount (EUR) *' : 'Montant encaissé (EUR) *'}
+                </label>
+                <input
+                  type="number"
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(Number(e.target.value))}
+                  className="w-full p-2.5 text-xs font-bold text-slate-900 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                />
+              </div>
+
+              {/* Notes */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-800 block">
+                  {isEn ? 'Financial Notes / Bank Reference' : 'Remarques / Référence de rapprochement bancaire'}
+                </label>
+                <input
+                  type="text"
+                  value={paymentNotes}
+                  onChange={(e) => setPaymentNotes(e.target.value)}
+                  placeholder={isEn ? 'e.g. Vérifié sur extrait Rawbank Kinshasa' : 'ex. Vérifié sur extrait Rawbank Kinshasa'}
+                  className="w-full p-2.5 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowPaymentModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 cursor-pointer"
+              >
+                {isEn ? 'Cancel' : 'Annuler'}
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitPayment}
+                disabled={isSubmittingPayment || rawbankSlipNumber.length !== 6 || rawbankOperationCode.length !== 3}
+                className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-sm cursor-pointer disabled:opacity-50"
+              >
+                {isSubmittingPayment ? '...' : isEn ? 'Verify in Ledger & Record' : 'Rapprocher et Valider'}
               </button>
             </div>
           </div>
