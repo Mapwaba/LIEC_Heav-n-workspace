@@ -14,11 +14,13 @@ ALTER TABLE demandes ADD COLUMN IF NOT EXISTS registration_verified_by VARCHAR(1
 ALTER TABLE demandes ADD COLUMN IF NOT EXISTS registration_notes TEXT;
 ALTER TABLE demandes ADD COLUMN IF NOT EXISTS eligibility_assessed_by VARCHAR(120);
 ALTER TABLE demandes ADD COLUMN IF NOT EXISTS eligibility_notes TEXT;
+ALTER TABLE demandes ADD COLUMN IF NOT EXISTS eligibility_date TIMESTAMP WITH TIME ZONE;
 
 -- 2. Prospects Additive Columns
 ALTER TABLE prospects ADD COLUMN IF NOT EXISTS rawbank_slip_number VARCHAR(6);
 ALTER TABLE prospects ADD COLUMN IF NOT EXISTS rawbank_operation_code VARCHAR(3);
 ALTER TABLE prospects ADD COLUMN IF NOT EXISTS first_instalment_verified_by VARCHAR(120);
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS first_instalment_notes TEXT;
 ALTER TABLE prospects ADD COLUMN IF NOT EXISTS registration_verified_by VARCHAR(120);
 ALTER TABLE prospects ADD COLUMN IF NOT EXISTS registration_notes TEXT;
 
