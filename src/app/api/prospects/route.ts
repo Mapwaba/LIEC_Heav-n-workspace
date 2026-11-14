@@ -425,58 +425,69 @@ export async function PATCH(req: NextRequest) {
       const badgeTone = eligibilityStatus === 'Eligible' ? 'mint' : eligibilityStatus === 'Not Eligible' || eligibilityStatus === 'Rejected' ? 'urgent' : 'amber';
       const badgeText = eligibilityStatus === 'Eligible' ? 'Éligible LIEC' : eligibilityStatus === 'Not Eligible' || eligibilityStatus === 'Rejected' ? 'Non Éligible' : 'Éligibilité en cours';
 
-      const updateRes = await db.query(
-        `UPDATE prospects SET
-          stage = 'diagnostic',
-          eligibility_status = $1,
-          eligibility_date = CURRENT_TIMESTAMP,
-          eligibility_assessed_by = $2,
-          eligibility_notes = $3,
-          badge_text = $4,
-          badge_tone = $5,
-          meta_right = $6,
-          meta_right_tone = $7
-         WHERE id = $8
-         RETURNING *`,
-        [
-          eligibilityStatus,
-          assessedBy,
-          notes,
-          badgeText,
-          badgeTone,
-          eligibilityStatus === 'Eligible' ? 'Prêt Inscription' : 'Dossier Bloqué',
-          badgeTone === 'mint' ? 'teal' : 'neutral',
-          pId,
-        ]
-      );
-
-      const p = updateRes.rows[0];
-      if (!p) return NextResponse.json({ error: 'Prospect not found.' }, { status: 404 });
-
-      // Synchronize with matching demande
-      if (p.full_name) {
-        await db.query(
-          `UPDATE demandes SET
-             eligibility_status = $1,
-             eligibility_notes = $2,
-             eligibility_assessed_by = $3,
-             eligibility_date = CURRENT_TIMESTAMP
-           WHERE LOWER(full_name) = LOWER($4)`,
-          [eligibilityStatus, notes, assessedBy, p.full_name]
+      await db.query('BEGIN');
+      let p: any = null;
+      try {
+        const updateRes = await db.query(
+          `UPDATE prospects SET
+            stage = 'diagnostic',
+            eligibility_status = $1,
+            eligibility_date = CURRENT_TIMESTAMP,
+            eligibility_assessed_by = $2,
+            eligibility_notes = $3,
+            badge_text = $4,
+            badge_tone = $5,
+            meta_right = $6,
+            meta_right_tone = $7
+           WHERE id = $8
+           RETURNING *`,
+          [
+            eligibilityStatus,
+            assessedBy,
+            notes,
+            badgeText,
+            badgeTone,
+            eligibilityStatus === 'Eligible' ? 'Prêt Inscription' : 'Dossier Bloqué',
+            badgeTone === 'mint' ? 'teal' : 'neutral',
+            pId,
+          ]
         );
+
+        p = updateRes.rows[0];
+        if (!p) {
+          await db.query('ROLLBACK');
+          return NextResponse.json({ error: 'Prospect not found.' }, { status: 404 });
+        }
+
+        // Synchronize with matching demande
+        if (p.full_name) {
+          await db.query(
+            `UPDATE demandes SET
+               eligibility_status = $1,
+               eligibility_notes = $2,
+               eligibility_assessed_by = $3,
+               eligibility_date = CURRENT_TIMESTAMP
+             WHERE LOWER(full_name) = LOWER($4)`,
+            [eligibilityStatus, notes, assessedBy, p.full_name]
+          );
+        }
+
+        const logNote = `[BILAN ÉLIGIBILITÉ] Statut: ${eligibilityStatus}. Évaluateur: ${assessedBy}.${notes ? ` Justification: ${notes}` : ''}`;
+        await db.query(
+          `INSERT INTO prospect_notes (prospect_id, author, content) VALUES ($1, $2, $3)`,
+          [pId, assessedBy, logNote]
+        );
+
+        await db.query(
+          `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+           VALUES ($1, 'Évaluation Éligibilité Prospect', $2, 'Succès', $3)`,
+          [assessedBy, `PROSPECT-${pId}`, `Statut: ${eligibilityStatus}${notes ? ` | Notes: ${notes}` : ''}`]
+        );
+        await db.query('COMMIT');
+      } catch (txErr) {
+        await db.query('ROLLBACK');
+        throw txErr;
       }
-
-      const logNote = `[BILAN ÉLIGIBILITÉ] Statut: ${eligibilityStatus}. Évaluateur: ${assessedBy}.${notes ? ` Justification: ${notes}` : ''}`;
-      await db.query(
-        `INSERT INTO prospect_notes (prospect_id, author, content) VALUES ($1, $2, $3)`,
-        [pId, assessedBy, logNote]
-      );
-
-      await db.query(
-        `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
-         VALUES ($1, 'Évaluation Éligibilité Prospect', $2, 'Succès', $3)`,
-        [assessedBy, `PROSPECT-${pId}`, `Statut: ${eligibilityStatus}${notes ? ` | Notes: ${notes}` : ''}`]
-      );
 
       return NextResponse.json({ ok: true, prospect: p, message: 'Eligibility assessment recorded successfully.' });
     }
@@ -488,36 +499,44 @@ export async function PATCH(req: NextRequest) {
       const verifiedBy = (body.verified_by || 'Barthelemy MAPWABA NTORO').trim();
       const notes = (body.notes || 'Dossier administratif complet et vérifié').trim();
 
-      const updateRes = await db.query(
-        `UPDATE prospects SET
-          registration_completed = TRUE,
-          registration_verified_by = $1,
-          registration_notes = $2,
-          registration_date = CURRENT_TIMESTAMP
-         WHERE id = $3
-         RETURNING *`,
-        [verifiedBy, notes, pId]
-      );
-      const p = updateRes.rows[0];
-
-      // Synchronize with matching demande
-      if (p?.full_name) {
-        await db.query(
-          `UPDATE demandes SET
-             registration_completed = TRUE,
-             registration_verified_by = $1,
-             registration_notes = $2,
-             registration_date = CURRENT_TIMESTAMP
-           WHERE LOWER(full_name) = LOWER($3)`,
-          [verifiedBy, notes, p.full_name]
+      await db.query('BEGIN');
+      let p: any = null;
+      try {
+        const updateRes = await db.query(
+          `UPDATE prospects SET
+            registration_completed = TRUE,
+            registration_verified_by = $1,
+            registration_notes = $2,
+            registration_date = CURRENT_TIMESTAMP
+           WHERE id = $3
+           RETURNING *`,
+          [verifiedBy, notes, pId]
         );
-      }
+        p = updateRes.rows[0];
 
-      await db.query(
-        `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
-         VALUES ($1, 'Inscription Administrative Prospect', $2, 'Succès', $3)`,
-        [verifiedBy, `PROSPECT-${pId}`, notes]
-      );
+        // Synchronize with matching demande
+        if (p?.full_name) {
+          await db.query(
+            `UPDATE demandes SET
+               registration_completed = TRUE,
+               registration_verified_by = $1,
+               registration_notes = $2,
+               registration_date = CURRENT_TIMESTAMP
+             WHERE LOWER(full_name) = LOWER($3)`,
+            [verifiedBy, notes, p.full_name]
+          );
+        }
+
+        await db.query(
+          `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+           VALUES ($1, 'Inscription Administrative Prospect', $2, 'Succès', $3)`,
+          [verifiedBy, `PROSPECT-${pId}`, notes]
+        );
+        await db.query('COMMIT');
+      } catch (txErr) {
+        await db.query('ROLLBACK');
+        throw txErr;
+      }
 
       return NextResponse.json({ ok: true, prospect: p, message: 'Registration marked completed.' });
     }
@@ -613,41 +632,51 @@ export async function PATCH(req: NextRequest) {
       const verifiedRef = paymentOutcome.verified ? (paymentOutcome.paymentRef || `RAW-${slipNumber}-${opCode}`) : `RAW-${slipNumber}-${opCode}`;
       const notes = manualNotes || (paymentOutcome.verified ? `Vérifié via ${paymentOutcome.source} (${paymentOutcome.paymentRef})` : 'Validation manuelle finance');
 
-      const updateRes = await db.query(
-        `UPDATE prospects SET
-          first_instalment_paid = TRUE,
-          first_instalment_amount = $1,
-          first_instalment_ref = $2,
-          rawbank_slip_number = $3,
-          rawbank_operation_code = $4,
-          first_instalment_verified_by = $5,
-          first_instalment_notes = $6,
-          first_instalment_date = CURRENT_TIMESTAMP
-         WHERE id = $7
-         RETURNING *`,
-        [verifiedAmount, verifiedRef, slipNumber, opCode, verifiedBy, notes, pId]
-      );
-
-      // Synchronize with matching demande
-      if (p.full_name) {
-        await db.query(
-          `UPDATE demandes SET
-             first_instalment_paid = TRUE,
-             first_instalment_amount = $1,
-             first_instalment_ref = $2,
-             rawbank_slip_number = $3,
-             rawbank_operation_code = $4,
-             first_instalment_verified_by = $5,
-             first_instalment_notes = $6,
-             first_instalment_date = CURRENT_TIMESTAMP
-           WHERE LOWER(full_name) = LOWER($7)`,
-          [verifiedAmount, verifiedRef, slipNumber, opCode, verifiedBy, notes, p.full_name]
+      await db.query('BEGIN');
+      let updateRes: any = null;
+      try {
+        updateRes = await db.query(
+          `UPDATE prospects SET
+            first_instalment_paid = TRUE,
+            first_instalment_amount = $1,
+            first_instalment_ref = $2,
+            rawbank_slip_number = $3,
+            rawbank_operation_code = $4,
+            first_instalment_verified_by = $5,
+            first_instalment_notes = $6,
+            first_instalment_date = CURRENT_TIMESTAMP
+           WHERE id = $7
+           RETURNING *`,
+          [verifiedAmount, verifiedRef, slipNumber, opCode, verifiedBy, notes, pId]
         );
-      }
 
-      await db.query(
-        `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
-         VALUES ($1, 'Validation 1er Versement Rawbank Prospect', $2, 'Succès', $3)`,
+        // Synchronize with matching demande
+        if (p.full_name) {
+          await db.query(
+            `UPDATE demandes SET
+               first_instalment_paid = TRUE,
+               first_instalment_amount = $1,
+               first_instalment_ref = $2,
+               rawbank_slip_number = $3,
+               rawbank_operation_code = $4,
+               first_instalment_verified_by = $5,
+               first_instalment_notes = $6,
+               first_instalment_date = CURRENT_TIMESTAMP
+             WHERE LOWER(full_name) = LOWER($7)`,
+            [verifiedAmount, verifiedRef, slipNumber, opCode, verifiedBy, notes, p.full_name]
+          );
+        }
+
+        await db.query(
+          `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+           VALUES ($1, 'Validation 1er Versement Rawbank Prospect', $2, 'Succès', $3)`,
+          [verifiedBy, `PROSPECT-${pId}`, `Montant: ${verifiedAmount} EUR | Slip: ${slipNumber} | OpCode: ${opCode} | Ref: ${verifiedRef}`]
+        );
+        await db.query('COMMIT');
+      } catch (txErr) {
+        await db.query('ROLLBACK');
+        throw txErr;
+      }
         [verifiedBy, `PROSPECT-${pId}`, `Montant: ${verifiedAmount} EUR | Slip: ${slipNumber} | OpCode: ${opCode} | Ref: ${verifiedRef}`]
       );
 

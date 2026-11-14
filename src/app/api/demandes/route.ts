@@ -1037,35 +1037,42 @@ export async function PATCH(req: NextRequest) {
         );
       }
 
-      await db.query(
-        `UPDATE demandes SET
-           eligibility_status = $1,
-           eligibility_notes = $2,
-           eligibility_assessed_by = $3,
-           eligibility_date = CURRENT_TIMESTAMP
-         WHERE ref = $4`,
-        [eligibilityStatus, notes, assessedBy, ref]
-      );
-
-      // Synchronize with prospects table if exists
-      const demRes = await db.query(`SELECT full_name FROM demandes WHERE ref = $1`, [ref]);
-      if (demRes.rows[0]?.full_name) {
+      await db.query('BEGIN');
+      try {
         await db.query(
-          `UPDATE prospects SET
+          `UPDATE demandes SET
              eligibility_status = $1,
              eligibility_notes = $2,
              eligibility_assessed_by = $3,
              eligibility_date = CURRENT_TIMESTAMP
-           WHERE LOWER(full_name) = LOWER($4)`,
-          [eligibilityStatus, notes, assessedBy, demRes.rows[0].full_name]
+           WHERE ref = $4`,
+          [eligibilityStatus, notes, assessedBy, ref]
         );
-      }
 
-      await db.query(
-        `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
-         VALUES ($1, 'Évaluation Éligibilité Demande', $2, 'Succès', $3)`,
-        [assessedBy, ref, `Statut: ${eligibilityStatus}${notes ? ` | Notes: ${notes}` : ''}`]
-      );
+        // Synchronize with prospects table if exists
+        const demRes = await db.query(`SELECT full_name FROM demandes WHERE ref = $1`, [ref]);
+        if (demRes.rows[0]?.full_name) {
+          await db.query(
+            `UPDATE prospects SET
+               eligibility_status = $1,
+               eligibility_notes = $2,
+               eligibility_assessed_by = $3,
+               eligibility_date = CURRENT_TIMESTAMP
+             WHERE LOWER(full_name) = LOWER($4)`,
+            [eligibilityStatus, notes, assessedBy, demRes.rows[0].full_name]
+          );
+        }
+
+        await db.query(
+          `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+           VALUES ($1, 'Évaluation Éligibilité Demande', $2, 'Succès', $3)`,
+          [assessedBy, ref, `Statut: ${eligibilityStatus}${notes ? ` | Notes: ${notes}` : ''}`]
+        );
+        await db.query('COMMIT');
+      } catch (txErr) {
+        await db.query('ROLLBACK');
+        throw txErr;
+      }
 
       return NextResponse.json({
         ok: true,
@@ -1082,34 +1089,41 @@ export async function PATCH(req: NextRequest) {
         : (body.verified_by || 'Admin');
       const notes = (body.notes || 'Dossier administratif complet et vérifié').trim();
 
-      await db.query(
-        `UPDATE demandes SET
-           registration_completed = TRUE,
-           registration_verified_by = $1,
-           registration_notes = $2,
-           registration_date = CURRENT_TIMESTAMP
-         WHERE ref = $3`,
-        [verifiedBy, notes, ref]
-      );
-
-      const demRes = await db.query(`SELECT full_name FROM demandes WHERE ref = $1`, [ref]);
-      if (demRes.rows[0]?.full_name) {
+      await db.query('BEGIN');
+      try {
         await db.query(
-          `UPDATE prospects SET
+          `UPDATE demandes SET
              registration_completed = TRUE,
              registration_verified_by = $1,
              registration_notes = $2,
              registration_date = CURRENT_TIMESTAMP
-           WHERE LOWER(full_name) = LOWER($3)`,
-          [verifiedBy, notes, demRes.rows[0].full_name]
+           WHERE ref = $3`,
+          [verifiedBy, notes, ref]
         );
-      }
 
-      await db.query(
-        `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
-         VALUES ($1, 'Inscription Administrative Demande', $2, 'Succès', $3)`,
-        [verifiedBy, ref, notes]
-      );
+        const demRes = await db.query(`SELECT full_name FROM demandes WHERE ref = $1`, [ref]);
+        if (demRes.rows[0]?.full_name) {
+          await db.query(
+            `UPDATE prospects SET
+               registration_completed = TRUE,
+               registration_verified_by = $1,
+               registration_notes = $2,
+               registration_date = CURRENT_TIMESTAMP
+             WHERE LOWER(full_name) = LOWER($3)`,
+            [verifiedBy, notes, demRes.rows[0].full_name]
+          );
+        }
+
+        await db.query(
+          `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+           VALUES ($1, 'Inscription Administrative Demande', $2, 'Succès', $3)`,
+          [verifiedBy, ref, notes]
+        );
+        await db.query('COMMIT');
+      } catch (txErr) {
+        await db.query('ROLLBACK');
+        throw txErr;
+      }
 
       return NextResponse.json({
         ok: true,
@@ -1213,23 +1227,10 @@ export async function PATCH(req: NextRequest) {
       const verifiedRef = paymentOutcome.verified ? (paymentOutcome.paymentRef || `RAW-${slipNumber}-${opCode}`) : `RAW-${slipNumber}-${opCode}`;
       const notes = manualNotes || (paymentOutcome.verified ? `Vérifié via ${paymentOutcome.source} (${paymentOutcome.paymentRef})` : 'Validation manuelle finance');
 
-      await db.query(
-        `UPDATE demandes SET
-           first_instalment_paid = TRUE,
-           first_instalment_amount = $1,
-           first_instalment_ref = $2,
-           rawbank_slip_number = $3,
-           rawbank_operation_code = $4,
-           first_instalment_verified_by = $5,
-           first_instalment_notes = $6,
-           first_instalment_date = CURRENT_TIMESTAMP
-         WHERE ref = $7`,
-        [verifiedAmount, verifiedRef, slipNumber, opCode, verifiedBy, notes, ref]
-      );
-
-      if (dem.full_name) {
+      await db.query('BEGIN');
+      try {
         await db.query(
-          `UPDATE prospects SET
+          `UPDATE demandes SET
              first_instalment_paid = TRUE,
              first_instalment_amount = $1,
              first_instalment_ref = $2,
@@ -1238,16 +1239,36 @@ export async function PATCH(req: NextRequest) {
              first_instalment_verified_by = $5,
              first_instalment_notes = $6,
              first_instalment_date = CURRENT_TIMESTAMP
-           WHERE LOWER(full_name) = LOWER($7)`,
-          [verifiedAmount, verifiedRef, slipNumber, opCode, verifiedBy, notes, dem.full_name]
+           WHERE ref = $7`,
+          [verifiedAmount, verifiedRef, slipNumber, opCode, verifiedBy, notes, ref]
         );
-      }
 
-      await db.query(
-        `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
-         VALUES ($1, 'Validation 1er Versement Rawbank', $2, 'Succès', $3)`,
-        [verifiedBy, ref, `Montant: ${verifiedAmount} EUR | Slip: ${slipNumber} | OpCode: ${opCode} | Ref: ${verifiedRef}`]
-      );
+        if (dem.full_name) {
+          await db.query(
+            `UPDATE prospects SET
+               first_instalment_paid = TRUE,
+               first_instalment_amount = $1,
+               first_instalment_ref = $2,
+               rawbank_slip_number = $3,
+               rawbank_operation_code = $4,
+               first_instalment_verified_by = $5,
+               first_instalment_notes = $6,
+               first_instalment_date = CURRENT_TIMESTAMP
+             WHERE LOWER(full_name) = LOWER($7)`,
+            [verifiedAmount, verifiedRef, slipNumber, opCode, verifiedBy, notes, dem.full_name]
+          );
+        }
+
+        await db.query(
+          `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+           VALUES ($1, 'Validation 1er Versement Rawbank', $2, 'Succès', $3)`,
+          [verifiedBy, ref, `Montant: ${verifiedAmount} EUR | Slip: ${slipNumber} | OpCode: ${opCode} | Ref: ${verifiedRef}`]
+        );
+        await db.query('COMMIT');
+      } catch (txErr) {
+        await db.query('ROLLBACK');
+        throw txErr;
+      }
 
       return NextResponse.json({
         ok: true,
@@ -1397,39 +1418,46 @@ export async function PATCH(req: NextRequest) {
       );
       if (existingCanRes.rows && existingCanRes.rows.length > 0) {
         const existingRef = existingCanRes.rows[0].ref;
-        await db.query(
-          `UPDATE candidats SET
-             stage_badge = 'En cours (Jalon 1)',
-             procedure_status = 'En cours (Jalon 1)',
-             progress_pct = 25,
-             status_right = 'Qualifié',
-             qualified_at = COALESCE(qualified_at, $2),
-             qualification_status = 'QUALIFIED',
-             registration_completed = TRUE,
-             first_instalment_paid = TRUE,
-             first_instalment_amount = $3,
-             first_instalment_ref = $4,
-             application_year = COALESCE(application_year, $5)
-           WHERE ref = $1`,
-          [existingRef, canonicalQualificationTimestamp, verifiedPaymentAmount, verifiedPaymentRef, dem.application_year || '2027–2028']
-        );
-        await db.query(
-          `UPDATE demandes SET status = 'Convertie', converted_at = $1, converted_candidate_ref = $2 WHERE ref = $3`,
-          [canonicalQualificationTimestamp, existingRef, ref]
-        );
-        await db.query(
-          `UPDATE prospects SET
-             stage = 'qualifie',
-             qualification_completed = TRUE,
-             qualification_date = COALESCE(qualification_date, $1),
-             converted_candidate_ref = $2,
-             registration_completed = TRUE,
-             first_instalment_paid = TRUE,
-             first_instalment_amount = $3,
-             first_instalment_ref = $4
-           WHERE LOWER(full_name) = LOWER($5)`,
-          [canonicalQualificationTimestamp, existingRef, verifiedPaymentAmount, verifiedPaymentRef, dem.full_name]
-        );
+        await db.query('BEGIN');
+        try {
+          await db.query(
+            `UPDATE candidats SET
+               stage_badge = 'En cours (Jalon 1)',
+               procedure_status = 'En cours (Jalon 1)',
+               progress_pct = 25,
+               status_right = 'Qualifié',
+               qualified_at = COALESCE(qualified_at, $2),
+               qualification_status = 'QUALIFIED',
+               registration_completed = TRUE,
+               first_instalment_paid = TRUE,
+               first_instalment_amount = $3,
+               first_instalment_ref = $4,
+               application_year = COALESCE(application_year, $5)
+             WHERE ref = $1`,
+            [existingRef, canonicalQualificationTimestamp, verifiedPaymentAmount, verifiedPaymentRef, dem.application_year || '2027–2028']
+          );
+          await db.query(
+            `UPDATE demandes SET status = 'Convertie', converted_at = $1, converted_candidate_ref = $2 WHERE ref = $3`,
+            [canonicalQualificationTimestamp, existingRef, ref]
+          );
+          await db.query(
+            `UPDATE prospects SET
+               stage = 'qualifie',
+               qualification_completed = TRUE,
+               qualification_date = COALESCE(qualification_date, $1),
+               converted_candidate_ref = $2,
+               registration_completed = TRUE,
+               first_instalment_paid = TRUE,
+               first_instalment_amount = $3,
+               first_instalment_ref = $4
+             WHERE LOWER(full_name) = LOWER($5)`,
+            [canonicalQualificationTimestamp, existingRef, verifiedPaymentAmount, verifiedPaymentRef, dem.full_name]
+          );
+          await db.query('COMMIT');
+        } catch (txErr) {
+          await db.query('ROLLBACK');
+          throw txErr;
+        }
         return NextResponse.json({ ok: true, candidatRef: existingRef, message: 'Existing candidate updated and qualified.' });
       }
 
@@ -1549,115 +1577,122 @@ export async function PATCH(req: NextRequest) {
         },
       ];
 
-      await db.query(
-        `INSERT INTO candidats (
-          ref, initials, full_name, avatar_url, program, cities, adviser,
-          stage_badge, stage_badge_tone, progress_pct, status_left, status_right,
-          email, phone, parent_full_name, parent_phone, graduation_year, current_activity, final_year_university,
-          country, nationality, current_diploma, tcf_score,
-          garant_info, interview_date, jalons_json, voeux_json, notes_json, pieces_json, sexe,
-          application_year, qualified_at, qualification_status, documents_purged, history_json,
-          registration_completed, first_instalment_paid, first_instalment_amount, first_instalment_ref
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39)`,
-        [
-          canRef,
-          dem.initials,
-          dem.full_name.toUpperCase(),
-          '',
-          dem.program,
-          'Lyon (Campus Partenaire)',
-          dem.adviser || 'Barthelemy MAPWABA NTORO',
-          'En cours (Jalon 1)',
-          'teal',
-          25,
-          'Dossier à 25%',
-          'Qualifié',
-          dem.email,
-          dem.phone,
-          dem.parent_full_name || null,
-          dem.parent_phone || null,
-          dem.graduation_year || null,
-          dem.current_activity || null,
-          dem.final_year_university || null,
-          dem.city,
-          dem.nationality,
-          dem.current_level,
-          'En cours de planification',
-          `Budget garanti : ${dem.budget_range}`,
-          'À planifier',
-          JSON.stringify(defaultJalons),
-          JSON.stringify(defaultVoeux),
-          JSON.stringify(defaultNotes),
-          JSON.stringify(defaultPieces),
-          dem.sexe || 'Male',
-          dem.application_year || '2027–2028',
-          canonicalQualificationTimestamp,
-          'QUALIFIED',
-          false,
-          JSON.stringify(qualificationHistory),
-          true,
-          true,
-          verifiedPaymentAmount,
-          verifiedPaymentRef,
-        ]
-      );
-
-      // Lock demande and record conversion link
-      await db.query(
-        `UPDATE demandes SET
-           status = 'Convertie',
-           converted_at = $1,
-           converted_candidate_ref = $2,
-           registration_completed = TRUE,
-           first_instalment_paid = TRUE,
-           first_instalment_amount = $3,
-           first_instalment_ref = $4
-         WHERE ref = $5`,
-        [canonicalQualificationTimestamp, canRef, verifiedPaymentAmount, verifiedPaymentRef, ref]
-      );
-
-      // Check if prospect exists and update or create link
-      const existingProspectRes = await db.query(
-        `SELECT id FROM prospects WHERE LOWER(full_name) = LOWER($1) LIMIT 1`,
-        [dem.full_name]
-      );
-
-      if (existingProspectRes.rows && existingProspectRes.rows.length > 0) {
+      await db.query('BEGIN');
+      try {
         await db.query(
-          `UPDATE prospects SET
-             stage = 'qualifie',
-             badge_text = 'Qualifié CRM',
-             badge_tone = 'gold',
-             meta_right = 'Converti Candidat',
-             meta_right_tone = 'teal',
-             qualification_completed = TRUE,
-             qualification_date = $1,
+          `INSERT INTO candidats (
+            ref, initials, full_name, avatar_url, program, cities, adviser,
+            stage_badge, stage_badge_tone, progress_pct, status_left, status_right,
+            email, phone, parent_full_name, parent_phone, graduation_year, current_activity, final_year_university,
+            country, nationality, current_diploma, tcf_score,
+            garant_info, interview_date, jalons_json, voeux_json, notes_json, pieces_json, sexe,
+            application_year, qualified_at, qualification_status, documents_purged, history_json,
+            registration_completed, first_instalment_paid, first_instalment_amount, first_instalment_ref
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39)`,
+          [
+            canRef,
+            dem.initials,
+            dem.full_name.toUpperCase(),
+            '',
+            dem.program,
+            'Lyon (Campus Partenaire)',
+            dem.adviser || 'Barthelemy MAPWABA NTORO',
+            'En cours (Jalon 1)',
+            'teal',
+            25,
+            'Dossier à 25%',
+            'Qualifié',
+            dem.email,
+            dem.phone,
+            dem.parent_full_name || null,
+            dem.parent_phone || null,
+            dem.graduation_year || null,
+            dem.current_activity || null,
+            dem.final_year_university || null,
+            dem.city,
+            dem.nationality,
+            dem.current_level,
+            'En cours de planification',
+            `Budget garanti : ${dem.budget_range}`,
+            'À planifier',
+            JSON.stringify(defaultJalons),
+            JSON.stringify(defaultVoeux),
+            JSON.stringify(defaultNotes),
+            JSON.stringify(defaultPieces),
+            dem.sexe || 'Male',
+            dem.application_year || '2027–2028',
+            canonicalQualificationTimestamp,
+            'QUALIFIED',
+            false,
+            JSON.stringify(qualificationHistory),
+            true,
+            true,
+            verifiedPaymentAmount,
+            verifiedPaymentRef,
+          ]
+        );
+
+        // Lock demande and record conversion link
+        await db.query(
+          `UPDATE demandes SET
+             status = 'Convertie',
+             converted_at = $1,
              converted_candidate_ref = $2,
              registration_completed = TRUE,
              first_instalment_paid = TRUE,
              first_instalment_amount = $3,
              first_instalment_ref = $4
-           WHERE id = $5`,
-          [canonicalQualificationTimestamp, canRef, verifiedPaymentAmount, verifiedPaymentRef, existingProspectRes.rows[0].id]
+           WHERE ref = $5`,
+          [canonicalQualificationTimestamp, canRef, verifiedPaymentAmount, verifiedPaymentRef, ref]
         );
-      } else {
-        await db.query(
-          `INSERT INTO prospects (
-            full_name, stage, badge_text, badge_tone, flag, country_city, program_tag,
-            program_tag_tone, highlight_box, meta_left, meta_right, meta_right_tone,
-            adviser_initials, adviser_name, adviser_color, estimated_value, is_urgent, is_prepa,
-            qualification_completed, qualification_date, converted_candidate_ref,
-            registration_completed, first_instalment_paid, first_instalment_amount, first_instalment_ref
-          ) VALUES ($1,'qualifie','Qualifié CRM','gold',$2,$3,$4,'mint',NULL,'1 800 € TTC','Converti Candidat','teal','BM','Barthelemy MAPWABA NTORO','navy',1800,FALSE,TRUE,TRUE,$5,$6,TRUE,TRUE,$7,$8)`,
-          [dem.full_name, dem.flag, dem.city, dem.program, canonicalQualificationTimestamp, canRef, verifiedPaymentAmount, verifiedPaymentRef]
-        );
-      }
 
-      await db.query(
-        `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
-         VALUES ('Barthelemy MAPWABA NTORO', $1, $2, 'Succès')`,
-        [`Qualification et conversion en Candidat Lyon (${canRef})`, ref]
-      );
+        // Check if prospect exists and update or create link
+        const existingProspectRes = await db.query(
+          `SELECT id FROM prospects WHERE LOWER(full_name) = LOWER($1) LIMIT 1`,
+          [dem.full_name]
+        );
+
+        if (existingProspectRes.rows && existingProspectRes.rows.length > 0) {
+          await db.query(
+            `UPDATE prospects SET
+               stage = 'qualifie',
+               badge_text = 'Qualifié CRM',
+               badge_tone = 'gold',
+               meta_right = 'Converti Candidat',
+               meta_right_tone = 'teal',
+               qualification_completed = TRUE,
+               qualification_date = $1,
+               converted_candidate_ref = $2,
+               registration_completed = TRUE,
+               first_instalment_paid = TRUE,
+               first_instalment_amount = $3,
+               first_instalment_ref = $4
+             WHERE id = $5`,
+            [canonicalQualificationTimestamp, canRef, verifiedPaymentAmount, verifiedPaymentRef, existingProspectRes.rows[0].id]
+          );
+        } else {
+          await db.query(
+            `INSERT INTO prospects (
+              full_name, stage, badge_text, badge_tone, flag, country_city, program_tag,
+              program_tag_tone, highlight_box, meta_left, meta_right, meta_right_tone,
+              adviser_initials, adviser_name, adviser_color, estimated_value, is_urgent, is_prepa,
+              qualification_completed, qualification_date, converted_candidate_ref,
+              registration_completed, first_instalment_paid, first_instalment_amount, first_instalment_ref
+            ) VALUES ($1,'qualifie','Qualifié CRM','gold',$2,$3,$4,'mint',NULL,'1 800 € TTC','Converti Candidat','teal','BM','Barthelemy MAPWABA NTORO','navy',1800,FALSE,TRUE,TRUE,$5,$6,TRUE,TRUE,$7,$8)`,
+            [dem.full_name, dem.flag, dem.city, dem.program, canonicalQualificationTimestamp, canRef, verifiedPaymentAmount, verifiedPaymentRef]
+          );
+        }
+
+        await db.query(
+          `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
+           VALUES ('Barthelemy MAPWABA NTORO', $1, $2, 'Succès')`,
+          [`Qualification et conversion en Candidat Lyon (${canRef})`, ref]
+        );
+        await db.query('COMMIT');
+      } catch (txErr) {
+        await db.query('ROLLBACK');
+        throw txErr;
+      }
 
       return NextResponse.json({ ok: true, candidatRef: canRef });
     }
