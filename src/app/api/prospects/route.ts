@@ -677,8 +677,6 @@ export async function PATCH(req: NextRequest) {
         await db.query('ROLLBACK');
         throw txErr;
       }
-        [verifiedBy, `PROSPECT-${pId}`, `Montant: ${verifiedAmount} EUR | Slip: ${slipNumber} | OpCode: ${opCode} | Ref: ${verifiedRef}`]
-      );
 
       return NextResponse.json({
         ok: true,

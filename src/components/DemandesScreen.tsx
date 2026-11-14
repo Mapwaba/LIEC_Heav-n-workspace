@@ -272,7 +272,7 @@ export default function DemandesScreen({
           body: JSON.stringify({
             action: 'assign_advisor',
             refs: checkedRefs,
-            adviserName,
+            advisorName,
             adviserEmail,
             notes,
             actor: currentUser?.name || 'Barthelemy MAPWABA NTORO',
