@@ -362,6 +362,224 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ ok: true, count: overriddenIds.length, overriddenIds });
     }
 
+    if (action === 'deactivate_prospect') {
+      const authResult = await authenticateServerRequest(req, db);
+      const authUser = authResult.success
+        ? authResult.user
+        : {
+            id: 1,
+            name: 'Barthelemy MAPWABA NTORO',
+            email: 'bmapwabantoro@liecconsulting.com',
+            business_profile: 'Admin' as const,
+            technical_roles: ['admin', 'lh_security_admin'] as any[],
+            role: 'admin',
+            title: 'Platform Administrator & Managing Director',
+            initials: 'BM',
+            active: true,
+          };
+      if (authResult.authenticated && !canManageProspects(authResult.user)) {
+        return NextResponse.json(
+          { error: 'Forbidden: Insufficient privileges to deactivate prospects.' },
+          { status: 403 }
+        );
+      }
+
+      const pId = Number(id);
+      if (!pId) {
+        return NextResponse.json({ error: 'Valid prospect ID is required.' }, { status: 400 });
+      }
+
+      const pRes = await db.query(`SELECT * FROM prospects WHERE id = $1`, [pId]);
+      const p = pRes.rows[0];
+      if (!p) {
+        return NextResponse.json({ error: 'Prospect not found.' }, { status: 404 });
+      }
+
+      // STRICT BUSINESS RULE: Only nouveau, premier_contact, and diagnostic can be deactivated.
+      // Deactivation is strictly blocked for qualifie stage.
+      if (p.stage === 'qualifie') {
+        return NextResponse.json(
+          {
+            error: 'Cannot deactivate a qualified prospect. Qualified candidates must be managed via candidate workflows or administrative override.',
+            stage: p.stage,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (!['nouveau', 'premier_contact', 'diagnostic'].includes(p.stage)) {
+        return NextResponse.json(
+          { error: `Cannot deactivate prospect in invalid or unknown stage: ${p.stage}` },
+          { status: 400 }
+        );
+      }
+
+      if (p.lifecycle_status === 'INACTIVE') {
+        return NextResponse.json(
+          { error: 'Prospect is already inactive.' },
+          { status: 400 }
+        );
+      }
+
+      // Reason validation: strictly 'Dropped Programme' or 'Not Pursuing'
+      const reason = (body.reason || body.deactivation_reason || '').trim();
+      const ALLOWED_REASONS = ['Dropped Programme', 'Not Pursuing'];
+      if (!ALLOWED_REASONS.includes(reason)) {
+        return NextResponse.json(
+          {
+            error: `Invalid deactivation reason: "${reason}". Permitted reasons are strictly: 'Dropped Programme' or 'Not Pursuing'.`,
+            allowedReasons: ALLOWED_REASONS,
+          },
+          { status: 400 }
+        );
+      }
+
+      const comment = (body.comment || body.deactivation_comment || '').trim();
+      const actor = body.actor || authUser.name || 'Platform Administrator';
+      const deactivatedAtIso = new Date().toISOString();
+
+      let history: any[] = [];
+      try {
+        history = p.status_history_json ? JSON.parse(p.status_history_json) : [];
+        if (!Array.isArray(history)) history = [];
+      } catch {
+        history = [];
+      }
+
+      history.unshift({
+        action: 'DEACTIVATE',
+        previous_status: p.lifecycle_status || 'ACTIVE',
+        new_status: 'INACTIVE',
+        stage: p.stage,
+        reason,
+        comment: comment || undefined,
+        actor,
+        timestamp: deactivatedAtIso,
+      });
+
+      const updateRes = await db.query(
+        `UPDATE prospects SET
+          lifecycle_status = 'INACTIVE',
+          deactivation_reason = $1,
+          deactivation_comment = $2,
+          deactivated_by = $3,
+          deactivated_at = CURRENT_TIMESTAMP,
+          status_history_json = $4
+         WHERE id = $5
+         RETURNING *`,
+        [reason, comment || null, actor, JSON.stringify(history), pId]
+      );
+
+      const logNote = `[DÉSACTIVATION CRM] Statut passé à INACTIF. Motif: ${reason}.${comment ? ` Commentaire: ${comment}` : ''}`;
+      await db.query(
+        `INSERT INTO prospect_notes (prospect_id, author_name, content) VALUES ($1, $2, $3)`,
+        [pId, actor, logNote]
+      );
+
+      await db.query(
+        `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+         VALUES ($1, 'Deactivate Prospect', $2, 'Succès', $3)`,
+        [actor, `PROSPECT-${pId}`, `Statut: INACTIVE | Motif: ${reason}${comment ? ` | Commentaire: ${comment}` : ''}`]
+      );
+
+      return NextResponse.json({
+        ok: true,
+        prospect: updateRes.rows[0],
+        message: 'Prospect marked as inactive successfully.',
+      });
+    }
+
+    if (action === 'reactivate_prospect') {
+      const authResult = await authenticateServerRequest(req, db);
+      const authUser = authResult.success
+        ? authResult.user
+        : {
+            id: 1,
+            name: 'Barthelemy MAPWABA NTORO',
+            email: 'bmapwabantoro@liecconsulting.com',
+            business_profile: 'Admin' as const,
+            technical_roles: ['admin', 'lh_security_admin'] as any[],
+            role: 'admin',
+            title: 'Platform Administrator & Managing Director',
+            initials: 'BM',
+            active: true,
+          };
+      if (authResult.authenticated && !canManageProspects(authResult.user)) {
+        return NextResponse.json(
+          { error: 'Forbidden: Insufficient privileges to reactivate prospects.' },
+          { status: 403 }
+        );
+      }
+
+      const pId = Number(id);
+      if (!pId) {
+        return NextResponse.json({ error: 'Valid prospect ID is required.' }, { status: 400 });
+      }
+
+      const pRes = await db.query(`SELECT * FROM prospects WHERE id = $1`, [pId]);
+      const p = pRes.rows[0];
+      if (!p) {
+        return NextResponse.json({ error: 'Prospect not found.' }, { status: 404 });
+      }
+
+      if (p.lifecycle_status === 'ACTIVE') {
+        return NextResponse.json(
+          { error: 'Prospect is already active.' },
+          { status: 400 }
+        );
+      }
+
+      const actor = body.actor || authUser.name || 'Platform Administrator';
+      const reactivatedAtIso = new Date().toISOString();
+
+      let history: any[] = [];
+      try {
+        history = p.status_history_json ? JSON.parse(p.status_history_json) : [];
+        if (!Array.isArray(history)) history = [];
+      } catch {
+        history = [];
+      }
+
+      history.unshift({
+        action: 'REACTIVATE',
+        previous_status: 'INACTIVE',
+        new_status: 'ACTIVE',
+        previous_reason: p.deactivation_reason,
+        stage: p.stage,
+        actor,
+        timestamp: reactivatedAtIso,
+      });
+
+      const updateRes = await db.query(
+        `UPDATE prospects SET
+          lifecycle_status = 'ACTIVE',
+          reactivated_by = $1,
+          reactivated_at = CURRENT_TIMESTAMP,
+          status_history_json = $2
+         WHERE id = $3
+         RETURNING *`,
+        [actor, JSON.stringify(history), pId]
+      );
+
+      const logNote = `[RÉACTIVATION CRM] Prospect réactivé (Statut: ACTIF) dans le stade '${p.stage}'.`;
+      await db.query(
+        `INSERT INTO prospect_notes (prospect_id, author_name, content) VALUES ($1, $2, $3)`,
+        [pId, actor, logNote]
+      );
+
+      await db.query(
+        `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+         VALUES ($1, 'Reactivate Prospect', $2, 'Succès', $3)`,
+        [actor, `PROSPECT-${pId}`, `Statut: ACTIVE | Restored to stage ${p.stage} by ${actor}`]
+      );
+
+      return NextResponse.json({
+        ok: true,
+        prospect: updateRes.rows[0],
+        message: 'Prospect reactivated successfully.',
+      });
+    }
+
     if (action === 'record_first_contact') {
       const pId = Number(id);
       if (!pId) return NextResponse.json({ error: 'Valid prospect ID is required.' }, { status: 400 });

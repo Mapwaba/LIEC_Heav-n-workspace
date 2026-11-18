@@ -17,6 +17,10 @@ import {
   GraduationCap,
   ShieldCheck,
   Tag,
+  UserX,
+  UserCheck,
+  RotateCcw,
+  AlertCircle,
 } from 'lucide-react';
 
 export interface ProspectItem {
@@ -40,6 +44,13 @@ export interface ProspectItem {
   is_urgent: boolean;
   is_prepa?: boolean;
   created_at?: string;
+  lifecycle_status?: 'ACTIVE' | 'INACTIVE';
+  deactivation_reason?: string;
+  deactivation_comment?: string;
+  deactivated_by?: string;
+  deactivated_at?: string;
+  reactivated_by?: string;
+  reactivated_at?: string;
 }
 
 // ============================================================================
@@ -673,6 +684,8 @@ export function ProspectProfileModal({
   onEdit,
   onOpenComments,
   onAdvanceStage,
+  onDeactivate,
+  onReactivate,
 }: {
   prospect: ProspectItem;
   isEn?: boolean;
@@ -681,7 +694,12 @@ export function ProspectProfileModal({
   onEdit: () => void;
   onOpenComments: () => void;
   onAdvanceStage?: () => void;
+  onDeactivate?: () => void;
+  onReactivate?: () => void;
 }) {
+  const isInactive = prospect.lifecycle_status === 'INACTIVE';
+  const canDeactivate = !isInactive && ['nouveau', 'premier_contact', 'diagnostic'].includes(prospect.stage);
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
       <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl border border-slate-100 flex flex-col overflow-hidden">
@@ -700,6 +718,15 @@ export function ProspectProfileModal({
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-extrabold text-[#092342]">{prospect.full_name}</h3>
                 <span className="text-base">{prospect.flag}</span>
+                {isInactive ? (
+                  <span className="rounded-md bg-slate-200 text-slate-700 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide border border-slate-300">
+                    {isEn ? 'INACTIVE' : 'INACTIF'}
+                  </span>
+                ) : (
+                  <span className="rounded-md bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide border border-emerald-200">
+                    {isEn ? 'ACTIVE' : 'ACTIF'}
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 {(prospect.country_city || '').replace(/\bRDC\b/g, 'DRC')} • {prospect.program_tag}
@@ -716,6 +743,32 @@ export function ProspectProfileModal({
 
         {/* Content Body */}
         <div className="p-6 space-y-4">
+          {/* Inactive Banner */}
+          {isInactive && (
+            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-1.5">
+              <div className="flex items-center justify-between font-bold text-amber-800">
+                <span className="flex items-center gap-1.5">
+                  <UserX className="w-4 h-4 text-amber-600" />
+                  <span>{isEn ? 'Prospect Marked Inactive' : 'Prospect Noté Inactif'}</span>
+                </span>
+                <span className="px-2 py-0.5 rounded bg-amber-200/80 text-amber-900 font-extrabold text-[10.5px]">
+                  {prospect.deactivation_reason || 'Dropped Programme'}
+                </span>
+              </div>
+              {prospect.deactivated_by && (
+                <p className="text-[11px] text-amber-800">
+                  {isEn ? 'By:' : 'Par :'} {prospect.deactivated_by}{' '}
+                  {prospect.deactivated_at && `• ${new Date(prospect.deactivated_at).toLocaleDateString()}`}
+                </p>
+              )}
+              {prospect.deactivation_comment && (
+                <p className="text-[11px] italic text-slate-600 bg-white/70 p-2 rounded-lg border border-amber-100">
+                  &ldquo;{prospect.deactivation_comment}&rdquo;
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Key Metric Badges */}
           <div className="grid grid-cols-3 gap-3">
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
@@ -748,6 +801,12 @@ export function ProspectProfileModal({
 
           {/* Details Card */}
           <div className="p-4 rounded-xl border border-slate-200/80 bg-white space-y-2 text-xs">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <span className="text-slate-500">{isEn ? 'Lifecycle Status' : 'Statut de cycle de vie'}</span>
+              <span className={`font-bold ${isInactive ? 'text-slate-600' : 'text-emerald-700'}`}>
+                {isInactive ? (isEn ? 'INACTIVE' : 'INACTIF') : (isEn ? 'ACTIVE' : 'ACTIF')}
+              </span>
+            </div>
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <span className="text-slate-500">{isEn ? 'Current Action' : 'Action en cours'}</span>
               <span className="font-bold text-[#0c685a]">{prospect.meta_right}</span>
@@ -806,17 +865,50 @@ export function ProspectProfileModal({
             </button>
           </div>
 
-          {onAdvanceStage && (
-            <button
-              onClick={() => {
-                onClose();
-                onAdvanceStage();
-              }}
-              className="px-4 py-2 rounded-xl bg-[#092342] hover:bg-[#153a70] text-white text-xs font-extrabold transition cursor-pointer"
-            >
-              {isEn ? 'Advance Stage →' : 'Avancer d’étape →'}
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {isInactive ? (
+              onReactivate && (
+                <button
+                  onClick={() => {
+                    onClose();
+                    onReactivate();
+                  }}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>{isEn ? 'Reactivate Prospect' : 'Réactiver'}</span>
+                </button>
+              )
+            ) : (
+              <>
+                {canDeactivate && onDeactivate && (
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onDeactivate();
+                    }}
+                    className="px-3 py-2 rounded-xl border border-red-200 bg-white hover:bg-red-50 text-red-600 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                    title={isEn ? 'Deactivate prospect' : 'Désactiver le prospect'}
+                  >
+                    <UserX className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Deactivate' : 'Désactiver'}</span>
+                  </button>
+                )}
+
+                {onAdvanceStage && (
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onAdvanceStage();
+                    }}
+                    className="px-4 py-2 rounded-xl bg-[#092342] hover:bg-[#153a70] text-white text-xs font-extrabold transition cursor-pointer"
+                  >
+                    {isEn ? 'Advance Stage →' : 'Avancer d’étape →'}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -1520,6 +1612,357 @@ export function QualifyProspectModal({
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// 8. DEACTIVATE PROSPECT MODAL
+// ============================================================================
+export function DeactivateProspectModal({
+  prospect,
+  currentUser = 'Barthelemy MAPWABA NTORO',
+  isEn = true,
+  onClose,
+  onSaved,
+  onNotify,
+}: {
+  prospect: ProspectItem;
+  currentUser?: string;
+  isEn?: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+  onNotify?: (msg: string) => void;
+}) {
+  const [reason, setReason] = useState<'Dropped Programme' | 'Not Pursuing'>('Dropped Programme');
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const isQualified = prospect.stage === 'qualifie';
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isQualified) return;
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const res = await fetch('/api/prospects', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: prospect.id,
+          action: 'deactivate_prospect',
+          reason,
+          comment: comment.trim() || undefined,
+          actor: currentUser,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to deactivate prospect');
+      }
+
+      if (onNotify) {
+        onNotify(
+          isEn
+            ? `Prospect ${prospect.full_name} marked as Inactive (${reason}).`
+            : `Prospect ${prospect.full_name} marqué comme Inactif (${reason}).`
+        );
+      }
+      onSaved();
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Error deactivating prospect');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-100 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="p-6 border-b border-slate-100 flex items-start justify-between bg-gradient-to-r from-red-50/50 to-white">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center">
+              <UserX className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-lg font-extrabold text-[#092342]">
+                {isEn ? 'Deactivate Prospect' : 'Désactiver le Prospect'}
+              </h3>
+              <p className="text-xs text-slate-500">
+                {isEn ? 'Prospect:' : 'Candidat :'} <strong>{prospect.full_name}</strong> • Stage:{' '}
+                <span className="font-semibold">{prospect.stage.replace('_', ' ')}</span>
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {isQualified ? (
+          <div className="p-6 space-y-4">
+            <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs space-y-2">
+              <div className="flex items-center gap-2 font-bold text-sm text-red-900">
+                <AlertCircle className="w-4 h-4 text-red-600" />
+                <span>{isEn ? 'Action Blocked' : 'Action Bloquée'}</span>
+              </div>
+              <p>
+                {isEn
+                  ? 'Qualified prospects cannot be deactivated via this workflow. Qualified candidates have passed formal admission checks and must be managed via candidate workflows or administrative override.'
+                  : 'Les prospects qualifiés ne peuvent pas être désactivés. Ils doivent être gérés via les flux de candidats ou une dérogation administrative.'}
+              </p>
+            </div>
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold transition"
+              >
+                {isEn ? 'Close' : 'Fermer'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
+            {error && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* Warning confirmation notice */}
+            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200/80 text-amber-900 text-xs flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-bold">
+                  {isEn ? 'Pipeline Exclusion Confirmation' : 'Confirmation de retrait du pipeline actif'}
+                </p>
+                <p className="text-[11px] leading-relaxed text-amber-800">
+                  {isEn
+                    ? 'Marking this prospect as inactive will exclude them from the active CRM pipeline and live metrics, while strictly preserving their records, notes, and activity history for future reference or reactivation.'
+                    : 'Le passage en inactif retirera ce prospect du pipeline CRM actif et des KPI temps réel, tout en conservant son historique complet pour consultation ou réactivation ultérieure.'}
+                </p>
+              </div>
+            </div>
+
+            {/* Reason selection (Mandatory, 2 choices) */}
+            <div>
+              <label className="block font-bold text-slate-700 mb-1.5">
+                {isEn ? 'Deactivation Reason *' : 'Motif de désactivation *'}
+              </label>
+              <select
+                value={reason}
+                onChange={(e) => setReason(e.target.value as 'Dropped Programme' | 'Not Pursuing')}
+                className="w-full rounded-xl border border-slate-200 bg-[#fbfcfd] px-3.5 py-2.5 text-xs font-bold text-[#092342] focus:outline-none focus:ring-2 focus:ring-red-500/20"
+                required
+              >
+                <option value="Dropped Programme">
+                  {isEn ? 'Dropped Programme' : 'Abandon du Programme (Dropped Programme)'}
+                </option>
+                <option value="Not Pursuing">
+                  {isEn ? 'Not Pursuing' : 'Ne poursuit pas les démarches (Not Pursuing)'}
+                </option>
+              </select>
+            </div>
+
+            {/* Optional Comment */}
+            <div>
+              <label className="block font-bold text-slate-700 mb-1.5">
+                {isEn ? 'Additional Comments (Optional)' : 'Commentaires additionnels (Optionnel)'}
+              </label>
+              <textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                rows={3}
+                placeholder={
+                  isEn
+                    ? 'Enter any relevant context, family feedback, or reason details...'
+                    : 'Précisez le contexte, retour de la famille ou détails...'
+                }
+                className="w-full rounded-xl border border-slate-200 bg-[#fbfcfd] px-3.5 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-red-500/20"
+              />
+            </div>
+
+            {/* Modal Actions */}
+            <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+              >
+                {isEn ? 'Cancel' : 'Annuler'}
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold shadow-sm transition disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+              >
+                <UserX className="w-3.5 h-3.5" />
+                <span>
+                  {submitting
+                    ? isEn ? 'Deactivating...' : 'Désactivation...'
+                    : isEn ? 'Confirm Deactivation' : 'Confirmer la désactivation'}
+                </span>
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// 9. REACTIVATE PROSPECT MODAL
+// ============================================================================
+export function ReactivateProspectModal({
+  prospect,
+  currentUser = 'Barthelemy MAPWABA NTORO',
+  isEn = true,
+  onClose,
+  onSaved,
+  onNotify,
+}: {
+  prospect: ProspectItem;
+  currentUser?: string;
+  isEn?: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+  onNotify?: (msg: string) => void;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleReactivate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const res = await fetch('/api/prospects', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: prospect.id,
+          action: 'reactivate_prospect',
+          actor: currentUser,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to reactivate prospect');
+      }
+
+      if (onNotify) {
+        onNotify(
+          isEn
+            ? `Prospect ${prospect.full_name} has been reactivated in stage '${prospect.stage.replace('_', ' ')}'.`
+            : `Prospect ${prospect.full_name} réactivé dans l'étape '${prospect.stage.replace('_', ' ')}'.`
+        );
+      }
+      onSaved();
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Error reactivating prospect');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-100 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="p-6 border-b border-slate-100 flex items-start justify-between bg-gradient-to-r from-emerald-50/50 to-white">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+              <RotateCcw className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-lg font-extrabold text-[#092342]">
+                {isEn ? 'Reactivate Prospect' : 'Réactiver le Prospect'}
+              </h3>
+              <p className="text-xs text-slate-500">
+                {isEn ? 'Candidate:' : 'Candidat :'} <strong>{prospect.full_name}</strong>
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleReactivate} className="p-6 space-y-4 text-xs">
+          {error && (
+            <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-2">
+            <div className="flex justify-between items-center pb-2 border-b border-slate-200/60">
+              <span className="text-slate-500">{isEn ? 'Restored Workflow Stage:' : 'Étape restaurée :'}</span>
+              <span className="font-extrabold text-[#092342] capitalize">
+                {prospect.stage.replace('_', ' ')}
+              </span>
+            </div>
+            <div className="flex justify-between items-center pb-2 border-b border-slate-200/60">
+              <span className="text-slate-500">{isEn ? 'Previous Deactivation Reason:' : 'Motif précédent :'}</span>
+              <span className="font-bold text-amber-700">
+                {prospect.deactivation_reason || 'N/A'}
+              </span>
+            </div>
+            {prospect.deactivation_comment && (
+              <div className="pt-1 text-[11px] text-slate-600 italic">
+                &ldquo;{prospect.deactivation_comment}&rdquo;
+              </div>
+            )}
+          </div>
+
+          <p className="text-slate-600 text-xs">
+            {isEn
+              ? `This will restore ${prospect.full_name} as an ACTIVE lead in the CRM pipeline and re-include them in active metrics and reports.`
+              : `Cette action réactivera ${prospect.full_name} dans le pipeline CRM actif et le réinclura dans les KPI et rapports.`}
+          </p>
+
+          <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+            >
+              {isEn ? 'Cancel' : 'Annuler'}
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-sm transition disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+            >
+              <UserCheck className="w-3.5 h-3.5" />
+              <span>
+                {submitting
+                  ? isEn ? 'Reactivating...' : 'Réactivation...'
+                  : isEn ? 'Confirm Reactivation' : 'Confirmer la réactivation'}
+              </span>
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

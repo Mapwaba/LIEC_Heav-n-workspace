@@ -30,6 +30,8 @@ import {
   CreditCard,
   Edit3,
   MoreVertical,
+  UserX,
+  RotateCcw,
 } from 'lucide-react';
 
 import { Lang } from './ServicesAndOtherScreens';
@@ -43,6 +45,8 @@ import {
   RecordFirstContactModal,
   RecordEligibilityModal,
   QualifyProspectModal,
+  DeactivateProspectModal,
+  ReactivateProspectModal,
   ProspectItem,
 } from './ProspectCardModals';
 
@@ -124,6 +128,7 @@ export default function ProspectsScreen({
   const [searchQuery, setSearchQuery] = useState('');
   const [adviserFilter, setAdviserFilter] = useState('all');
   const [quickFilter, setQuickFilter] = useState<'all' | 'urgent' | 'prepa'>('all');
+  const [lifecycleFilter, setLifecycleFilter] = useState<'all' | 'active' | 'inactive'>('active');
   const [showAddModal, setShowAddModal] = useState(false);
   const [newProspectStage, setNewProspectStage] = useState('nouveau');
   const [formName, setFormName] = useState('');
@@ -150,6 +155,10 @@ export default function ProspectsScreen({
     useState<any | null>(null);
   const [selectedProspectForQualify, setSelectedProspectForQualify] =
     useState<any | null>(null);
+  const [selectedProspectForDeactivate, setSelectedProspectForDeactivate] =
+    useState<ProspectItem | null>(null);
+  const [selectedProspectForReactivate, setSelectedProspectForReactivate] =
+    useState<ProspectItem | null>(null);
   const [checkedIds, setCheckedIds] = useState<number[]>([]);
   const [isRefreshingPipeline, setIsRefreshingPipeline] = useState(false);
 
@@ -216,6 +225,8 @@ export default function ProspectsScreen({
 
   // Safe normalization of prospects list
   const safeProspects = Array.isArray(prospects) ? prospects.filter(Boolean) : [];
+  const activeProspects = safeProspects.filter((p) => p.lifecycle_status !== 'INACTIVE');
+  const inactiveProspects = safeProspects.filter((p) => p.lifecycle_status === 'INACTIVE');
 
   // Filtered prospects computed with useMemo BEFORE being referenced
   const filteredProspects = useMemo(() => {
@@ -237,9 +248,14 @@ export default function ProspectsScreen({
         (quickFilter === 'urgent' && p.is_urgent) ||
         (quickFilter === 'prepa' && p.is_prepa);
 
-      return matchSearch && matchAdviser && matchQuick;
+      const matchLifecycle =
+        lifecycleFilter === 'all' ||
+        (lifecycleFilter === 'active' && p.lifecycle_status !== 'INACTIVE') ||
+        (lifecycleFilter === 'inactive' && p.lifecycle_status === 'INACTIVE');
+
+      return matchSearch && matchAdviser && matchQuick && matchLifecycle;
     });
-  }, [safeProspects, searchQuery, adviserFilter, quickFilter]);
+  }, [safeProspects, searchQuery, adviserFilter, quickFilter, lifecycleFilter]);
 
   const toggleSelectProspect = (id: number) => {
     setCheckedIds((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
@@ -256,7 +272,7 @@ export default function ProspectsScreen({
     }
   };
 
-  const handleBulkAssign = async (advisorName: string, adviserEmail: string, notes?: string) => {
+  const handleBulkAssign = async (adviserName: string, adviserEmail: string, notes?: string) => {
     if (checkedIds.length === 0) return;
     setIsAssigning(true);
     try {
@@ -274,7 +290,7 @@ export default function ProspectsScreen({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Assignment failed');
-      let notifyMsg = isEn ? `Assigned ${data.assignedCount} prospect(s) to ${advisorName}.` : `${data.assignedCount} prospect(s) attribué(s) à ${advisorName}.`;
+      let notifyMsg = isEn ? `Assigned ${data.assignedCount} prospect(s) to ${adviserName}.` : `${data.assignedCount} prospect(s) attribué(s) à ${adviserName}.`;
       if (data.emailSent) {
         notifyMsg += isEn ? ` Official notification sent via ${data.emailProvider || 'Resend'}.` : ` Notification envoyée via ${data.emailProvider || 'Resend'}.`;
       } else if (data.emailError) {
@@ -416,7 +432,7 @@ export default function ProspectsScreen({
               </span>
               <div className="mt-2 flex items-baseline gap-1.5">
                 <span className="text-3xl font-extrabold text-[#092342]">
-                  {prospects.length}
+                  {activeProspects.length}
                 </span>
                 <span className="text-xs font-bold text-[#0c685a]">CRM Live</span>
               </div>
@@ -428,12 +444,14 @@ export default function ProspectsScreen({
           <div className="mt-4">
             <div className="flex items-center justify-between text-[11px] mb-1.5">
               <span className="text-slate-500 font-medium">Active Pipeline</span>
-              <span className="font-extrabold text-[#092342]">{activeAdvisors.length} Advisors</span>
+              <span className="font-extrabold text-[#092342]">
+                {inactiveProspects.length > 0 ? `${inactiveProspects.length} Inactive` : `${activeAdvisors.length} Advisors`}
+              </span>
             </div>
             <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
               <div
                 className="h-full rounded-full bg-[#092342]"
-                style={{ width: `${Math.min(100, prospects.length > 0 ? (prospects.length / 50) * 100 : 0)}%` }}
+                style={{ width: `${Math.min(100, activeProspects.length > 0 ? (activeProspects.length / 50) * 100 : 0)}%` }}
               />
             </div>
           </div>
@@ -450,7 +468,7 @@ export default function ProspectsScreen({
               </span>
               <div className="mt-2 flex items-baseline gap-1.5">
                 <span className="text-3xl font-extrabold text-[#452702]">
-                  {prospects.filter((p) => p.is_urgent).length}
+                  {activeProspects.filter((p) => p.is_urgent).length}
                 </span>
                 <span className="text-xs font-bold text-red-600 inline-flex items-center gap-0.5">
                   <Clock className="w-3 h-3" /> &lt; 24h
@@ -474,7 +492,7 @@ export default function ProspectsScreen({
               <div
                 className="h-full rounded-full bg-[#f4be37]"
                 style={{
-                  width: `${prospects.length > 0 ? Math.min(100, (prospects.filter((p) => p.is_urgent).length / prospects.length) * 100) : 0}%`,
+                  width: `${activeProspects.length > 0 ? Math.min(100, (activeProspects.filter((p) => p.is_urgent).length / activeProspects.length) * 100) : 0}%`,
                 }}
               />
             </div>
@@ -490,7 +508,7 @@ export default function ProspectsScreen({
               </span>
               <div className="mt-3 flex items-baseline gap-1.5">
                 <span className="text-3xl font-extrabold text-[#0c685a]">
-                  {prospects.filter((p) => p.stage === 'diagnostic').length}
+                  {activeProspects.filter((p) => p.stage === 'diagnostic').length}
                 </span>
                 <span className="text-xs font-bold text-[#0c685a]">🔍 In Review</span>
               </div>
@@ -512,7 +530,7 @@ export default function ProspectsScreen({
               <div
                 className="h-full rounded-full bg-[#0c685a]"
                 style={{
-                  width: `${prospects.length > 0 ? Math.min(100, (prospects.filter((p) => p.stage === 'diagnostic').length / prospects.length) * 100) : 0}%`,
+                  width: `${activeProspects.length > 0 ? Math.min(100, (activeProspects.filter((p) => p.stage === 'diagnostic').length / activeProspects.length) * 100) : 0}%`,
                 }}
               />
             </div>
@@ -530,7 +548,7 @@ export default function ProspectsScreen({
               </span>
               <div className="mt-2 flex items-baseline gap-1.5">
                 <span className="text-3xl font-extrabold text-[#092342]">
-                  {prospects.filter((p) => p.stage === 'qualifie').length}
+                  {activeProspects.filter((p) => p.stage === 'qualifie').length}
                 </span>
                 <span className="text-xs font-bold text-[#092342]">☆ Ready</span>
               </div>
@@ -545,14 +563,14 @@ export default function ProspectsScreen({
                 Potential Value:
               </span>
               <span className="font-extrabold text-[#092342] text-right leading-tight">
-                €{(prospects.filter((p) => p.stage === 'qualifie').length * 2800).toLocaleString()}
+                €{(activeProspects.filter((p) => p.stage === 'qualifie').length * 2800).toLocaleString()}
               </span>
             </div>
             <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
               <div
                 className="h-full rounded-full bg-[#092342]"
                 style={{
-                  width: `${prospects.length > 0 ? Math.min(100, (prospects.filter((p) => p.stage === 'qualifie').length / prospects.length) * 100) : 0}%`,
+                  width: `${activeProspects.length > 0 ? Math.min(100, (activeProspects.filter((p) => p.stage === 'qualifie').length / activeProspects.length) * 100) : 0}%`,
                 }}
               />
             </div>
@@ -595,7 +613,44 @@ export default function ProspectsScreen({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Lifecycle Status Filter Pills */}
+          <div className="inline-flex rounded-xl border border-slate-200 bg-[#f1f6fb] p-1">
+            <button
+              type="button"
+              onClick={() => setLifecycleFilter('active')}
+              className={`rounded-lg px-3 py-1.5 text-xs font-extrabold transition cursor-pointer ${
+                lifecycleFilter === 'active'
+                  ? 'bg-[#0c685a] text-white shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Active ({activeProspects.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setLifecycleFilter('inactive')}
+              className={`rounded-lg px-3 py-1.5 text-xs font-extrabold transition cursor-pointer ${
+                lifecycleFilter === 'inactive'
+                  ? 'bg-slate-700 text-white shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Inactive ({inactiveProspects.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setLifecycleFilter('all')}
+              className={`rounded-lg px-3 py-1.5 text-xs font-extrabold transition cursor-pointer ${
+                lifecycleFilter === 'all'
+                  ? 'bg-[#092342] text-white shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              All ({safeProspects.length})
+            </button>
+          </div>
+
           <button
             onClick={() => setQuickFilter('all')}
             className={`rounded-xl px-3.5 py-2 text-xs font-extrabold transition cursor-pointer ${
@@ -604,7 +659,7 @@ export default function ProspectsScreen({
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
-            All Leads ({prospects.length})
+            All Leads
           </button>
           <button
             onClick={() => setQuickFilter('urgent')}
@@ -669,14 +724,18 @@ export default function ProspectsScreen({
                     </div>
                   ) : (
                     stageCards.map((card, cardIdx) => {
-                      const topBorderClass =
-                        stage.key === 'nouveau' || stage.key === 'qualifie'
-                          ? 'border-t-[3px] border-t-[#092342]'
-                          : stage.key === 'premier_contact' && cardIdx === 0
-                          ? 'border-t-[3px] border-t-[#10b981]'
-                          : stage.key === 'premier_contact'
-                          ? 'border-t-[3px] border-t-[#092342]'
-                          : 'border-t-[3px] border-t-[#f4be37]';
+                      const isCardInactive = card.lifecycle_status === 'INACTIVE';
+                      const canDeactivateCard = !isCardInactive && ['nouveau', 'premier_contact', 'diagnostic'].includes(card.stage);
+
+                      const topBorderClass = isCardInactive
+                        ? 'border-t-[3px] border-t-slate-400'
+                        : stage.key === 'nouveau' || stage.key === 'qualifie'
+                        ? 'border-t-[3px] border-t-[#092342]'
+                        : stage.key === 'premier_contact' && cardIdx === 0
+                        ? 'border-t-[3px] border-t-[#10b981]'
+                        : stage.key === 'premier_contact'
+                        ? 'border-t-[3px] border-t-[#092342]'
+                        : 'border-t-[3px] border-t-[#f4be37]';
 
                       const badgeClass =
                         card.badge_tone === 'urgent'
@@ -699,7 +758,9 @@ export default function ProspectsScreen({
                       return (
                         <div
                           key={card.id}
-                          className={`rounded-2xl border border-[#e3edf7] ${topBorderClass} bg-white p-3.5 shadow-sm hover:shadow-md transition space-y-2.5`}
+                          className={`rounded-2xl border ${topBorderClass} ${
+                            isCardInactive ? 'border-slate-300 bg-slate-50/80 shadow-2xs' : 'border-[#e3edf7] bg-white shadow-sm hover:shadow-md'
+                          } p-3.5 transition space-y-2.5`}
                         >
                           {/* Card Header: Clickable Name to open profile */}
                           <div className="flex items-start justify-between gap-2">
@@ -711,11 +772,21 @@ export default function ProspectsScreen({
                             >
                               {card.full_name}
                             </button>
-                            <span
-                              className={`shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-extrabold leading-tight ${badgeClass}`}
-                            >
-                              {formatProspectBadge(card.badge_text)}
-                            </span>
+                            {isCardInactive ? (
+                              <span
+                                className="shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-extrabold leading-tight bg-slate-200 text-slate-700 border border-slate-300 flex items-center gap-1"
+                                title={`Inactive: ${card.deactivation_reason || 'Dropped'}`}
+                              >
+                                <UserX className="w-3 h-3 text-slate-500" />
+                                <span>{card.deactivation_reason || 'Inactive'}</span>
+                              </span>
+                            ) : (
+                              <span
+                                className={`shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-extrabold leading-tight ${badgeClass}`}
+                              >
+                                {formatProspectBadge(card.badge_text)}
+                              </span>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-1.5 text-xs text-slate-500">
@@ -810,32 +881,64 @@ export default function ProspectsScreen({
                                 <MessageSquare className="w-3.5 h-3.5 text-slate-600" />
                               </button>
 
-                              {/* Advance Stage / Milestone Action Icon */}
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleAdvanceCard(card);
-                                }}
-                                title={
-                                  card.stage === 'nouveau'
-                                    ? (isEn ? 'Record First Contact Event' : 'Enregistrer le premier contact')
-                                    : card.stage === 'premier_contact'
-                                    ? (isEn ? 'Record Diagnostic Eligibility' : 'Enregistrer le diagnostic d’éligibilité')
-                                    : card.stage === 'diagnostic'
-                                    ? (isEn ? 'Verify 3 Conditions & Qualify' : 'Vérifier 3 conditions & Qualifier')
-                                    : (isEn ? 'Qualified Candidate' : 'Candidat qualifié')
-                                }
-                                className="p-1 rounded hover:bg-slate-100 hover:text-[#092342] transition cursor-pointer"
-                              >
-                                {card.stage === 'qualifie' ? (
-                                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                                ) : card.stage === 'diagnostic' ? (
-                                  <ShieldCheck className="w-3.5 h-3.5 text-amber-500" />
-                                ) : (
-                                  <MoreVertical className="w-3.5 h-3.5" />
-                                )}
-                              </button>
+                              {/* If Inactive: Show Reactivate Icon Button */}
+                              {isCardInactive ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedProspectForReactivate(card);
+                                  }}
+                                  title={isEn ? 'Reactivate prospect' : 'Réactiver le prospect'}
+                                  className="p-1 rounded hover:bg-emerald-50 text-emerald-600 transition cursor-pointer"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                </button>
+                              ) : (
+                                <>
+                                  {/* Deactivate Icon Button for Stages 1-3 */}
+                                  {canDeactivateCard && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedProspectForDeactivate(card);
+                                      }}
+                                      title={isEn ? 'Deactivate prospect' : 'Désactiver le prospect'}
+                                      className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-600 transition cursor-pointer"
+                                    >
+                                      <UserX className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+
+                                  {/* Advance Stage / Milestone Action Icon */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleAdvanceCard(card);
+                                    }}
+                                    title={
+                                      card.stage === 'nouveau'
+                                        ? (isEn ? 'Record First Contact Event' : 'Enregistrer le premier contact')
+                                        : card.stage === 'premier_contact'
+                                        ? (isEn ? 'Record Diagnostic Eligibility' : 'Enregistrer le diagnostic d’éligibilité')
+                                        : card.stage === 'diagnostic'
+                                        ? (isEn ? 'Verify 3 Conditions & Qualify' : 'Vérifier 3 conditions & Qualifier')
+                                        : (isEn ? 'Qualified Candidate' : 'Candidat qualifié')
+                                    }
+                                    className="p-1 rounded hover:bg-slate-100 hover:text-[#092342] transition cursor-pointer"
+                                  >
+                                    {card.stage === 'qualifie' ? (
+                                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                                    ) : card.stage === 'diagnostic' ? (
+                                      <ShieldCheck className="w-3.5 h-3.5 text-amber-500" />
+                                    ) : (
+                                      <MoreVertical className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -972,67 +1075,102 @@ export default function ProspectsScreen({
                   </td>
                 </tr>
               ) : (
-                filteredProspects.map((p) => (
-                  <tr key={p.id} className={`transition ${checkedIds.includes(p.id) ? 'bg-[#f1f7fd]' : 'hover:bg-slate-50'}`}>
-                    <td className="py-3.5 pl-4 pr-2">
-                      <input
-                        type="checkbox"
-                        checked={checkedIds.includes(p.id)}
-                        onChange={() => toggleSelectProspect(p.id)}
-                        className="h-4 w-4 rounded border-slate-300 text-[#092342] focus:ring-[#092342] cursor-pointer"
-                      />
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <button
-                        onClick={() => setSelectedProspectForProfile(p)}
-                        className="font-extrabold text-[#092342] hover:text-[#0c685a] hover:underline cursor-pointer text-left"
-                      >
-                        {p.full_name}
-                      </button>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      {p.flag} {formatProspectLocation(p.country_city)}
-                    </td>
-                    <td className="py-3.5 px-4 font-semibold text-[#0c685a]">{p.program_tag}</td>
-                    <td className="py-3.5 px-4">
-                      <span className="rounded-full bg-[#eef4fb] px-2.5 py-1 text-[10.5px] font-bold text-[#092342] uppercase">
-                        {p.stage.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 font-bold text-slate-700">{p.adviser_name}</td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2">
+                filteredProspects.map((p) => {
+                  const isRowInactive = p.lifecycle_status === 'INACTIVE';
+                  const canDeactivateRow = !isRowInactive && ['nouveau', 'premier_contact', 'diagnostic'].includes(p.stage);
+
+                  return (
+                    <tr key={p.id} className={`transition ${checkedIds.includes(p.id) ? 'bg-[#f1f7fd]' : isRowInactive ? 'bg-slate-50/70 text-slate-600' : 'hover:bg-slate-50'}`}>
+                      <td className="py-3.5 pl-4 pr-2">
+                        <input
+                          type="checkbox"
+                          checked={checkedIds.includes(p.id)}
+                          onChange={() => toggleSelectProspect(p.id)}
+                          className="h-4 w-4 rounded border-slate-300 text-[#092342] focus:ring-[#092342] cursor-pointer"
+                        />
+                      </td>
+                      <td className="py-3.5 px-4">
                         <button
-                          onClick={() => setSelectedProspectForCall(p)}
-                          className="rounded-lg bg-slate-100 hover:bg-slate-200 px-2.5 py-1 text-[11px] font-bold text-[#092342] flex items-center gap-1 cursor-pointer"
+                          onClick={() => setSelectedProspectForProfile(p)}
+                          className="font-extrabold text-[#092342] hover:text-[#0c685a] hover:underline cursor-pointer text-left"
                         >
-                          <Phone className="w-3 h-3 text-[#0c685a]" />
-                          <span>Schedule</span>
+                          {p.full_name}
                         </button>
-                        <button
-                          onClick={() => setSelectedProspectForComments(p)}
-                          className="p-1 rounded hover:bg-slate-100 text-slate-600 cursor-pointer"
-                          title="Notes"
-                        >
-                          <MessageSquare className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setSelectedProspectForEdit(p)}
-                          className="p-1 rounded hover:bg-slate-100 text-slate-600 cursor-pointer"
-                          title="Edit"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleAdvanceCard(p)}
-                          className="rounded-lg bg-[#092342] text-white px-2.5 py-1 text-[11px] font-bold hover:bg-[#12365a] cursor-pointer"
-                        >
-                          {p.stage === 'diagnostic' ? (isEn ? 'Qualify (3/3) →' : 'Qualifier (3/3) →') : isEn ? 'Advance →' : 'Avancer →'}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td className="py-3.5 px-4">
+                        {p.flag} {formatProspectLocation(p.country_city)}
+                      </td>
+                      <td className="py-3.5 px-4 font-semibold text-[#0c685a]">{p.program_tag}</td>
+                      <td className="py-3.5 px-4">
+                        <div className="space-y-1">
+                          <span className="rounded-full bg-[#eef4fb] px-2.5 py-1 text-[10.5px] font-bold text-[#092342] uppercase">
+                            {p.stage.replace('_', ' ')}
+                          </span>
+                          {isRowInactive && (
+                            <span className="rounded-md bg-slate-200 px-2 py-0.5 text-[9.5px] font-extrabold text-slate-700 border border-slate-300 flex items-center gap-1 w-fit">
+                              <UserX className="w-2.5 h-2.5 text-slate-500" />
+                              <span>{p.deactivation_reason || 'Inactive'}</span>
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4 font-bold text-slate-700">{p.adviser_name}</td>
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setSelectedProspectForCall(p)}
+                            className="rounded-lg bg-slate-100 hover:bg-slate-200 px-2.5 py-1 text-[11px] font-bold text-[#092342] flex items-center gap-1 cursor-pointer"
+                          >
+                            <Phone className="w-3 h-3 text-[#0c685a]" />
+                            <span>Schedule</span>
+                          </button>
+                          <button
+                            onClick={() => setSelectedProspectForComments(p)}
+                            className="p-1 rounded hover:bg-slate-100 text-slate-600 cursor-pointer"
+                            title="Notes"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setSelectedProspectForEdit(p)}
+                            className="p-1 rounded hover:bg-slate-100 text-slate-600 cursor-pointer"
+                            title="Edit"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          {isRowInactive ? (
+                            <button
+                              onClick={() => setSelectedProspectForReactivate(p)}
+                              className="rounded-lg bg-emerald-600 text-white px-2.5 py-1 text-[11px] font-bold hover:bg-emerald-700 cursor-pointer flex items-center gap-1 shadow-2xs"
+                              title={isEn ? 'Reactivate prospect into active pipeline' : 'Réactiver le prospect'}
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              <span>{isEn ? 'Reactivate' : 'Réactiver'}</span>
+                            </button>
+                          ) : (
+                            <>
+                              {canDeactivateRow && (
+                                <button
+                                  onClick={() => setSelectedProspectForDeactivate(p)}
+                                  className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-600 cursor-pointer transition"
+                                  title={isEn ? 'Deactivate' : 'Désactiver'}
+                                >
+                                  <UserX className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleAdvanceCard(p)}
+                                className="rounded-lg bg-[#092342] text-white px-2.5 py-1 text-[11px] font-bold hover:bg-[#12365a] cursor-pointer"
+                              >
+                                {p.stage === 'diagnostic' ? (isEn ? 'Qualify (3/3) →' : 'Qualifier (3/3) →') : isEn ? 'Advance →' : 'Avancer →'}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -1232,6 +1370,8 @@ export default function ProspectsScreen({
             setSelectedProspectForProfile(null);
             handleAdvanceCard(target);
           }}
+          onDeactivate={() => setSelectedProspectForDeactivate(selectedProspectForProfile)}
+          onReactivate={() => setSelectedProspectForReactivate(selectedProspectForProfile)}
         />
       )}
 
@@ -1278,6 +1418,34 @@ export default function ProspectsScreen({
           currentUser={currentUserName}
           isEn={isEn}
           onClose={() => setSelectedProspectForQualify(null)}
+          onSaved={() => {
+            onRefresh();
+          }}
+          onNotify={onNotify}
+        />
+      )}
+
+      {/* Deactivate Prospect Modal */}
+      {selectedProspectForDeactivate && (
+        <DeactivateProspectModal
+          prospect={selectedProspectForDeactivate}
+          currentUser={currentUserName}
+          isEn={isEn}
+          onClose={() => setSelectedProspectForDeactivate(null)}
+          onSaved={() => {
+            onRefresh();
+          }}
+          onNotify={onNotify}
+        />
+      )}
+
+      {/* Reactivate Prospect Modal */}
+      {selectedProspectForReactivate && (
+        <ReactivateProspectModal
+          prospect={selectedProspectForReactivate}
+          currentUser={currentUserName}
+          isEn={isEn}
+          onClose={() => setSelectedProspectForReactivate(null)}
           onSaved={() => {
             onRefresh();
           }}

@@ -37,3 +37,5 @@ provision-preview-db.ps1
 .provisioning-report.txt
 
 tsconfig.tsbuildinfo
+.vercel
+.env*

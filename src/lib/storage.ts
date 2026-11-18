@@ -332,3 +332,124 @@ export async function getSignedDownloadUrl(
     };
   }
 }
+
+/**
+ * List objects in the S3 bucket using SigV4 GET request (ListObjectsV2).
+ */
+export async function listBucketObjects(
+  prefix: string = ''
+): Promise<{ success: boolean; objects: { key: string; size: number; lastModified?: string }[]; error?: string }> {
+  const config = getStorageConfig();
+  if (!config) {
+    return {
+      success: false,
+      objects: [],
+      error: 'Object storage environment variables are not configured.',
+    };
+  }
+
+  try {
+    const endpointUrl = new URL(config.endpoint);
+    const host = endpointUrl.host;
+    const date = new Date();
+    const amzDate = date.toISOString().replace(/[:-]|\.\d{3}/g, '');
+    const dateStamp = amzDate.slice(0, 8);
+    const emptyPayloadHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+
+    const queryParams: Record<string, string> = {
+      'list-type': '2',
+    };
+    if (prefix) {
+      queryParams['prefix'] = prefix;
+    }
+
+    const canonicalQueryString = Object.keys(queryParams)
+      .sort()
+      .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(queryParams[k])}`)
+      .join('&');
+
+    const canonicalUri = `/${encodeURIComponent(config.bucket)}`;
+    const headers: Record<string, string> = {
+      'host': host,
+      'x-amz-content-sha256': emptyPayloadHash,
+      'x-amz-date': amzDate,
+    };
+
+    const canonicalHeaders = Object.keys(headers)
+      .sort()
+      .map((k) => `${k.toLowerCase()}:${headers[k].trim()}\n`)
+      .join('');
+    const signedHeaders = Object.keys(headers).sort().map((k) => k.toLowerCase()).join(';');
+
+    const canonicalRequest = [
+      'GET',
+      canonicalUri,
+      canonicalQueryString,
+      canonicalHeaders,
+      signedHeaders,
+      emptyPayloadHash,
+    ].join('\n');
+
+    const credentialScope = `${dateStamp}/${config.region}/s3/aws4_request`;
+    const stringToSign = [
+      'AWS4-HMAC-SHA256',
+      amzDate,
+      credentialScope,
+      crypto.createHash('sha256').update(canonicalRequest).digest('hex'),
+    ].join('\n');
+
+    const kDate = crypto.createHmac('sha256', `AWS4${config.secretAccessKey}`).update(dateStamp).digest();
+    const kRegion = crypto.createHmac('sha256', kDate).update(config.region).digest();
+    const kService = crypto.createHmac('sha256', kRegion).update('s3').digest();
+    const kSigning = crypto.createHmac('sha256', kService).update('aws4_request').digest();
+    const signature = crypto.createHmac('sha256', kSigning).update(stringToSign).digest('hex');
+
+    const authorizationHeader = `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+    const url = `${config.endpoint}/${config.bucket}?${canonicalQueryString}`;
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        ...headers,
+        Authorization: authorizationHeader,
+      },
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      return { success: false, objects: [], error: `S3 returned status ${res.status}: ${errText}` };
+    }
+
+    const xmlText = await res.text();
+    // Parse keys from XML using regex to avoid external xml parser dependency
+    const objects: { key: string; size: number; lastModified?: string }[] = [];
+    const contentsRegex = /<Contents>([\s\S]*?)<\/Contents>/g;
+    let match;
+    while ((match = contentsRegex.exec(xmlText)) !== null) {
+      const contentBlock = match[1];
+      const keyMatch = /<Key>(.*?)<\/Key>/.exec(contentBlock);
+      const sizeMatch = /<Size>(\d+)<\/Size>/.exec(contentBlock);
+      const lmMatch = /<LastModified>(.*?)<\/LastModified>/.exec(contentBlock);
+
+      if (keyMatch && keyMatch[1]) {
+        objects.push({
+          key: keyMatch[1],
+          size: sizeMatch ? parseInt(sizeMatch[1], 10) : 0,
+          lastModified: lmMatch ? lmMatch[1] : undefined,
+        });
+      }
+    }
+
+    return {
+      success: true,
+      objects,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      objects: [],
+      error: err.message,
+    };
+  }
+}
+

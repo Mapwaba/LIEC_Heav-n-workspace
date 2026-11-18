@@ -121,6 +121,7 @@ export default function LiecWorkspacePage() {
 
   // Notifications Read / Unread State
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>([]);
+  const [paymentNotifications, setPaymentNotifications] = useState<any[]>([]);
   const [selectedNotificationModal, setSelectedNotificationModal] = useState<any | null>(null);
   const [notificationTabFilter, setNotificationTabFilter] = useState<'all' | 'unread'>('all');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -224,6 +225,13 @@ export default function LiecWorkspacePage() {
         const data = await res.json();
         if (Array.isArray(data.readIds)) {
           setReadNotificationIds(data.readIds);
+        }
+      }
+      const pRes = await fetch('/api/payments/notifications');
+      if (pRes.ok) {
+        const pData = await pRes.json();
+        if (Array.isArray(pData.notifications)) {
+          setPaymentNotifications(pData.notifications);
         }
       }
     } catch (e) {
@@ -407,8 +415,8 @@ export default function LiecWorkspacePage() {
         const requestedTab = urlParams.get('tab') as NavTab | null;
         const validTabs: NavTab[] = [
           'overview', 'demandes', 'prospects', 'candidats', 'prepa',
-          'services', 'accommodation', 'contenus', 'finance',
-          'notifications', 'parametres', 'support'
+          'services', 'accommodation', 'programme_reports', 'contenus', 'rapports',
+          'notifications', 'parametres', 'aide'
         ];
         if (requestedTab && validTabs.includes(requestedTab)) {
           initialTab = requestedTab;
@@ -1107,6 +1115,19 @@ export default function LiecWorkspacePage() {
       recordRef?: string;
     }[] = [];
 
+    // 0. From W3 Centralized Payment Evidence & Validation events
+    (paymentNotifications || []).forEach((pn) => {
+      list.push({
+        id: pn.id,
+        title: pn.title,
+        desc: pn.description,
+        time: pn.timestamp ? new Date(pn.timestamp).toLocaleString() : (isEn ? 'Recent' : 'Récent'),
+        tab: 'services',
+        moduleLabel: isEn ? 'Payment Validation' : 'Validation Paiement',
+        recordRef: pn.entity_ref,
+      });
+    });
+
     // 1. From recent incoming applications
     (demandes || []).slice(0, 8).forEach((d) => {
       const refStr = d.ref || `DEM-${d.id}`;
@@ -1174,7 +1195,7 @@ export default function LiecWorkspacePage() {
     });
 
     return list;
-  }, [demandes, candidats, aviRequests, auditLogs, isEn]);
+  }, [demandes, candidats, aviRequests, auditLogs, paymentNotifications, isEn]);
 
   const unreadNotificationsCount = useMemo(() => {
     return notificationsList.filter((n) => !readNotificationIds.includes(n.id)).length;

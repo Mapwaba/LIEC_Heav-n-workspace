@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { UserImportSetsModal } from './UserImportSetsModal';
+import { PaymentSubmissionModal } from './payments/PaymentSubmissionModal';
+import { AdminPaymentValidationCenter } from './payments/AdminPaymentValidationCenter';
 import {
   CheckSquare,
   Award,
@@ -2197,11 +2199,15 @@ export function RapportsFinanceScreen({
   lang?: Lang;
 }) {
   const isEn = lang === 'en';
-  const [activeFinanceTab, setActiveFinanceTab] = useState<'prepa_schedule' | 'general_ledger'>('prepa_schedule');
+  const [activeFinanceTab, setActiveFinanceTab] = useState<'prepa_schedule' | 'general_ledger' | 'validation_center'>('prepa_schedule');
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [selectedCandidateRef, setSelectedCandidateRef] = useState<string>('');
   const [candidateSearchQuery, setCandidateSearchQuery] = useState<string>('');
   
+  // W3 Payment Evidence & Validation Modal State
+  const [showW3PaymentModal, setShowW3PaymentModal] = useState(false);
+  const [w3ModalCandidate, setW3ModalCandidate] = useState<any>(null);
+
   // Registration & Validation Modal State
   const [showPaymentRegisterModal, setShowPaymentRegisterModal] = useState(false);
   const [registerInstalmentNumber, setRegisterInstalmentNumber] = useState<1 | 2>(1);
@@ -2244,6 +2250,16 @@ export function RapportsFinanceScreen({
       return matchSearch;
     });
   }, [safeCandidats, candidateSearchQuery]);
+
+  const w3ApplicantsList = useMemo(() => {
+    return safeCandidats.map((c) => ({
+      entity_type: 'DEMANDE',
+      entity_ref: c.ref,
+      name: c.full_name,
+      email: c.email,
+      program: c.program,
+    }));
+  }, [safeCandidats]);
 
   // Selected candidate object
   const currentCandidate = useMemo(() => {
@@ -2454,6 +2470,27 @@ export function RapportsFinanceScreen({
           <button
             onClick={() => {
               if (currentCandidate) {
+                setW3ModalCandidate({
+                  entity_type: 'DEMANDE',
+                  entity_ref: currentCandidate.ref,
+                  name: currentCandidate.full_name,
+                  email: currentCandidate.email,
+                  program: currentCandidate.program,
+                });
+              } else {
+                setW3ModalCandidate(null);
+              }
+              setShowW3PaymentModal(true);
+            }}
+            className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 text-xs font-extrabold shadow-sm flex items-center gap-2 transition cursor-pointer"
+          >
+            <CreditCard className="w-4 h-4" />
+            <span>{isEn ? 'Record Payment Evidence (W3)' : 'Enregistrer Justificatif (W3)'}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              if (currentCandidate) {
                 setSelectedCandidateRef(currentCandidate.ref);
               }
               setShowReceiptModal(true);
@@ -2559,6 +2596,17 @@ export function RapportsFinanceScreen({
           }`}
         >
           📑 {isEn ? 'General Invoicing Ledger' : 'Journal Général des Factures'}
+        </button>
+        <button
+          onClick={() => setActiveFinanceTab('validation_center')}
+          className={`px-4 py-2 text-xs font-extrabold rounded-xl transition cursor-pointer flex items-center space-x-1.5 ${
+            activeFinanceTab === 'validation_center'
+              ? 'bg-[#092342] text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <span>⚖️</span>
+          <span>{isEn ? 'Admin Validation Centre (W3)' : 'Centre de Validation Admin (W3)'}</span>
         </button>
       </div>
 
@@ -2777,6 +2825,38 @@ export function RapportsFinanceScreen({
             </table>
           </div>
         </div>
+      )}
+
+      {/* Tab 3: Admin Validation Centre (W3) */}
+      {activeFinanceTab === 'validation_center' && (
+        <AdminPaymentValidationCenter
+          currentUser={currentUser}
+          currentRole={currentRole}
+          onNotify={onNotify}
+          lang={lang}
+        />
+      )}
+
+      {/* W3 Payment Evidence Submission Modal */}
+      {showW3PaymentModal && (
+        <PaymentSubmissionModal
+          isOpen={showW3PaymentModal}
+          onClose={() => {
+            setShowW3PaymentModal(false);
+            setW3ModalCandidate(null);
+          }}
+          onSuccess={() => {
+            setShowW3PaymentModal(false);
+            setW3ModalCandidate(null);
+            onNotify(isEn ? 'Payment evidence submitted successfully' : 'Justificatif de paiement soumis avec succès');
+            if (onRefreshWorkspace) onRefreshWorkspace();
+          }}
+          currentUser={currentUser}
+          currentRole={currentRole}
+          applicantsList={w3ApplicantsList}
+          preselectedApplicant={w3ModalCandidate}
+          lang={lang}
+        />
       )}
 
       {/* MODAL 1: PREPA Candidate Receipts & Payment Schedule Manager */}
