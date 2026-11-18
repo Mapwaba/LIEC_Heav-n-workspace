@@ -1,14 +1,15 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/db';
-import { authenticateServerRequest, canAssignAdvisor, canPerformManualStatusOverride, canVerifyFinancialPayments, canManageProspects } from '@/lib/rbac';
-import { sendAdvisorAssignmentEmail } from '@/lib/emailService';
+import { NextRequest, NextResponse } from 'next/server.js';
+import { getDb, withTransaction } from '../../../lib/db.ts';
+import { allocateDemandeRef, allocateCandidatRef } from '../../../lib/referenceAllocator.ts';
+import { authenticateServerRequest, canAssignAdvisor, canPerformManualStatusOverride, canVerifyFinancialPayments, canManageProspects } from '../../../lib/rbac.ts';
+import { sendAdvisorAssignmentEmail } from '../../../lib/emailService.ts';
 import {
   verifyFirstInstalmentPayment,
   validateRawbankSlip,
   validateRawbankOpCode,
   checkDuplicateRawbankTransaction,
   resolveApplicableInstalmentAmount,
-} from '@/lib/paymentVerification';
+} from '../../../lib/paymentVerification.ts';
 
 function corsHeaders() {
   return {
@@ -44,18 +45,37 @@ function getInitials(name: string): string {
 export async function POST(req: NextRequest) {
   try {
     const db = await getDb();
+    const authResult = await authenticateServerRequest(req, db).catch(() => ({ success: false, user: null }));
+    const authUser = authResult.success ? (authResult as any).user : null;
+    const actor = authUser ? `${authUser.name} (${authUser.business_profile})` : 'Portail Public Web / Demande';
+
     const body = await req.json();
 
-    const fullName = (body.full_name || body.name || 'Nouveau Candidat').trim();
-    const email = (body.email || 'contact@exemple.com').trim();
-    const phone = (body.phone || '+243 81 000 0000').trim();
+    const fullName = (body.full_name || body.name || '').trim();
+    const email = (body.email || '').trim();
+    const phone = (body.phone || '').trim();
+    const program = (body.program || '').trim();
 
-    // 0. Candidate Phone Number (max 14 digits)
+    const errors: { field: string; message: string }[] = [];
+    if (!fullName || fullName.length < 2 || fullName.length > 100 || fullName.toLowerCase().includes('nouveau candidat')) {
+      errors.push({ field: 'full_name', message: 'A valid student full name is required (between 2 and 100 characters).' });
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email) || email === 'contact@exemple.com' || email === 'candidat@liec.edu') {
+      errors.push({ field: 'email', message: 'A valid student email address is required.' });
+    }
     const phoneDigits = phone.replace(/\D/g, '');
-    if (phoneDigits.length > 14) {
+    if (!phone || phoneDigits.length < 8 || phoneDigits.length > 14 || phoneDigits === '243810000000') {
+      errors.push({ field: 'phone', message: 'Phone / WhatsApp number must contain between 8 and 14 digits.' });
+    }
+    if (!program || program.length < 3 || program.length > 150) {
+      errors.push({ field: 'program', message: 'A valid partner school program selection is required.' });
+    }
+
+    if (errors.length > 0) {
       return NextResponse.json(
-        { error: 'Phone / WhatsApp must be limited to a maximum of 14 digits.' },
-        { status: 400 }
+        { error: 'Validation failed', code: 'VALIDATION_ERROR', errors },
+        { status: 400, headers: corsHeaders() }
       );
     }
 
@@ -64,22 +84,24 @@ export async function POST(req: NextRequest) {
 
     // 2. Parent Phone Number (max 14 digits)
     const parentPhone = (body.parent_phone || '').trim();
-    const parentPhoneDigits = parentPhone.replace(/\D/g, '');
-    if (parentPhoneDigits.length > 14) {
-      return NextResponse.json(
-        { error: 'Parent Phone Number must be limited to a maximum of 14 digits.' },
-        { status: 400 }
-      );
+    if (parentPhone) {
+      const parentPhoneDigits = parentPhone.replace(/\D/g, '');
+      if (parentPhoneDigits.length > 14) {
+        return NextResponse.json(
+          { error: 'Parent Phone Number must be limited to a maximum of 14 digits.' },
+          { status: 400, headers: corsHeaders() }
+        );
+      }
     }
 
-    // 3. Year of Graduation (selection between 2010 and 2026)
+    // 3. Year of Graduation (selection between 2010 and 2030)
     const graduationYear = String(body.graduation_year || '').trim();
     if (graduationYear) {
       const gradNum = parseInt(graduationYear, 10);
       if (isNaN(gradNum) || gradNum < 2010 || gradNum > 2030) {
         return NextResponse.json(
           { error: 'Year of Graduation must be between 2010 and 2026.' },
-          { status: 400 }
+          { status: 400, headers: corsHeaders() }
         );
       }
     }
@@ -89,7 +111,7 @@ export async function POST(req: NextRequest) {
     if (currentActivity.length > 25) {
       return NextResponse.json(
         { error: 'Current Activity cannot exceed 25 characters.' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders() }
       );
     }
 
@@ -98,7 +120,7 @@ export async function POST(req: NextRequest) {
     if (finalYearUniversity.length > 4) {
       return NextResponse.json(
         { error: 'Final Year of University cannot exceed 4 digits.' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders() }
       );
     }
 
@@ -114,7 +136,6 @@ export async function POST(req: NextRequest) {
       countryName.includes('Brazza') || countryName === 'Congo'
         ? 'Congolaise (Brazzaville)'
         : 'Congolaise (RDC)';
-    const program = (body.program || 'MyDigitalSchool Lyon — Dév. Web & UX/UI').trim();
     const servicePole = (body.service_pole || 'PREPA / Écoles Partenaires Lyon').trim();
     const targetCities = (body.target_cities || 'Lyon (Campus Partenaire LIEC)').trim();
     const currentLevel = (body.current_level || 'Licence / Bac+3 (En cours)').trim();
@@ -142,7 +163,7 @@ export async function POST(req: NextRequest) {
         'SELECT ref FROM candidats WHERE LOWER(email) = LOWER($1) OR LOWER(full_name) = LOWER($2) LIMIT 1',
         [email, fullName]
       );
-      const canRef = existingCan.rows[0]?.ref || '#CAN-2025-043';
+      const canRef = existingCan.rows[0]?.ref || '#CAN-2025-056';
 
       return NextResponse.json(
         {
@@ -158,104 +179,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const countRes = await db.query<{ count: string | number }>('SELECT COUNT(*) as count FROM demandes');
-    let nextNum = 89 + Number(countRes.rows[0]?.count ?? 0);
-    let ref = `#DEM-2025-${String(nextNum).padStart(3, '0')}`;
-    while (true) {
-      const existing = await db.query('SELECT 1 FROM demandes WHERE ref = $1', [ref]);
-      if (!existing.rows || existing.rows.length === 0) break;
-      nextNum++;
-      ref = `#DEM-2025-${String(nextNum).padStart(3, '0')}`;
-    }
     const initials = getInitials(fullName);
     const countryMeta = COUNTRY_MAP[countryName] || { code: 'CD', flag: '🇨🇩' };
-
     const nowLabel = 'Just now';
-
-    const insertRes = await db.query(
-      `INSERT INTO demandes (
-        ref, initials, full_name, email, phone, parent_full_name, parent_phone, graduation_year, current_activity, final_year_university,
-        whatsapp_verified, country_code, flag, country_name, city, nationality, program, service_pole, target_cities, current_level,
-        budget_range, status, adviser, expected_start, message, submitted_at, is_dashboard_recent, sexe, application_year
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
-      RETURNING *`,
-      [
-        ref,
-        initials,
-        fullName,
-        email,
-        phone,
-        parentFullName || null,
-        parentPhone || null,
-        graduationYear || null,
-        currentActivity || null,
-        finalYearUniversity || null,
-        true,
-        countryMeta.code,
-        countryMeta.flag,
-        countryName,
-        city,
-        nationality,
-        program,
-        servicePole,
-        targetCities,
-        currentLevel,
-        budgetRange,
-        'Nouvelle',
-        'Barthelemy MAPWABA NTORO',
-        expectedStart,
-        message,
-        nowLabel,
-        true,
-        sexe,
-        applicationYear,
-      ]
-    );
-
-    // Link Student to Parent in parent_student_links
-    if (parentFullName && fullName) {
-      await db.query(
-        `INSERT INTO parent_student_links (parent_name, parent_phone, student_name, student_email, student_program, source)
-         VALUES ($1, $2, $3, $4, $5, 'application')
-         ON CONFLICT (parent_name, student_name) DO UPDATE SET
-           parent_phone = COALESCE(EXCLUDED.parent_phone, parent_student_links.parent_phone),
-           student_program = COALESCE(EXCLUDED.student_program, parent_student_links.student_program)`,
-        [parentFullName, parentPhone, fullName, email, program]
-      );
-    }
-
-    await db.query(
-      `INSERT INTO demande_notes (demande_ref, author, timestamp_label, content)
-       VALUES ($1, $2, $3, $4)`,
-      [ref, 'Portail Public LIEC Lyon', "À l'instant", `Demande reçue (${countryName} → Lyon) : ${message}`]
-    );
-
-    await db.query(
-      `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
-       VALUES ($1, $2, $3, 'Succès')`,
-      ['Portail Web / API', `Création nouvelle demande (${fullName} - ${program})`, ref]
-    );
-
-    // Also register candidate record and prospect CRM entry linked to this application
-    const existingCanCheck = await db.query(
-      'SELECT ref FROM candidats WHERE LOWER(email) = LOWER($1) OR LOWER(full_name) = LOWER($2) LIMIT 1',
-      [email, fullName]
-    );
-
-    let canRef = existingCanCheck.rows[0]?.ref;
-    const shouldInsertCandidate = !canRef;
-
-    if (!canRef) {
-      const canCountRes = await db.query<{ count: string | number }>('SELECT COUNT(*) as count FROM candidats');
-      let nextCanNum = 43 + Number(canCountRes.rows[0]?.count ?? 0);
-      canRef = `#CAN-2025-${String(nextCanNum).padStart(3, '0')}`;
-      while (true) {
-        const existingCan = await db.query('SELECT 1 FROM candidats WHERE ref = $1', [canRef]);
-        if (!existingCan.rows || existingCan.rows.length === 0) break;
-        nextCanNum++;
-        canRef = `#CAN-2025-${String(nextCanNum).padStart(3, '0')}`;
-      }
-    }
 
     const schoolCode = program.includes('ISCOM')
       ? 'ISCO'
@@ -347,99 +273,182 @@ export async function POST(req: NextRequest) {
     ];
 
     const nowIso = new Date().toISOString().replace('T', ' ').substring(0, 19);
-    const initialHistory = [
-      {
-        timestamp: nowIso,
-        author: 'Portail Web (demarrer-mon-projet)',
-        activity_type: 'WEB_APPLICATION_RECEIVED',
-        details: `Application submitted on public website. Assigned Demande ${ref} and Candidate Ref ${canRef}.`,
-      },
-    ];
 
-    // Insert Candidate profile under review (if not already existing)
-    if (shouldInsertCandidate) {
-      await db.query(
-        `INSERT INTO candidats (
-          ref, initials, full_name, avatar_url, program, cities, adviser,
-          stage_badge, stage_badge_tone, progress_pct, status_left, status_right,
-          email, phone, parent_full_name, parent_phone, parent_email, parent_relation,
-          graduation_year, current_activity, final_year_university,
-          country, nationality, current_diploma, tcf_score, garant_info, interview_date,
-          admission_status, procedure_status, description, comments,
-          jalons_json, voeux_json, notes_json, pieces_json, history_json
-        ) VALUES (
-          $1,$2,$3,$4,$5,$6,$7,
-          $8,$9,$10,$11,$12,
-          $13,$14,$15,$16,$17,$18,
-          $19,$20,$21,
-          $22,$23,$24,$25,$26,$27,
-          $28,$29,$30,$31,
-          $32,$33,$34,$35,$36
-        )`,
+    const txResult = await withTransaction(db, async (txDb) => {
+      // 1. Allocate Demande Reference (floor 102 for 2025)
+      const ref = await allocateDemandeRef(txDb, 2025);
+
+      const insertRes = await txDb.query(
+        `INSERT INTO demandes (
+          ref, initials, full_name, email, phone, parent_full_name, parent_phone, graduation_year, current_activity, final_year_university,
+          whatsapp_verified, country_code, flag, country_name, city, nationality, program, service_pole, target_cities, current_level,
+          budget_range, status, adviser, expected_start, message, submitted_at, is_dashboard_recent, sexe, application_year
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
+        RETURNING *`,
         [
-          canRef,
+          ref,
           initials,
-          fullName.toUpperCase(),
-          'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=160&auto=format&fit=crop&q=80',
-          program,
-          'Lyon (Campus Partenaire)',
-          'Barthelemy MAPWABA NTORO',
-          'Dossier Reçu',
-          'teal',
-          15,
-          'Dossier à 15%',
-          'J-60 Prépa',
+          fullName,
           email,
           phone,
           parentFullName || null,
           parentPhone || null,
-          null,
-          'Parent',
           graduationYear || null,
           currentActivity || null,
           finalYearUniversity || null,
+          true,
+          countryMeta.code,
+          countryMeta.flag,
           countryName,
+          city,
           nationality,
+          program,
+          servicePole,
+          targetCities,
           currentLevel,
-          'À planifier',
-          'Dossier AVI YIMMILINE à initier',
-          'À fixer',
-          'Under Review — Pending Qualification',
-          'In Progress (Milestone 1)',
+          budgetRange,
+          'Nouvelle',
+          'Barthelemy MAPWABA NTORO',
+          expectedStart,
           message,
-          `Candidature transmise via le formulaire public 2027–2028 (Demande: ${ref})`,
-          JSON.stringify(initialJalons),
-          JSON.stringify(initialVoeux),
-          JSON.stringify([{ author: 'Système', date: "À l'instant", text: `Demande web reçue (${ref})` }]),
-          JSON.stringify(initialPieces),
-          JSON.stringify(initialHistory),
+          nowLabel,
+          true,
+          sexe,
+          applicationYear,
         ]
       );
-    }
 
-    // Also register in prospects CRM queue if not already present
-    const existingProspectCheck = await db.query(
-      'SELECT id FROM prospects WHERE LOWER(full_name) = LOWER($1) LIMIT 1',
-      [fullName]
-    );
-    if (!existingProspectCheck.rows || existingProspectCheck.rows.length === 0) {
-      await db.query(
-        `INSERT INTO prospects (
-          full_name, stage, badge_text, badge_tone, flag, country_city, program_tag,
-          program_tag_tone, highlight_box, meta_left, meta_right, meta_right_tone,
-          adviser_initials, adviser_name, adviser_color, estimated_value, is_urgent, is_prepa
-        ) VALUES ($1,'nouveau','New Web','cyan',$2,$3,$4,'mint',NULL,'2 800 € TTC','À qualifier','teal','BM','B. Mapwaba','navy',2800,FALSE,TRUE)`,
-        [fullName, countryMeta.flag, city, program]
+      // Link Student to Parent in parent_student_links
+      if (parentFullName && fullName) {
+        await txDb.query(
+          `INSERT INTO parent_student_links (parent_name, parent_phone, student_name, student_email, student_program, source)
+           VALUES ($1, $2, $3, $4, $5, 'application')
+           ON CONFLICT (parent_name, student_name) DO UPDATE SET
+             parent_phone = COALESCE(EXCLUDED.parent_phone, parent_student_links.parent_phone),
+             student_program = COALESCE(EXCLUDED.student_program, parent_student_links.student_program)`,
+          [parentFullName, parentPhone, fullName, email, program]
+        );
+      }
+
+      await txDb.query(
+        `INSERT INTO demande_notes (demande_ref, author, timestamp_label, content)
+         VALUES ($1, $2, $3, $4)`,
+        [ref, actor, "À l'instant", `Demande reçue (${countryName} → Lyon) : ${message}`]
       );
-    }
+
+      await txDb.query(
+        `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
+         VALUES ($1, $2, $3, 'Succès')`,
+        [actor, `Création nouvelle demande (${fullName} - ${program})`, ref]
+      );
+
+      // Also register candidate record and prospect CRM entry linked to this application
+      const existingCanCheck = await txDb.query(
+        'SELECT ref FROM candidats WHERE LOWER(email) = LOWER($1) OR LOWER(full_name) = LOWER($2) LIMIT 1',
+        [email, fullName]
+      );
+
+      let canRef = existingCanCheck.rows[0]?.ref;
+      if (!canRef) {
+        canRef = await allocateCandidatRef(txDb, 2025);
+        const initialHistory = [
+          {
+            timestamp: nowIso,
+            author: actor,
+            activity_type: 'WEB_APPLICATION_RECEIVED',
+            details: `Application submitted on public website. Assigned Demande ${ref} and Candidate Ref ${canRef}.`,
+          },
+        ];
+
+        await txDb.query(
+          `INSERT INTO candidats (
+            ref, initials, full_name, avatar_url, program, cities, adviser,
+            stage_badge, stage_badge_tone, progress_pct, status_left, status_right,
+            email, phone, parent_full_name, parent_phone, parent_email, parent_relation,
+            graduation_year, current_activity, final_year_university,
+            country, nationality, current_diploma, tcf_score, garant_info, interview_date,
+            admission_status, procedure_status, description, comments,
+            jalons_json, voeux_json, notes_json, pieces_json, history_json
+          ) VALUES (
+            $1,$2,$3,$4,$5,$6,$7,
+            $8,$9,$10,$11,$12,
+            $13,$14,$15,$16,$17,$18,
+            $19,$20,$21,
+            $22,$23,$24,$25,$26,$27,
+            $28,$29,$30,$31,
+            $32,$33,$34,$35,$36
+          )`,
+          [
+            canRef,
+            initials,
+            fullName.toUpperCase(),
+            'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=160&auto=format&fit=crop&q=80',
+            program,
+            'Lyon (Campus Partenaire)',
+            'Barthelemy MAPWABA NTORO',
+            'Dossier Reçu',
+            'teal',
+            15,
+            'Dossier à 15%',
+            'J-60 Prépa',
+            email,
+            phone,
+            parentFullName || null,
+            parentPhone || null,
+            null,
+            'Parent',
+            graduationYear || null,
+            currentActivity || null,
+            finalYearUniversity || null,
+            countryName,
+            nationality,
+            currentLevel,
+            'À planifier',
+            'Dossier AVI YIMMILINE à initier',
+            'À fixer',
+            'Under Review — Pending Qualification',
+            'In Progress (Milestone 1)',
+            message,
+            `Candidature transmise via le formulaire public 2027–2028 (Demande: ${ref})`,
+            JSON.stringify(initialJalons),
+            JSON.stringify(initialVoeux),
+            JSON.stringify([{ author: 'Système', date: "À l'instant", text: `Demande web reçue (${ref})` }]),
+            JSON.stringify(initialPieces),
+            JSON.stringify(initialHistory),
+          ]
+        );
+      }
+
+      // Also register in prospects CRM queue if not already present
+      const existingProspectCheck = await txDb.query(
+        'SELECT id FROM prospects WHERE LOWER(full_name) = LOWER($1) LIMIT 1',
+        [fullName]
+      );
+      if (!existingProspectCheck.rows || existingProspectCheck.rows.length === 0) {
+        await txDb.query(
+          `INSERT INTO prospects (
+            full_name, stage, badge_text, badge_tone, flag, country_city, program_tag,
+            program_tag_tone, highlight_box, meta_left, meta_right, meta_right_tone,
+            adviser_initials, adviser_name, adviser_color, estimated_value, is_urgent, is_prepa
+          ) VALUES ($1,'nouveau','New Web','cyan',$2,$3,$4,'mint',NULL,'2 800 € TTC','À qualifier','teal','BM','B. Mapwaba','navy',2800,FALSE,TRUE)`,
+          [fullName, countryMeta.flag, city, program]
+        );
+      }
+
+      return {
+        ref,
+        canRef,
+        demande: insertRes.rows[0],
+      };
+    });
 
     return NextResponse.json({
       ok: true,
       success: true,
-      ref,
-      demRef: ref,
-      candidatRef: canRef,
-      demande: insertRes.rows[0],
+      ref: txResult.ref,
+      demRef: txResult.ref,
+      candidatRef: txResult.canRef,
+      demande: txResult.demande,
       message: 'Candidature enregistrée avec succès dans le Workspace LIEC Heav’n.',
     }, { headers: corsHeaders() });
   } catch (error: any) {

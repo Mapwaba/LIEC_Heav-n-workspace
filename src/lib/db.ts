@@ -13,6 +13,7 @@ export interface DBClient {
   query<T = any>(sql: string, params?: any[]): Promise<QueryResult<T>>;
   exec(sql: string): Promise<void>;
   engine: 'pg' | 'pglite';
+  transaction?<T>(callback: (txClient: DBClient) => Promise<T>): Promise<T>;
 }
 
 declare global {
@@ -473,6 +474,7 @@ export async function initSchemaDDL(client: DBClient): Promise<void> {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMP WITH TIME ZONE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS password_updated_at TIMESTAMP WITH TIME ZONE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS password_expiry_transition_deadline TIMESTAMP WITH TIME ZONE;
     ALTER TABLE demande_notes ADD COLUMN IF NOT EXISTS timestamp_label VARCHAR(60) DEFAULT 'Today';
     ALTER TABLE demandes ADD COLUMN IF NOT EXISTS application_year VARCHAR(20);
 
@@ -916,6 +918,35 @@ async function createDBClient(): Promise<DBClient> {
         async exec(sql: string): Promise<void> {
           await pool.query(sql);
         },
+        async transaction<T>(callback: (txClient: DBClient) => Promise<T>): Promise<T> {
+          const client = await pool.connect();
+          try {
+            await client.query('BEGIN;');
+            const txDb: DBClient = {
+              engine: 'pg',
+              async query<R = any>(sql: string, params?: any[]): Promise<QueryResult<R>> {
+                const res = await client.query(sql, params);
+                const rowCount =
+                  typeof res.rowCount === 'number'
+                    ? res.rowCount
+                    : (res.rows && res.rows.length > 0 ? res.rows.length : 0);
+                return { rows: res.rows as R[], rowCount };
+              },
+              async exec(sql: string): Promise<void> {
+                await client.query(sql);
+              },
+              transaction: (cb) => cb(txDb),
+            };
+            const result = await callback(txDb);
+            await client.query('COMMIT;');
+            return result;
+          } catch (err) {
+            await client.query('ROLLBACK;').catch(() => {});
+            throw err;
+          } finally {
+            client.release();
+          }
+        },
       };
 
       if (shouldExecuteRuntimeDDL(pgClient)) {
@@ -971,6 +1002,8 @@ async function createDBClient(): Promise<DBClient> {
     await pglite.waitReady;
   }
 
+  let pgliteTxQueue: Promise<void> = Promise.resolve();
+
   const pgliteClient: DBClient = {
     engine: 'pglite',
     async query<T = any>(sql: string, params?: any[]): Promise<QueryResult<T>> {
@@ -984,6 +1017,29 @@ async function createDBClient(): Promise<DBClient> {
     async exec(sql: string): Promise<void> {
       await pglite.exec(sql);
     },
+    async transaction<T>(callback: (txClient: DBClient) => Promise<T>): Promise<T> {
+      let release: () => void = () => {};
+      const currentTxPromise = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const previousQueue = pgliteTxQueue;
+      pgliteTxQueue = pgliteTxQueue.then(() => currentTxPromise);
+
+      await previousQueue;
+      try {
+        await pglite.query('BEGIN;');
+        try {
+          const result = await callback(pgliteClient);
+          await pglite.query('COMMIT;');
+          return result;
+        } catch (err) {
+          await pglite.query('ROLLBACK;').catch(() => {});
+          throw err;
+        }
+      } finally {
+        release();
+      }
+    },
   };
 
   if (shouldExecuteRuntimeDDL(pgliteClient)) {
@@ -993,6 +1049,28 @@ async function createDBClient(): Promise<DBClient> {
     await seedInitialData(pgliteClient);
   }
   return pgliteClient;
+}
+
+/**
+ * Executes a callback within a managed database transaction.
+ * Ensures advisory locks and atomic operations run on a dedicated client connection.
+ */
+export async function withTransaction<T>(
+  db: DBClient,
+  callback: (txDb: DBClient) => Promise<T>
+): Promise<T> {
+  if (typeof db.transaction === 'function') {
+    return db.transaction(callback);
+  }
+  await db.query('BEGIN;');
+  try {
+    const result = await callback(db);
+    await db.query('COMMIT;');
+    return result;
+  } catch (err) {
+    await db.query('ROLLBACK;').catch(() => {});
+    throw err;
+  }
 }
 
 export async function getDb(): Promise<DBClient> {

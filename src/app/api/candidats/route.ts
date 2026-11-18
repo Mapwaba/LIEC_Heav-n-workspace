@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/db';
-import { authenticateServerRequest, evaluateModuleAccess } from '@/lib/rbac';
+import { NextRequest, NextResponse } from 'next/server.js';
+import { getDb, withTransaction } from '../../../lib/db.ts';
+import { authenticateServerRequest, evaluateModuleAccess, applyFieldLevelAcl } from '../../../lib/rbac.ts';
+import { allocateCandidatRef } from '../../../lib/referenceAllocator.ts';
 
 function corsHeaders() {
   return {
@@ -20,27 +21,79 @@ export async function OPTIONS() {
 export async function GET(req: NextRequest) {
   try {
     const db = await getDb();
+    const auth = await authenticateServerRequest(req, db);
+    if (!auth.success) return auth.response;
+
+    const access = evaluateModuleAccess(auth.user, 'candidats');
+    if (!access.allowed) {
+      return NextResponse.json({ error: access.reason || 'Forbidden' }, { status: 403, headers: corsHeaders() });
+    }
+
     const { searchParams } = new URL(req.url);
     const ref = searchParams.get('ref');
+
+    // Scoped access for Finance Officer (relevant_avi_only)
+    if (access.scope === 'relevant_avi_only' && ref) {
+      const linkCheck = await db.query(
+        `SELECT 1 FROM avi_requests WHERE student_ref = $1
+         UNION
+         SELECT 1 FROM prepa_payments WHERE candidate_ref = $1`,
+        [ref]
+      );
+      if (linkCheck.rows.length === 0) {
+        return NextResponse.json(
+          { error: 'Access denied: Finance Officer access is limited to students with active AVI or financing dossiers.' },
+          { status: 403, headers: corsHeaders() }
+        );
+      }
+    }
 
     let query = 'SELECT * FROM candidats';
     const params: any[] = [];
     if (ref) {
       query += ' WHERE ref = $1';
       params.push(ref);
+    } else if (access.scope === 'relevant_avi_only') {
+      query += ` WHERE ref IN (SELECT student_ref FROM avi_requests WHERE student_ref IS NOT NULL)
+                 OR ref IN (SELECT candidate_ref FROM prepa_payments WHERE candidate_ref IS NOT NULL)
+                 ORDER BY id DESC`;
     } else {
       query += ' ORDER BY id DESC';
     }
 
     const res = await db.query(query, params);
-    const parsed = res.rows.map((row: any) => ({
-      ...row,
-      jalons: JSON.parse(row.jalons_json || '[]'),
-      voeux: JSON.parse(row.voeux_json || '[]'),
-      notes: JSON.parse(row.notes_json || '[]'),
-      pieces: JSON.parse(row.pieces_json || '[]'),
-      history: JSON.parse(row.history_json || '[]'),
-    }));
+    const parsed = res.rows.map((row: any) => {
+      const base = {
+        ...row,
+        jalons: JSON.parse(row.jalons_json || '[]'),
+        voeux: JSON.parse(row.voeux_json || '[]'),
+        notes: JSON.parse(row.notes_json || '[]'),
+        pieces: JSON.parse(row.pieces_json || '[]'),
+        history: JSON.parse(row.history_json || '[]'),
+      };
+
+      const masked = applyFieldLevelAcl(auth.user, 'candidats', base);
+
+      if (access.scope === 'relevant_avi_only') {
+        masked.notes = masked.notes.filter((n: any) =>
+          n.text?.toLowerCase().includes('avi') ||
+          n.text?.toLowerCase().includes('finance') ||
+          n.text?.toLowerCase().includes('garant') ||
+          n.text?.toLowerCase().includes('paiement')
+        );
+        masked.notes_json = JSON.stringify(masked.notes);
+        masked.pieces = masked.pieces.filter((p: any) =>
+          p.name?.toLowerCase().includes('passeport') ||
+          p.name?.toLowerCase().includes('garant') ||
+          p.name?.toLowerCase().includes('attestation') ||
+          p.name?.toLowerCase().includes('virement') ||
+          p.name?.toLowerCase().includes('avi')
+        );
+        masked.pieces_json = JSON.stringify(masked.pieces);
+      }
+
+      return masked;
+    });
 
     if (ref) {
       if (parsed.length === 0) {
@@ -60,25 +113,44 @@ export async function POST(req: NextRequest) {
   try {
     const db = await getDb();
     const auth = await authenticateServerRequest(req, db);
-    const currentUser = auth.success ? auth.user : null;
+    if (!auth.success) return auth.response;
+
+    const access = evaluateModuleAccess(auth.user, 'candidats');
+    if (!access.allowed || access.scope === 'relevant_avi_only') {
+      return NextResponse.json(
+        { error: 'Forbidden: You do not have permission to create student dossiers.' },
+        { status: 403, headers: corsHeaders() }
+      );
+    }
+    const currentUser = auth.user;
 
     const body = await req.json();
 
-    // 1. Candidate Info (supports both standard and external public form field names)
-    const fullName = (
-      body.full_name ||
-      body.nom_complet ||
-      body.fullName ||
-      'Nouveau Candidat'
-    ).trim();
-    const email = (body.email || body.adresse_email || 'candidat@liec.edu').trim();
-    const phone = (body.phone || body.telephone || '+243 81 000 0000').trim();
+    // 1. Candidate Info Validation (Strict, no synthetic defaults)
+    const fullName = (body.full_name || body.nom_complet || body.fullName || '').trim();
+    const email = (body.email || body.adresse_email || '').trim();
+    const phone = (body.phone || body.telephone || '').trim();
+    const program = (body.program || body.filiere_cible || body.formation_choisie || '').trim();
 
-    // Validate Candidate Phone Number (max 14 digits)
+    const errors: { field: string; message: string }[] = [];
+    if (!fullName || fullName.length < 2 || fullName.length > 100 || fullName.toLowerCase().includes('nouveau candidat')) {
+      errors.push({ field: 'full_name', message: 'A valid student full name is required (between 2 and 100 characters).' });
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email) || email === 'candidat@liec.edu' || email === 'contact@exemple.com') {
+      errors.push({ field: 'email', message: 'A valid student email address is required.' });
+    }
     const phoneDigits = phone.replace(/\D/g, '');
-    if (phoneDigits.length > 14) {
+    if (!phone || phoneDigits.length < 8 || phoneDigits.length > 14 || phoneDigits === '243810000000') {
+      errors.push({ field: 'phone', message: 'Phone / WhatsApp number must contain between 8 and 14 digits.' });
+    }
+    if (!program || program.length < 3 || program.length > 150) {
+      errors.push({ field: 'program', message: 'A valid partner school program selection is required.' });
+    }
+
+    if (errors.length > 0) {
       return NextResponse.json(
-        { error: 'Phone / WhatsApp must be limited to a maximum of 14 digits.' },
+        { error: 'Validation failed', code: 'VALIDATION_ERROR', errors },
         { status: 400, headers: corsHeaders() }
       );
     }
@@ -97,14 +169,8 @@ export async function POST(req: NextRequest) {
     const villeOrigine = (body.ville_origine || body.city || 'Kinshasa').trim();
     const rawSexe = (body.sexe || body.gender || 'Male').trim();
     const sexe = (rawSexe === 'Féminin' || rawSexe === 'Female') ? 'Female' : 'Male';
-    const program = (
-      body.program ||
-      body.filiere_cible ||
-      body.formation_choisie ||
-      'MyDigitalSchool Lyon — Dév. Web & UX/UI'
-    ).trim();
     const cities = (body.cities || 'Lyon (Campus Part-Dieu)').trim();
-    const adviser = (body.adviser || currentUser?.name || 'Barthelemy MAPWABA NTORO').trim();
+    const adviser = (body.adviser || currentUser.name).trim();
 
     // 2. Parent / Tutor Information
     const parentFullName = (
@@ -136,17 +202,6 @@ export async function POST(req: NextRequest) {
     const graduationYear = String(body.graduation_year || body.annee_diplome || '2024').trim();
     const currentActivity = (body.current_activity || body.activite_actuelle || '').trim();
     const finalYearUniversity = (body.final_year_university || body.derniere_annee_univ || '').trim();
-
-    // Generate unique reference #CAN-2025-XXX
-    const countRes = await db.query<{ count: string | number }>('SELECT COUNT(*) as count FROM candidats');
-    let nextNum = 43 + Number(countRes.rows[0]?.count ?? 0);
-    let ref = `#CAN-2025-${String(nextNum).padStart(3, '0')}`;
-    while (true) {
-      const existingCan = await db.query('SELECT 1 FROM candidats WHERE ref = $1', [ref]);
-      if (!existingCan.rows || existingCan.rows.length === 0) break;
-      nextNum++;
-      ref = `#CAN-2025-${String(nextNum).padStart(3, '0')}`;
-    }
 
     const parts = fullName.split(/\s+/);
     const initials =
@@ -240,94 +295,99 @@ export async function POST(req: NextRequest) {
       { name: 'Attestation TCF B2', meta: 'Non requis', status: 'pending' },
     ];
 
-    const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
-    const initialHistory = [
-      {
-        timestamp,
-        author: currentUser ? `${currentUser.name} (${currentUser.business_profile})` : adviser,
-        activity_type: 'RECORD_CREATED',
-        details: `Student Record initiated for ${fullName} (${ref}).`,
-      },
-    ];
+    const createdRef = await withTransaction(db, async (txDb) => {
+      const ref = await allocateCandidatRef(txDb, 2025);
+      const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+      const initialHistory = [
+        {
+          timestamp,
+          author: `${currentUser.name} (${currentUser.business_profile})`,
+          activity_type: 'RECORD_CREATED',
+          details: `Student Record initiated for ${fullName} (${ref}).`,
+        },
+      ];
 
-    await db.query(
-      `INSERT INTO candidats (
-        ref, initials, full_name, avatar_url, program, cities, adviser,
-        stage_badge, stage_badge_tone, progress_pct, status_left, status_right,
-        email, phone, parent_full_name, parent_phone, parent_email, parent_relation,
-        graduation_year, current_activity, final_year_university,
-        country, nationality, current_diploma, tcf_score, garant_info, interview_date,
-        admission_status, procedure_status, description, comments,
-        jalons_json, voeux_json, notes_json, pieces_json, history_json, sexe
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7,
-        $8, $9, $10, $11, $12,
-        $13, $14, $15, $16, $17, $18,
-        $19, $20, $21,
-        $22, $23, $24, $25, $26, $27,
-        $28, $29, $30, $31,
-        $32, $33, $34, $35, $36, $37
-      )`,
-      [
-        ref,
-        initials,
-        fullName,
-        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=160&auto=format&fit=crop&q=80',
-        program,
-        cities,
-        adviser,
-        procedureStatus,
-        'teal',
-        25,
-        'Dossier à 25%',
-        'J-30 CF',
-        email,
-        phone,
-        parentFullName || null,
-        parentPhone || null,
-        parentEmail || null,
-        parentRelation || 'Parent',
-        graduationYear || null,
-        currentActivity || null,
-        finalYearUniversity || null,
-        country,
-        nationality,
-        'Licence / Bac+3 (En cours)',
-        'Inscription TCF en cours',
-        'Dossier AVI YIMMILINE à initier',
-        '15 Novembre 2025',
-        admissionStatus,
-        procedureStatus,
-        description,
-        comments,
-        JSON.stringify(jalons),
-        JSON.stringify(voeux),
-        JSON.stringify(notes),
-        JSON.stringify(pieces),
-        JSON.stringify(initialHistory),
-        sexe,
-      ]
-    );
-
-    if (parentFullName && fullName) {
-      await db.query(
-        `INSERT INTO parent_student_links (parent_name, parent_phone, student_name, student_email, student_program, source)
-         VALUES ($1, $2, $3, $4, $5, 'candidate')
-         ON CONFLICT (parent_name, student_name) DO UPDATE SET
-           parent_phone = COALESCE(EXCLUDED.parent_phone, parent_student_links.parent_phone),
-           student_program = COALESCE(EXCLUDED.student_program, parent_student_links.student_program)`,
-        [parentFullName, parentPhone, fullName, email, program]
+      await txDb.query(
+        `INSERT INTO candidats (
+          ref, initials, full_name, avatar_url, program, cities, adviser,
+          stage_badge, stage_badge_tone, progress_pct, status_left, status_right,
+          email, phone, parent_full_name, parent_phone, parent_email, parent_relation,
+          graduation_year, current_activity, final_year_university,
+          country, nationality, current_diploma, tcf_score, garant_info, interview_date,
+          admission_status, procedure_status, description, comments,
+          jalons_json, voeux_json, notes_json, pieces_json, history_json, sexe
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7,
+          $8, $9, $10, $11, $12,
+          $13, $14, $15, $16, $17, $18,
+          $19, $20, $21,
+          $22, $23, $24, $25, $26, $27,
+          $28, $29, $30, $31,
+          $32, $33, $34, $35, $36, $37
+        )`,
+        [
+          ref,
+          initials,
+          fullName,
+          'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=160&auto=format&fit=crop&q=80',
+          program,
+          cities,
+          adviser,
+          procedureStatus,
+          'teal',
+          25,
+          'Dossier à 25%',
+          'J-30 CF',
+          email,
+          phone,
+          parentFullName || null,
+          parentPhone || null,
+          parentEmail || null,
+          parentRelation || 'Parent',
+          graduationYear || null,
+          currentActivity || null,
+          finalYearUniversity || null,
+          country,
+          nationality,
+          'Licence / Bac+3 (En cours)',
+          'Inscription TCF en cours',
+          'Dossier AVI YIMMILINE à initier',
+          '15 Novembre 2025',
+          admissionStatus,
+          procedureStatus,
+          description,
+          comments,
+          JSON.stringify(jalons),
+          JSON.stringify(voeux),
+          JSON.stringify(notes),
+          JSON.stringify(pieces),
+          JSON.stringify(initialHistory),
+          sexe,
+        ]
       );
-    }
 
-    await db.query(
-      `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
-       VALUES ($1, $2, $3, 'Succès')`,
-      [adviser, `Création nouveau candidat Lyon (${fullName})`, ref]
-    );
+      if (parentFullName && fullName) {
+        await txDb.query(
+          `INSERT INTO parent_student_links (parent_name, parent_phone, student_name, student_email, student_program, source)
+           VALUES ($1, $2, $3, $4, $5, 'candidate')
+           ON CONFLICT (parent_name, student_name) DO UPDATE SET
+             parent_phone = COALESCE(EXCLUDED.parent_phone, parent_student_links.parent_phone),
+             student_program = COALESCE(EXCLUDED.student_program, parent_student_links.student_program)`,
+          [parentFullName, parentPhone, fullName, email, program]
+        );
+      }
+
+      await txDb.query(
+        `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
+         VALUES ($1, $2, $3, 'Succès')`,
+        [`${currentUser.name} (${currentUser.business_profile})`, `Création nouveau candidat Lyon (${fullName})`, ref]
+      );
+
+      return ref;
+    });
 
     return NextResponse.json(
-      { ok: true, success: true, ref, candidatRef: ref, message: 'Student Record successfully created.' },
+      { ok: true, success: true, ref: createdRef, candidatRef: createdRef, message: 'Student Record successfully created.' },
       { headers: corsHeaders() }
     );
   } catch (error: any) {
@@ -344,8 +404,11 @@ export async function PUT(req: NextRequest) {
 
     const { user } = auth;
     const access = evaluateModuleAccess(user, 'candidats');
-    if (!access.allowed) {
-      return NextResponse.json({ error: access.reason || 'Forbidden' }, { status: 403, headers: corsHeaders() });
+    if (!access.allowed || access.scope === 'relevant_avi_only') {
+      return NextResponse.json(
+        { error: 'Forbidden: You do not have permission to modify student dossiers.' },
+        { status: 403, headers: corsHeaders() }
+      );
     }
 
     const body = await req.json();
@@ -662,6 +725,20 @@ export async function DELETE(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const db = await getDb();
+    const auth = await authenticateServerRequest(req, db);
+    if (!auth.success) return auth.response;
+
+    const access = evaluateModuleAccess(auth.user, 'candidats');
+    if (!access.allowed || access.scope === 'relevant_avi_only') {
+      return NextResponse.json(
+        { error: 'Forbidden: You do not have permission to modify student dossiers.' },
+        { status: 403, headers: corsHeaders() }
+      );
+    }
+
+    const currentUser = auth.user;
+    const authorSignature = `${currentUser.name} (${currentUser.business_profile})`;
+
     const body = await req.json();
     const { ref, action } = body;
 
@@ -678,7 +755,7 @@ export async function PATCH(req: NextRequest) {
     if (action === 'add_note') {
       const notes = JSON.parse(cand.notes_json || '[]');
       const newNote = {
-        author: body.author || 'Barthelemy MAPWABA NTORO',
+        author: body.author || authorSignature,
         date: "Aujourd'hui, à l'instant",
         text: (body.text || '').trim(),
       };
@@ -725,7 +802,7 @@ export async function PATCH(req: NextRequest) {
       const history = JSON.parse(cand.history_json || '[]');
       history.unshift({
         timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-        author: body.author || 'Barthelemy MAPWABA NTORO',
+        author: body.author || authorSignature,
         activity_type: 'SCHOOL_APPLICATION_ADDED',
         details: `Partner school application added: ${newVoeu.university} (${newVoeu.program}).`,
       });
@@ -755,7 +832,7 @@ export async function PATCH(req: NextRequest) {
       const history = JSON.parse(cand.history_json || '[]');
       history.unshift({
         timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-        author: body.author || 'Barthelemy MAPWABA NTORO',
+        author: body.author || authorSignature,
         activity_type: 'MILESTONE_ADVANCED',
         details: `Milestone advanced to Jalon ${jalonNum} (Progress: ${nextPct}%).`,
       });
@@ -778,6 +855,11 @@ export async function PATCH(req: NextRequest) {
         JSON.stringify(pieces),
         ref,
       ]);
+      await db.query(
+        `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
+         VALUES ($1, 'Mise à jour statut pièce dossier candidat', $2, 'Succès')`,
+        [authorSignature, ref]
+      );
       return NextResponse.json({ ok: true, pieces }, { headers: corsHeaders() });
     }
 

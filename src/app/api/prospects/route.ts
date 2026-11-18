@@ -1,14 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/db';
-import { authenticateServerRequest, canAssignAdvisor, canPerformManualStatusOverride, canVerifyFinancialPayments, canManageProspects } from '@/lib/rbac';
-import { sendAdvisorAssignmentEmail } from '@/lib/emailService';
+import { NextRequest, NextResponse } from 'next/server.js';
+import { getDb } from '../../../lib/db.ts';
+import { authenticateServerRequest, canAssignAdvisor, canPerformManualStatusOverride, canVerifyFinancialPayments, canManageProspects } from '../../../lib/rbac.ts';
+import { sendAdvisorAssignmentEmail } from '../../../lib/emailService.ts';
 import {
   verifyFirstInstalmentPayment,
   validateRawbankSlip,
   validateRawbankOpCode,
   checkDuplicateRawbankTransaction,
   resolveApplicableInstalmentAmount,
-} from '@/lib/paymentVerification';
+} from '../../../lib/paymentVerification.ts';
 
 const COUNTRY_FLAGS: Record<string, string> = {
   RDC: '🇨🇩',
@@ -19,15 +19,35 @@ const COUNTRY_FLAGS: Record<string, string> = {
 export async function POST(req: NextRequest) {
   try {
     const db = await getDb();
+    const authResult = await authenticateServerRequest(req, db).catch(() => ({ success: false, user: null }));
+    const authUser = authResult.success ? (authResult as any).user : null;
+    const actor = authUser ? `${authUser.name} (${authUser.business_profile})` : 'Portail Public Web / Prospect';
+
     const body = await req.json();
 
-    const fullName = (body.full_name || 'Nouveau Prospect').trim();
+    const fullName = (body.full_name || body.name || '').trim();
+    const programTag = (body.program_tag || body.program || '').trim();
+
+    const errors: { field: string; message: string }[] = [];
+    if (!fullName || fullName.length < 2 || fullName.length > 100 || fullName.toLowerCase().includes('nouveau prospect')) {
+      errors.push({ field: 'full_name', message: 'A valid prospect full name is required (between 2 and 100 characters).' });
+    }
+    if (!programTag || programTag.length < 3 || programTag.length > 150) {
+      errors.push({ field: 'program_tag', message: 'A valid program tag is required.' });
+    }
+
+    if (errors.length > 0) {
+      return NextResponse.json(
+        { error: 'Validation failed', code: 'VALIDATION_ERROR', errors },
+        { status: 400 }
+      );
+    }
+
     const stage = body.stage || 'nouveau';
     const country = body.country || 'RDC';
     const city =
       body.city || (country.includes('Brazza') || country === 'Congo' ? 'Brazzaville' : 'Kinshasa');
-    const programTag = body.program_tag || 'MyDigitalSchool Lyon — UX/UI';
-    const adviserName = body.adviser_name || 'Barthelemy MAPWABA NTORO';
+    const adviserName = body.adviser_name || (authUser ? authUser.name : 'Barthelemy MAPWABA NTORO');
     const estimatedValue = Number(body.estimated_value) || 1800;
     const isUrgent = Boolean(body.is_urgent);
 
@@ -69,8 +89,8 @@ export async function POST(req: NextRequest) {
 
     await db.query(
       `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
-       VALUES ('Barthelemy MAPWABA NTORO', $1, $2, 'Succès')`,
-      [`Ajout prospect pipeline Lyon (${fullName})`, `PROSPECT-${res.rows[0]?.id}`]
+       VALUES ($1, $2, $3, 'Succès')`,
+      [actor, `Ajout prospect pipeline Lyon (${fullName})`, `PROSPECT-${res.rows[0]?.id}`]
     );
 
     return NextResponse.json({ prospect: res.rows[0] });
