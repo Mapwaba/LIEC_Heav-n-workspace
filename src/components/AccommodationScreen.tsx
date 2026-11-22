@@ -94,6 +94,17 @@ export interface AccommodationRequest {
   updated_at?: string;
 }
 
+export const translateAccommodationType = (type: string, isEn: boolean) => {
+  if (!isEn || !type) return type;
+  const map: Record<string, string> = {
+    'Studio Meublé (Résidence Étudiante)': 'Furnished Studio (Student Residence)',
+    'Résidence CROUS / Conventionnée': 'CROUS / Partner Residence',
+    'Colocation Équipée': 'Shared Furnished Apartment',
+    "Logement chez l'habitant / Famille": 'Homestay / Host Family',
+  };
+  return map[type] || type;
+};
+
 interface AccommodationScreenProps {
   accommodationRequests: AccommodationRequest[];
   candidats: any[];
@@ -764,7 +775,7 @@ export default function AccommodationScreen({
                           {req.preferred_location}
                         </div>
                         <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                          {req.accommodation_type}
+                          {translateAccommodationType(req.accommodation_type, isEn)}
                         </div>
                       </td>
 
@@ -1108,7 +1119,7 @@ export default function AccommodationScreen({
                       {isEn ? 'Type' : 'Typologie'}
                     </span>
                     <span className="font-semibold text-slate-800 dark:text-slate-200">
-                      {selectedRequest.accommodation_type}
+                      {translateAccommodationType(selectedRequest.accommodation_type, isEn)}
                     </span>
                   </div>
 
@@ -1638,14 +1649,16 @@ export default function AccommodationScreen({
                     required
                   >
                     <option value="Studio Meublé (Résidence Étudiante)">
-                      Studio Meublé (Résidence Étudiante)
+                      {isEn ? 'Furnished Studio (Student Residence)' : 'Studio Meublé (Résidence Étudiante)'}
                     </option>
                     <option value="Résidence CROUS / Conventionnée">
-                      Résidence CROUS / Conventionnée
+                      {isEn ? 'CROUS / Partner Residence' : 'Résidence CROUS / Conventionnée'}
                     </option>
-                    <option value="Colocation Équipée">Colocation Équipée</option>
+                    <option value="Colocation Équipée">
+                      {isEn ? 'Shared Furnished Apartment' : 'Colocation Équipée'}
+                    </option>
                     <option value="Logement chez l'habitant / Famille">
-                      Logement chez l'habitant / Famille
+                      {isEn ? "Homestay / Host Family" : "Logement chez l'habitant / Famille"}
                     </option>
                   </select>
                 </div>
@@ -1787,7 +1800,7 @@ export default function AccommodationScreen({
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">{isEn ? 'Accommodation Details:' : 'Détails du logement :'}</span>
-                <span className="font-semibold text-slate-700 dark:text-slate-300">{selectedRequest.accommodation_type} • {selectedRequest.preferred_location}</span>
+                <span className="font-semibold text-slate-700 dark:text-slate-300">{translateAccommodationType(selectedRequest.accommodation_type, isEn)} • {selectedRequest.preferred_location}</span>
               </div>
               {selectedRequest.email_sent_at && (
                 <div className="flex justify-between">

@@ -16,6 +16,14 @@ export async function POST(req: NextRequest) {
           const db = await getDb();
           await revokeDatabaseSession(db, verified.payload.jti);
 
+          // Clear real-time presence immediately on explicit logout
+          const userId = String(verified.payload.id || verified.payload.email);
+          const sessionId = String(verified.payload.jti);
+          await db.query(
+            `DELETE FROM user_presence WHERE user_id = $1 OR session_id = $2`,
+            [userId, sessionId]
+          ).catch(() => {});
+
           await db.query(
             `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
              VALUES ($1, 'USER_LOGOUT', $2, 'SUCCESS', 'Session revoked server-side on logout.')`,

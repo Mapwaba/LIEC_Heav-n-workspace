@@ -427,6 +427,30 @@ export async function PUT(req: NextRequest) {
     }
     const cand = existingRes.rows[0];
 
+    // Optimistic Concurrency Control: Check version conflict
+    const expectedVersion = body.version !== undefined ? Number(body.version) : undefined;
+    if (expectedVersion !== undefined && cand.version !== undefined && cand.version !== expectedVersion) {
+      await db.query(
+        `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+         VALUES ($1, 'Concurrent Conflict Detected', $2, 'Rejected', $3)`,
+        [
+          `${user.name} (${user.business_profile})`,
+          ref,
+          `Conflict: incoming version ${expectedVersion} != database version ${cand.version}`,
+        ]
+      );
+      return NextResponse.json(
+        {
+          error: 'CONCURRENT_MODIFICATION',
+          code: 'CONCURRENCY_CONFLICT',
+          message: 'This record was modified by another user while you were editing it. Please reload to review the latest differences.',
+          current_version: cand.version,
+          latest_record: cand,
+        },
+        { status: 409, headers: corsHeaders() }
+      );
+    }
+
     // Validate phone numbers if provided (max 14 digits)
     const phone = body.phone !== undefined ? body.phone.trim() : cand.phone;
     if (phone) {
@@ -547,7 +571,9 @@ export async function PUT(req: NextRequest) {
         visa_decision_date = $20,
         visa_outcome_notes = $21,
         qualification_status = $22,
-        qualified_at = $23
+        qualified_at = $23,
+        version = version + 1,
+        updated_at = NOW()
        WHERE ref = $24`,
       [
         fullName,
@@ -769,7 +795,7 @@ export async function PATCH(req: NextRequest) {
         details: `Note added: "${newNote.text.slice(0, 60)}${newNote.text.length > 60 ? '...' : ''}"`,
       });
 
-      await db.query('UPDATE candidats SET notes_json = $1, history_json = $2 WHERE ref = $3', [
+      await db.query('UPDATE candidats SET notes_json = $1, history_json = $2, version = version + 1, updated_at = NOW() WHERE ref = $3', [
         JSON.stringify(notes),
         JSON.stringify(history),
         ref,
@@ -807,7 +833,7 @@ export async function PATCH(req: NextRequest) {
         details: `Partner school application added: ${newVoeu.university} (${newVoeu.program}).`,
       });
 
-      await db.query('UPDATE candidats SET voeux_json = $1, history_json = $2 WHERE ref = $3', [
+      await db.query('UPDATE candidats SET voeux_json = $1, history_json = $2, version = version + 1, updated_at = NOW() WHERE ref = $3', [
         JSON.stringify(voeux),
         JSON.stringify(history),
         ref,
@@ -838,7 +864,7 @@ export async function PATCH(req: NextRequest) {
       });
 
       await db.query(
-        'UPDATE candidats SET jalons_json = $1, progress_pct = $2, stage_badge = $3, history_json = $4 WHERE ref = $5',
+        'UPDATE candidats SET jalons_json = $1, progress_pct = $2, stage_badge = $3, history_json = $4, version = version + 1, updated_at = NOW() WHERE ref = $5',
         [JSON.stringify(jalons), nextPct, `En cours (Jalon ${jalonNum})`, JSON.stringify(history), ref]
       );
       return NextResponse.json({ ok: true, jalons, progress_pct: nextPct, history }, { headers: corsHeaders() });
@@ -851,7 +877,7 @@ export async function PATCH(req: NextRequest) {
         pieces[index].status = pieces[index].status === 'valid' ? 'pending' : 'valid';
         pieces[index].meta = pieces[index].status === 'valid' ? 'Certifié' : 'En révision';
       }
-      await db.query('UPDATE candidats SET pieces_json = $1 WHERE ref = $2', [
+      await db.query('UPDATE candidats SET pieces_json = $1, version = version + 1, updated_at = NOW() WHERE ref = $2', [
         JSON.stringify(pieces),
         ref,
       ]);

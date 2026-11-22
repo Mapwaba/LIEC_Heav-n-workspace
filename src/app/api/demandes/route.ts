@@ -564,7 +564,9 @@ export async function PATCH(req: NextRequest) {
               adviser_email = $2,
               adviser_assigned_at = CURRENT_TIMESTAMP,
               adviser_assigned_by = $3,
-              assignment_history_json = $4
+              assignment_history_json = $4,
+              version = version + 1,
+              updated_at = NOW()
              WHERE ref = $5`,
             [verifiedName, verifiedEmail, actor, JSON.stringify(history), targetRef]
           );
@@ -749,7 +751,9 @@ export async function PATCH(req: NextRequest) {
               override_notes = $4,
               override_by = $5,
               override_at = CURRENT_TIMESTAMP,
-              status_history_json = $6
+              status_history_json = $6,
+              version = version + 1,
+              updated_at = NOW()
              WHERE ref = $7`,
             [targetStatus, dem.status, reason, notes || null, actor, JSON.stringify(history), targetRef]
           );
@@ -844,7 +848,9 @@ export async function PATCH(req: NextRequest) {
         await db.query(
           `UPDATE demandes SET
             is_manual_override = FALSE,
-            status_history_json = $1
+            status_history_json = $1,
+            version = version + 1,
+            updated_at = NOW()
            WHERE ref = $2`,
           [JSON.stringify(history), targetRef]
         );
@@ -867,6 +873,27 @@ export async function PATCH(req: NextRequest) {
 
     if (!ref) {
       return NextResponse.json({ error: 'Référence requise' }, { status: 400 });
+    }
+
+    // Optimistic Concurrency Control: Check expected version against stored record
+    const expectedVersion = body.version !== undefined ? Number(body.version) : undefined;
+    if (expectedVersion !== undefined) {
+      const verCheck = await db.query('SELECT version FROM demandes WHERE ref = $1', [ref]);
+      if (verCheck.rows.length > 0) {
+        const storedVersion = verCheck.rows[0].version;
+        if (storedVersion !== undefined && storedVersion !== expectedVersion) {
+          return NextResponse.json(
+            {
+              error: 'CONCURRENT_MODIFICATION',
+              code: 'CONCURRENCY_CONFLICT',
+              message: 'This application record was modified by another collaborator while you were editing it. Please reload to review the latest differences.',
+              current_version: storedVersion,
+              client_version: expectedVersion,
+            },
+            { status: 409 }
+          );
+        }
+      }
     }
 
     if (action === 'add_note') {
@@ -892,13 +919,13 @@ export async function PATCH(req: NextRequest) {
       const newStatus = body.status || 'Qualifiée';
       const adviser = body.adviser;
       if (adviser) {
-        await db.query(`UPDATE demandes SET status = $1, adviser = $2 WHERE ref = $3`, [
+        await db.query(`UPDATE demandes SET status = $1, adviser = $2, version = version + 1, updated_at = NOW() WHERE ref = $3`, [
           newStatus,
           adviser,
           ref,
         ]);
       } else {
-        await db.query(`UPDATE demandes SET status = $1 WHERE ref = $2`, [newStatus, ref]);
+        await db.query(`UPDATE demandes SET status = $1, version = version + 1, updated_at = NOW() WHERE ref = $2`, [newStatus, ref]);
       }
       await db.query(
         `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
@@ -1053,7 +1080,9 @@ export async function PATCH(req: NextRequest) {
              eligibility_status = $1,
              eligibility_notes = $2,
              eligibility_assessed_by = $3,
-             eligibility_date = CURRENT_TIMESTAMP
+             eligibility_date = CURRENT_TIMESTAMP,
+             version = version + 1,
+             updated_at = NOW()
            WHERE ref = $4`,
           [eligibilityStatus, notes, assessedBy, ref]
         );
@@ -1105,7 +1134,9 @@ export async function PATCH(req: NextRequest) {
              registration_completed = TRUE,
              registration_verified_by = $1,
              registration_notes = $2,
-             registration_date = CURRENT_TIMESTAMP
+             registration_date = CURRENT_TIMESTAMP,
+             version = version + 1,
+             updated_at = NOW()
            WHERE ref = $3`,
           [verifiedBy, notes, ref]
         );
@@ -1247,7 +1278,9 @@ export async function PATCH(req: NextRequest) {
              rawbank_operation_code = $4,
              first_instalment_verified_by = $5,
              first_instalment_notes = $6,
-             first_instalment_date = CURRENT_TIMESTAMP
+             first_instalment_date = CURRENT_TIMESTAMP,
+             version = version + 1,
+             updated_at = NOW()
            WHERE ref = $7`,
           [verifiedAmount, verifiedRef, slipNumber, opCode, verifiedBy, notes, ref]
         );
@@ -1650,7 +1683,9 @@ export async function PATCH(req: NextRequest) {
              registration_completed = TRUE,
              first_instalment_paid = TRUE,
              first_instalment_amount = $3,
-             first_instalment_ref = $4
+             first_instalment_ref = $4,
+             version = version + 1,
+             updated_at = NOW()
            WHERE ref = $5`,
           [canonicalQualificationTimestamp, canRef, verifiedPaymentAmount, verifiedPaymentRef, ref]
         );

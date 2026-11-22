@@ -219,7 +219,7 @@ export async function POST(req: NextRequest) {
     try {
       await db.query(
         `INSERT INTO audit_logs (actor, action, entity_ref, outcome)
-         VALUES ($1, 'Mot de passe validé - En attente code MFA Google Authenticator (' || $2 || ')', 'AUTH-PASSWORD-CHECK', 'Succès')`,
+         VALUES ($1, 'Password verified – Awaiting Google Authenticator MFA code (' || $2 || ')', 'AUTH-PASSWORD-CHECK', 'Success')`,
         [userPayload.name, userPayload.role]
       );
     } catch {}

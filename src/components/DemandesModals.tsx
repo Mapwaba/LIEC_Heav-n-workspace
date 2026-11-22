@@ -743,6 +743,14 @@ export function FullStudentRecordModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#092342]/60 p-4 backdrop-blur-xs animate-in fade-in duration-150">
       <div className="w-full max-w-3xl max-h-[92vh] flex flex-col rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
+        {/* Persistent Student Record Header */}
+        <div className="bg-[#06172e] text-[#93c5fd] px-6 py-2 text-[11px] font-extrabold uppercase tracking-widest flex items-center justify-between border-b border-blue-900/40">
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>LIEC HEAV’N • STUDENT RECORD MANAGEMENT</span>
+          </div>
+          <span className="font-mono text-[10px] text-slate-300">{demande.ref}</span>
+        </div>
         {/* Modal Top Bar */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-slate-50 via-white to-slate-50">
           <div className="flex items-center gap-3">

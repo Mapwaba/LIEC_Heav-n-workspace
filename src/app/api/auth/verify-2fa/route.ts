@@ -143,8 +143,9 @@ export async function POST(req: NextRequest) {
         );
       } catch {}
 
+      const userLang = req.headers.get('x-user-lang') || 'en';
       return NextResponse.json(
-        { error: 'Code Google Authenticator invalide ou expiré / Invalid code.' },
+        { error: userLang === 'fr' ? 'Code Google Authenticator invalide ou expiré.' : 'Invalid or expired Google Authenticator code.' },
         { status: 401 }
       );
     }

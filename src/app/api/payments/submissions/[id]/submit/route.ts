@@ -38,6 +38,8 @@ export async function POST(
 
     const resolvedParams = await Promise.resolve(context.params);
     const submissionId = parseInt(resolvedParams.id, 10);
+    const body = await req.json().catch(() => ({}));
+    const expectedVersion = body.version !== undefined ? Number(body.version) : undefined;
 
     // 1. Fetch submission
     const subRes = await db.query(
@@ -48,6 +50,20 @@ export async function POST(
       return NextResponse.json({ error: 'Payment submission not found.' }, { status: 404, headers: corsHeaders() });
     }
     const sub = subRes.rows[0];
+
+    // Optimistic Concurrency Control: Check version conflict
+    if (expectedVersion !== undefined && sub.version !== undefined && sub.version !== expectedVersion) {
+      return NextResponse.json(
+        {
+          error: 'CONCURRENT_MODIFICATION',
+          code: 'CONCURRENCY_CONFLICT',
+          message: 'This payment submission was modified by another user or process. Please reload to review the latest state.',
+          current_version: sub.version,
+          client_version: expectedVersion,
+        },
+        { status: 409, headers: corsHeaders() }
+      );
+    }
 
     if (sub.is_archived) {
       return NextResponse.json({ error: 'Cannot submit an archived record.' }, { status: 400, headers: corsHeaders() });
@@ -69,14 +85,29 @@ export async function POST(
       );
     }
 
-    // 3. Update status to PENDING_ADMIN_VALIDATION
-    await db.query(
+    // 3. Atomically update status and increment version
+    const updateRes = await db.query(
       `UPDATE payment_submissions
        SET status = 'PENDING_ADMIN_VALIDATION',
+           version = version + 1,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1;`,
-      [submissionId]
+       WHERE id = $1 AND ($2::int IS NULL OR version = $2::int)
+       RETURNING *;`,
+      [submissionId, expectedVersion !== undefined ? expectedVersion : null]
     );
+
+    if (updateRes.rowCount === 0) {
+      return NextResponse.json(
+        {
+          error: 'CONCURRENT_MODIFICATION',
+          code: 'CONCURRENCY_CONFLICT',
+          message: 'Atomic update failed due to concurrent modification. Zero rows modified.',
+        },
+        { status: 409, headers: corsHeaders() }
+      );
+    }
+
+    const updatedSub = updateRes.rows[0];
 
     // 4. Log immutable audit event
     await db.query(
@@ -100,6 +131,7 @@ export async function POST(
         success: true,
         submissionId,
         status: 'PENDING_ADMIN_VALIDATION',
+        version: updatedSub.version,
         evidenceCount,
       },
       { headers: corsHeaders() }

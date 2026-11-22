@@ -567,6 +567,7 @@ export async function validatePaymentSubmissionWithConcurrency(
        SET status = 'VALIDATED',
            validated_by = $1,
            validated_at = CURRENT_TIMESTAMP,
+           version = version + 1,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $2;`,
       [adminUser.email, submissionId]
@@ -702,6 +703,7 @@ export async function rejectPaymentSubmission(
        SET status = 'REJECTED',
            decision_reason = $1,
            validated_by = $2,
+           version = version + 1,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $3;`,
       [rejectionReason.trim(), adminUser.email, submissionId]
@@ -775,6 +777,7 @@ export async function requestAdditionalEvidence(
       `UPDATE payment_submissions 
        SET status = 'ADDITIONAL_EVIDENCE_REQUESTED',
            decision_reason = $1,
+           version = version + 1,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $2;`,
       [instructions.trim(), submissionId]

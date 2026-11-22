@@ -164,6 +164,8 @@ interface CandidatsScreenProps {
   onRefresh?: () => Promise<void>;
   onOpenAviCreation?: (studentRef: string) => void;
   onOpenAccommodationCreation?: (studentRef: string) => void;
+  activeCollaborators?: Record<string, Array<{ name: string; role: string; is_editing: boolean }>>;
+  onEditingChange?: (isEditing: boolean) => void;
 }
 
 export default function CandidatsScreen({
@@ -184,7 +186,10 @@ export default function CandidatsScreen({
   onRefresh,
   onOpenAviCreation,
   onOpenAccommodationCreation,
+  activeCollaborators = {},
+  onEditingChange,
 }: CandidatsScreenProps) {
+  const [concurrencyConflict, setConcurrencyConflict] = useState<{ message: string; latest?: any } | null>(null);
   const isEn = lang === 'en';
   const isAdmin = currentRole === 'admin';
   const isAuthorizedToEdit = currentRole === 'admin' || currentRole === 'secretary';
@@ -303,8 +308,68 @@ export default function CandidatsScreen({
       setFormVisaOutcomeNotes(selectedCandidat.visa_outcome_notes || '');
       setFormApplicationYear(selectedCandidat.application_year || '2027–2028');
       setFormNewComment('');
+      onEditingChange?.(false);
+      onEditingChange?.(false);
     }
   }, [selectedCandidat?.ref]);
+
+  // Track dirty / editing state to update real-time collaborator presence
+  useEffect(() => {
+    if (!selectedCandidat || !isAuthorizedToEdit) {
+      onEditingChange?.(false);
+      return;
+    }
+    const isDirty = Boolean(
+      formFullName.trim() !== (selectedCandidat.full_name || '').trim() ||
+      formEmail.trim() !== (selectedCandidat.email || '').trim() ||
+      formPhone.trim() !== (selectedCandidat.phone || '').trim() ||
+      formSexe !== ((selectedCandidat.sexe === 'Female' || selectedCandidat.sexe === 'Féminin') ? 'Female' : 'Male') ||
+      formProgram.trim() !== (selectedCandidat.program || '').trim() ||
+      formCountry.trim() !== (selectedCandidat.country || '').trim() ||
+      formNationality.trim() !== (selectedCandidat.nationality || '').trim() ||
+      formAdmissionStatus.trim() !== (selectedCandidat.admission_status || '').trim() ||
+      formProcedureStatus.trim() !== (selectedCandidat.procedure_status || selectedCandidat.stage_badge || '').trim() ||
+      formParentFullName.trim() !== (selectedCandidat.parent_full_name || '').trim() ||
+      formParentRelation.trim() !== (selectedCandidat.parent_relation || 'Parent').trim() ||
+      formParentPhone.trim() !== (selectedCandidat.parent_phone || '').trim() ||
+      formParentEmail.trim() !== (selectedCandidat.parent_email || '').trim() ||
+      formDescription.trim() !== (selectedCandidat.description || '').trim() ||
+      formVisaStatus !== (selectedCandidat.visa_status || 'Not Applied') ||
+      formVisaSubmissionDate !== (selectedCandidat.visa_submission_date || '') ||
+      formVisaDecisionDate !== (selectedCandidat.visa_decision_date || '') ||
+      formVisaOutcomeNotes.trim() !== (selectedCandidat.visa_outcome_notes || '').trim() ||
+      formApplicationYear.trim() !== (selectedCandidat.application_year || '2027–2028').trim() ||
+      Boolean(formNewComment && formNewComment.trim())
+    );
+    onEditingChange?.(isDirty);
+    return () => {
+      onEditingChange?.(false);
+    };
+  }, [
+    selectedCandidat,
+    isAuthorizedToEdit,
+    formFullName,
+    formEmail,
+    formPhone,
+    formSexe,
+    formProgram,
+    formCountry,
+    formNationality,
+    formAdmissionStatus,
+    formProcedureStatus,
+    formParentFullName,
+    formParentRelation,
+    formParentPhone,
+    formParentEmail,
+    formDescription,
+    formVisaStatus,
+    formVisaSubmissionDate,
+    formVisaDecisionDate,
+    formVisaOutcomeNotes,
+    formApplicationYear,
+    formNewComment,
+    onEditingChange,
+  ]);
 
   // Linked secondary requests for the current student
   const linkedAviRequests = aviRequests.filter((a) => {
@@ -377,13 +442,23 @@ export default function CandidatsScreen({
           visa_decision_date: formVisaDecisionDate || null,
           visa_outcome_notes: formVisaOutcomeNotes || null,
           application_year: formApplicationYear || '2027–2028',
+          version: selectedCandidat.version,
         }),
       });
 
       const data = await res.json();
       if (!res.ok) {
+        if (res.status === 409) {
+          setConcurrencyConflict({
+            message: data.message || 'Another user updated this record while you were editing it. Please reload to review the latest differences.',
+            latest: data.latest_record,
+          });
+          onNotify(isEn ? 'Concurrency conflict: record was modified by another collaborator.' : 'Conflit de concurrence : le dossier a été modifié par un autre utilisateur.');
+          return;
+        }
         throw new Error(data.error || 'Failed to persist Student Record updates');
       }
+      setConcurrencyConflict(null);
 
       onNotify(
         isEn
@@ -391,6 +466,7 @@ export default function CandidatsScreen({
           : `Dossier étudiant ${selectedCandidat.ref} mis à jour avec succès.`
       );
       setFormNewComment('');
+      onEditingChange?.(false);
       if (onRefresh) await onRefresh();
     } catch (err: any) {
       onNotify(`Error: ${err.message}`);
@@ -751,6 +827,60 @@ export default function CandidatsScreen({
 
         {/* Right Main Column: ServiceNow Incident-Style Student Record Form (9 cols on LG) */}
         <div className="lg:col-span-9 rounded-2xl border border-[#e6eef6] bg-white shadow-card overflow-hidden">
+          {/* Persistent Student Record Header */}
+          <div className="bg-[#06172e] text-[#93c5fd] px-5 py-2 text-[11px] font-extrabold uppercase tracking-widest flex items-center justify-between border-b border-blue-900/40">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>LIEC HEAV’N • STUDENT RECORD MANAGEMENT</span>
+            </div>
+            <span className="font-mono text-[10px] text-slate-300">{selectedCandidat.ref}</span>
+          </div>
+
+          {/* Active Record Collaboration Banner */}
+          {(() => {
+            const currentCollaborators = (activeCollaborators[selectedCandidat.ref] || []).filter(
+              (c) => c.name !== currentUser?.name
+            );
+            if (currentCollaborators.length === 0) return null;
+            return (
+              <div className="bg-amber-50 border-b border-amber-200 px-5 py-2 text-xs font-semibold text-amber-900 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    {currentCollaborators
+                      .map((c) => `${c.name} (${c.role}) is ${c.is_editing ? (isEn ? 'editing' : 'en train de modifier') : (isEn ? 'viewing' : 'en train de consulter')} this record`)
+                      .join('. ')}
+                  </span>
+                </div>
+                <span className="text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full font-bold">
+                  {isEn ? 'Live Collaborator' : 'Collaborateur en direct'}
+                </span>
+              </div>
+            );
+          })()}
+
+          {/* Concurrency Conflict Warning */}
+          {concurrencyConflict && (
+            <div className="bg-red-50 border-b border-red-200 p-4 text-xs text-red-900 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
+                <div>
+                  <div className="font-extrabold">{isEn ? 'Concurrency Conflict Detected' : 'Conflit de modification simultanée'}</div>
+                  <div>{concurrencyConflict.message}</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  setConcurrencyConflict(null);
+                  if (onRefresh) await onRefresh();
+                }}
+                className="px-3 py-1.5 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition"
+              >
+                {isEn ? 'Reload Latest Version' : 'Recharger la dernière version'}
+              </button>
+            </div>
+          )}
           {/* ServiceNow Header Bar with TOP-RIGHT FORM UI ACTIONS */}
           <div className="bg-[#092342] text-white p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#12365a]">
             <div className="flex items-center gap-3.5">
@@ -2106,6 +2236,14 @@ export default function CandidatsScreen({
       {showEditModal && selectedCandidat && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-2xl border border-slate-100 space-y-4 max-h-[92vh] overflow-y-auto">
+            {/* Persistent Student Record Header */}
+            <div className="bg-[#06172e] text-[#93c5fd] -mx-6 -mt-6 mb-4 px-6 py-2.5 rounded-t-2xl text-[11px] font-extrabold uppercase tracking-widest flex items-center justify-between border-b border-blue-900/40">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>LIEC HEAV’N • STUDENT RECORD MANAGEMENT</span>
+              </div>
+              <span className="font-mono text-[10px] text-slate-300">{selectedCandidat.ref}</span>
+            </div>
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <div className="flex items-center gap-2">

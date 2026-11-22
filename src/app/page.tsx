@@ -48,6 +48,7 @@ import {
   RapportsFinanceScreen,
   ParametresGovernanceScreen,
   Lang,
+  translateAuditAction,
 } from '@/components/ServicesAndOtherScreens';
 import { KnowledgeBaseScreen } from '@/components/KnowledgeBaseScreen';
 import { ACADEMIC_INTAKE_OPTIONS, ACADEMIC_YEAR_OPTIONS } from '@/lib/academicIntake';
@@ -156,6 +157,21 @@ export default function LiecWorkspacePage() {
   const [selectedDemandeRef, setSelectedDemandeRef] = useState('');
   const [selectedCandidatRef, setSelectedCandidatRef] = useState('');
 
+  // Real-Time Presence & Live Collaboration State
+  const [connectedUsers, setConnectedUsers] = useState<Array<{
+    name: string;
+    role: string;
+    status: 'online' | 'idle' | 'offline';
+    activity?: string;
+  }>>([]);
+  const [activeCollaborators, setActiveCollaborators] = useState<Record<string, Array<{
+    name: string;
+    role: string;
+    is_editing: boolean;
+  }>>>({});
+  const [isUserIdle, setIsUserIdle] = useState<boolean>(false);
+  const [isRecordEditing, setIsRecordEditing] = useState<boolean>(false);
+
   // New Demande Modal Form State
   const [newDemName, setNewDemName] = useState('');
   const [newDemSexe, setNewDemSexe] = useState('Male');
@@ -258,6 +274,75 @@ export default function LiecWorkspacePage() {
       console.warn('Could not check tour status:', e);
     }
   }, []);
+
+  // Presence Heartbeat & Polling Loop
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    let idleTimer: NodeJS.Timeout;
+    const resetIdle = () => {
+      setIsUserIdle(false);
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        setIsUserIdle(true);
+      }, 5 * 60 * 1000); // 5 minutes idle
+    };
+
+    const handleUserInteraction = () => resetIdle();
+    window.addEventListener('mousemove', handleUserInteraction);
+    window.addEventListener('keydown', handleUserInteraction);
+    window.addEventListener('scroll', handleUserInteraction);
+    window.addEventListener('click', handleUserInteraction);
+    resetIdle();
+
+    const sendHeartbeat = async () => {
+      try {
+        await fetch('/api/presence/heartbeat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            is_idle: isUserIdle,
+            current_activity: isEn ? `Viewing ${tabLabels[activeTab] || activeTab}` : `Consulte ${tabLabels[activeTab] || activeTab}`,
+            active_record_type: activeTab === 'candidats' ? 'candidat' : activeTab === 'demandes' ? 'demande' : null,
+            active_record_ref: activeTab === 'candidats' ? selectedCandidatRef : activeTab === 'demandes' ? selectedDemandeRef : null,
+            is_editing: isRecordEditing && !isUserIdle,
+          }),
+        });
+      } catch {}
+    };
+
+    const fetchPresence = async () => {
+      try {
+        const res = await fetch('/api/presence/users');
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.users)) setConnectedUsers(data.users);
+          if (data.collaborators) setActiveCollaborators(data.collaborators);
+        }
+      } catch {}
+    };
+
+    sendHeartbeat();
+    fetchPresence();
+
+    const heartbeatInterval = setInterval(sendHeartbeat, 20000);
+    const presenceInterval = setInterval(fetchPresence, 15000);
+
+    return () => {
+      clearTimeout(idleTimer);
+      clearInterval(heartbeatInterval);
+      clearInterval(presenceInterval);
+      window.removeEventListener('mousemove', handleUserInteraction);
+      window.removeEventListener('keydown', handleUserInteraction);
+      window.removeEventListener('scroll', handleUserInteraction);
+      window.removeEventListener('click', handleUserInteraction);
+    };
+  }, [isAuthenticated, isUserIdle, isRecordEditing, activeTab, selectedCandidatRef, selectedDemandeRef, isEn, tabLabels]);
+
+  // Clear editing state on navigation away from record or tab switch
+  useEffect(() => {
+    setIsRecordEditing(false);
+  }, [activeTab]);
 
   const fetchWorkspace = useCallback(async (overrideEmail?: string) => {
     try {
@@ -1186,7 +1271,7 @@ export default function LiecWorkspacePage() {
     (auditLogs || []).slice(0, 5).forEach((l, idx) => {
       list.push({
         id: `audit-${l.id || idx}`,
-        title: l.action || (isEn ? 'Security Audit Log' : 'Journal de sécurité'),
+        title: translateAuditAction(l.action, isEn) || (isEn ? 'Security Audit Log' : 'Journal de sécurité'),
         desc: `${l.actor ? l.actor + ' — ' : ''}${l.details || l.entity_ref || ''}`,
         time: l.created_at ? new Date(l.created_at).toLocaleString() : (isEn ? 'Recent' : 'Récent'),
         tab: 'parametres',
@@ -1441,6 +1526,68 @@ export default function LiecWorkspacePage() {
                 );
               })}
             </nav>
+          </div>
+
+          {/* LIVE USER PRESENCE Section (Directly below Help, Support & Knowledge Base) */}
+          <div className="pt-2">
+            <div className="px-2.5 mb-2.5 flex items-center justify-between text-[10px] font-extrabold uppercase tracking-widest text-slate-500">
+              <span className="flex items-center gap-1.5">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span>{isEn ? 'LIVE PRESENCE' : 'PRÉSENCE EN DIRECT'}</span>
+              </span>
+              <span className="text-[9px] text-slate-400 font-bold">
+                {connectedUsers.length} {isEn ? 'active' : 'actif(s)'}
+              </span>
+            </div>
+
+            <div className="space-y-1.5 px-1">
+              {connectedUsers.length > 0 ? (
+                connectedUsers.map((u, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100 text-xs"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="relative">
+                        <div className="h-6 w-6 rounded-full bg-[#092342] text-white flex items-center justify-center text-[10px] font-extrabold shrink-0">
+                          {u.name?.slice(0, 2).toUpperCase() || 'U'}
+                        </div>
+                        <span
+                          className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-white ${
+                            u.status === 'idle' ? 'bg-amber-400' : 'bg-emerald-500'
+                          }`}
+                          title={u.status === 'idle' ? 'Idle (5m+)' : 'Online'}
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-extrabold text-[#092342] text-[11px] truncate" title={u.name}>
+                          {u.name}
+                        </div>
+                        <div className="text-[9.5px] text-slate-400 truncate">
+                          {u.role} {u.activity ? `• ${u.activity}` : ''}
+                        </div>
+                      </div>
+                    </div>
+                    <span
+                      className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full ${
+                        u.status === 'idle'
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-emerald-100 text-emerald-800'
+                      }`}
+                    >
+                      {u.status === 'idle' ? (isEn ? 'Idle' : 'Inactif') : (isEn ? 'Online' : 'En ligne')}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="p-2 rounded-xl bg-slate-50 text-[10.5px] text-slate-400 text-center">
+                  {isEn ? 'No other active users' : 'Aucun autre utilisateur'}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1747,7 +1894,10 @@ export default function LiecWorkspacePage() {
                   <CandidatsScreen
                     candidats={candidats}
                     selectedRef={selectedCandidatRef}
-                    onSelectRef={setSelectedCandidatRef}
+                    onSelectRef={(r) => {
+                      setSelectedCandidatRef(r);
+                      setIsRecordEditing(false);
+                    }}
                     onCreateCandidat={handleCreateCandidat}
                     onAddNote={handleAddCandidatNote}
                     onAddVoeu={handleAddCandidatVoeu}
@@ -1762,12 +1912,16 @@ export default function LiecWorkspacePage() {
                     onRefresh={fetchWorkspace}
                     onOpenAviCreation={(studentRef) => {
                       setSelectedCandidatRef(studentRef);
+                      setIsRecordEditing(false);
                       setActiveTab('services');
                     }}
                     onOpenAccommodationCreation={(studentRef) => {
                       setSelectedCandidatRef(studentRef);
+                      setIsRecordEditing(false);
                       setActiveTab('accommodation');
                     }}
+                    activeCollaborators={activeCollaborators}
+                    onEditingChange={setIsRecordEditing}
                   />
                 </ErrorBoundary>
               )}

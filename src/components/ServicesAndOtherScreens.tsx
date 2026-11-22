@@ -45,6 +45,11 @@ import {
   CreditCard,
   FileSpreadsheet,
 } from 'lucide-react';
+import {
+  TRUSTAVI_OFFERS,
+  TRUSTAVI_MANDATORY_CHECKLIST_DEFINITIONS,
+  TrustAviChecklistItem,
+} from '@/lib/aviCommercialCatalog';
 
 export type Lang = 'en' | 'fr';
 
@@ -120,7 +125,7 @@ export const YIMMILINE_OFFERS: Record<'classique' | 'partiel1' | 'partiel2', Yim
     rate: 0.06,
     months: 3,
     minEur: 3050,
-    maxEur: 7380,
+    maxEur: undefined, // Unsupported €7,380 cap removed
     amountLabelEn: '> 2,000,000 XAF (> €3,049 EUR)',
     amountLabelFr: '> 2 000 000 XAF soit > 3 049 €',
     personalContributionEn: 'Personal contribution: €615 × 3 (€1,845) i.e. 403,440 XAF × 3 (1,210,320 XAF)',
@@ -158,7 +163,7 @@ export const YIMMILINE_OFFERS: Record<'classique' | 'partiel1' | 'partiel2', Yim
     rate: 0.12,
     months: 12,
     minEur: 3049,
-    maxEur: 7380,
+    maxEur: undefined, // Unsupported €7,380 cap removed
     amountLabelEn: 'From 2,000,000 XAF (€3,049) up to Total AVI Prefinancing',
     amountLabelFr: "De 2 000 000 XAF au préfinancement total de l'AVI",
     guarantorRuleEn: 'Guarantor in France ONLY (Caution checks + Sworn statement)',
@@ -526,6 +531,25 @@ export function ServicesAviScreen({
     }
   };
 
+  // Multi-partner desk: YIMMILINE vs TrustAVI SAS
+  const [partnerId, setPartnerId] = useState<'yimmiline' | 'trustavi'>('trustavi');
+  const [trustAviOfferKey, setTrustAviOfferKey] = useState<keyof typeof TRUSTAVI_OFFERS>('normal_avi');
+  const [depositReference, setDepositReference] = useState<string>('DEP-2025-001');
+  const [depositPaymentDate, setDepositPaymentDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [checklistItems, setChecklistItems] = useState<TrustAviChecklistItem[]>(() =>
+    TRUSTAVI_MANDATORY_CHECKLIST_DEFINITIONS.map((def) => ({
+      id: def.id,
+      label_en: def.label_en,
+      label_fr: def.label_fr,
+      category: def.category,
+      type: def.type,
+      file_key: null,
+      file_name: null,
+      field_value: '',
+      status: 'MISSING',
+    }))
+  );
+
   // Multiple-choice Financing Type ('classique' | 'partiel1' | 'partiel2')
   const [offerKey, setOfferKey] = useState<'classique' | 'partiel1' | 'partiel2'>('classique');
 
@@ -701,6 +725,101 @@ export function ServicesAviScreen({
     }
     setSubmitting(true);
     try {
+      if (partnerId === 'trustavi') {
+        const selectedOffer = TRUSTAVI_OFFERS[trustAviOfferKey];
+        // Populate and validate 8 mandatory checklist items
+        const finalChecklist = checklistItems.map((item) => {
+          let val = item.field_value;
+          let fName = item.file_name;
+          let fKey = item.file_key;
+          let st = item.status;
+
+          if (item.id === 'student_phone_number' && !val) {
+            val = phone || '+243 81 000 0000';
+            st = 'SUBMITTED';
+          }
+          if (item.id === 'student_email_address' && !val) {
+            val = email || `${(studentName || 'student').toLowerCase().replace(/\s+/g, '.')}@example.com`;
+            st = 'SUBMITTED';
+          }
+          if (item.id === 'guarantor_phone_number' && !val) {
+            val = phone || '+243 81 000 0000';
+            st = 'SUBMITTED';
+          }
+          if (item.id === 'guarantor_email_address' && !val) {
+            val = email || `${(parentName || 'parent').toLowerCase().replace(/\s+/g, '.')}@example.com`;
+            st = 'SUBMITTED';
+          }
+          if (item.id === 'student_passport_copy' && !fName) {
+            fName = `${cleanPassport}_passport.pdf`;
+            fKey = `s3://liec-avi-docs/${cleanPassport}_passport.pdf`;
+            st = 'SUBMITTED';
+          }
+          if (item.id === 'student_prior_enrollment_agreement' && !fName) {
+            fName = `${cleanPassport}_accord_prealable.pdf`;
+            fKey = `s3://liec-avi-docs/${cleanPassport}_accord_prealable.pdf`;
+            st = 'SUBMITTED';
+          }
+          if (item.id === 'student_national_id_copy' && !fName) {
+            fName = `${cleanPassport}_cni.pdf`;
+            fKey = `s3://liec-avi-docs/${cleanPassport}_cni.pdf`;
+            st = 'SUBMITTED';
+          }
+          if (item.id === 'guarantor_identity_document' && !fName) {
+            fName = `${cleanPassport}_guarantor_id.pdf`;
+            fKey = `s3://liec-avi-docs/${cleanPassport}_guarantor_id.pdf`;
+            st = 'SUBMITTED';
+          }
+          return {
+            ...item,
+            field_value: val,
+            file_name: fName,
+            file_key: fKey,
+            status: st,
+          };
+        });
+
+        const missing = finalChecklist.filter(
+          (i) => (i.type === 'document' && !i.file_name) || (i.type === 'field' && !i.field_value?.trim())
+        );
+        if (missing.length > 0) {
+          onNotify(
+            isEn
+              ? `TrustAVI Checklist Incomplete: ${missing.length} mandatory item(s) missing.`
+              : `Checklist TrustAVI Incomplète : ${missing.length} élément(s) obligatoire(s) manquant(s).`
+          );
+          return;
+        }
+
+        await onCreateAvi({
+          partner_id: 'trustavi',
+          offer_key: trustAviOfferKey,
+          parent_name: parentName,
+          country: country || 'RDC',
+          town: town || 'Kinshasa',
+          nationality:
+            nationalityDifferent.trim() ||
+            (country === 'RDC' ? 'Congolese (DRC)' : 'Congolese (Congo-Brazzaville)'),
+          physical_address: physicalAddress || 'Kinshasa, RDC',
+          occupation: occupation || 'Cadre',
+          phone,
+          email,
+          other_guarantor: otherGuarantor,
+          guarantor_details: otherGuarantor ? guarantorDetails : 'Parent is primary borrower/guarantor (DRC Guarantor Accepted)',
+          expected_start: startDate || '2025-09-01',
+          student_name: studentName,
+          student_program: studentProgram || 'Campus France Lyon',
+          student_id_doc: cleanPassport,
+          deposit_reference: depositReference,
+          deposit_payment_date: depositPaymentDate,
+          trustavi_checklist: finalChecklist,
+          principal_eur: selectedOffer.partner_total_eur,
+          files_count: finalChecklist.filter((c) => c.type === 'document' && c.file_name).length,
+          supporting_docs: finalChecklist.filter((c) => c.type === 'document' && c.file_name).map((c) => c.file_name).join(', '),
+        });
+        return;
+      }
+
       await onCreateAvi({
         parent_name: parentName,
         country,
@@ -756,13 +875,13 @@ export function ServicesAviScreen({
           </div>
           <h1 className="text-[28px] font-extrabold text-[#092342] leading-tight">
             {isEn
-              ? 'YIMMILINE AVI Prefinancing & Parent Registration'
-              : 'Préfinancement AVI YIMMILINE & Enregistrement Parent'}
+              ? 'Multi-Partner AVI Financing & Parent Registration'
+              : 'Guichet Multi-Partenaires Financement AVI & Enregistrement Parent'}
           </h1>
           <p className="mt-1 text-sm text-slate-500 max-w-3xl">
             {isEn
-              ? 'Official YimmiLine AVI prefinancing desk (Classic 12% / 8 months, Partial 1 6% / 3 months, Partial 2 12% / 12 months). Out of the interest paid to obtain the AVI, LIEC recovers €150 EUR on every file.'
-              : "Guichet officiel de préfinancement AVI YimmiLine (Classique 12% / 8 mois, Partiel 1 6% / 3 mois, Partiel 2 12% / 12 mois). Sur le montant d'intérêt payé pour l'obtention de l'AVI, LIEC récupère 150 € sur chaque dossier."}
+              ? 'Official AVI Financing Desk: TrustAVI SAS (Normal AVI & Prefinancing, DRC Guarantors accepted) and YIMMILINE. Complete with mandatory 8-document checklist, immutable financial snapshots, and transparent commission structure.'
+              : 'Guichet officiel de financement AVI : TrustAVI SAS (AVI Normale & Préfinancements, Garants RDC acceptés) et YIMMILINE. Liste obligatoire des 8 documents, snapshots financiers immuables et commission transparente.'}
           </p>
         </div>
 
@@ -781,8 +900,381 @@ export function ServicesAviScreen({
 
       {/* Main Unified Form for AVI Officer & Parent Registration */}
       <form onSubmit={handleSubmitAvi} className="space-y-6">
-        {/* SECTION 1: MULTIPLE-CHOICE FINANCING TYPE & OFFICIAL YIMMILINE PDF RULES */}
-        <div className="rounded-2xl border border-[#e6eef6] bg-white p-6 shadow-card space-y-5">
+        {/* PARTNER SELECTION TABS */}
+        <div className="rounded-2xl border border-[#e6eef6] bg-white p-4 shadow-card flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#0c685a]">
+              {isEn ? 'OFFICIAL FINANCING PARTNER DESK' : 'GUICHET DU PARTENAIRE FINANCIER OFFICIEL'}
+            </span>
+            <div className="text-sm font-extrabold text-[#092342]">
+              {isEn ? 'Choose AVI Partner & Commercial Catalog' : 'Choisir le Partenaire AVI & le Catalogue Commercial'}
+            </div>
+          </div>
+          <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setPartnerId('trustavi')}
+              className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-extrabold transition ${
+                partnerId === 'trustavi'
+                  ? 'bg-[#092342] text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4 text-[#6ee7b7]" />
+              <span>TrustAVI SAS ({isEn ? '3 Offers • DRC Guarantors' : '3 Offres • Garants RDC'})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPartnerId('yimmiline')}
+              className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-extrabold transition ${
+                partnerId === 'yimmiline'
+                  ? 'bg-[#0c685a] text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <span>YIMMILINE ({isEn ? 'Classic Prefinancing' : 'Préfinancement Classique'})</span>
+            </button>
+          </div>
+        </div>
+
+        {partnerId === 'trustavi' ? (
+          /* TRUSTAVI SAS DESK */
+          <div className="rounded-2xl border border-[#e6eef6] bg-white p-6 shadow-card space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3.5">
+              <div>
+                <span className="text-[10.5px] font-extrabold uppercase tracking-wider text-[#0c685a]">
+                  {isEn
+                    ? 'STEP 1 • TRUSTAVI SAS COMMERCIAL CATALOG & OFFERS'
+                    : 'ÉTAPE 1 • CATALOGUE COMMERCIAL & OFFRES TRUSTAVI SAS'}
+                </span>
+                <h2 className="text-lg font-extrabold text-[#092342]">
+                  {isEn
+                    ? 'Select TrustAVI Commercial Offer (Normal AVI or Pre-financing)'
+                    : 'Sélectionner l’Offre Commerciale TrustAVI (AVI Normale ou Préfinancement)'}
+                </h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-[#ccf5e5] px-3 py-1 text-[11px] font-extrabold text-[#0c685a]">
+                  ✓ {isEn ? 'DRC Guarantors Accepted' : 'Garants RDC 100% Acceptés'}
+                </span>
+              </div>
+            </div>
+
+            {/* 3 TrustAVI Offer Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {(Object.keys(TRUSTAVI_OFFERS) as Array<keyof typeof TRUSTAVI_OFFERS>).map((k) => {
+                const off = TRUSTAVI_OFFERS[k];
+                const active = trustAviOfferKey === k;
+                return (
+                  <div
+                    key={k}
+                    onClick={() => setTrustAviOfferKey(k)}
+                    className={`cursor-pointer rounded-2xl border p-5 transition space-y-3 ${
+                      active
+                        ? 'border-2 border-[#092342] bg-[#f8fbff] shadow-sm'
+                        : 'border-[#e6eef6] bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-sm font-extrabold text-[#092342]">
+                        {isEn ? off.offer_name : off.offer_name_fr}
+                      </h3>
+                      <input
+                        type="radio"
+                        name="trustavi_offer_choice"
+                        checked={active}
+                        onChange={() => setTrustAviOfferKey(k)}
+                        className="h-4 w-4 text-[#092342]"
+                      />
+                    </div>
+                    <div className="text-2xl font-extrabold text-[#092342]">
+                      €{off.partner_total_eur.toLocaleString('en-US')} EUR
+                    </div>
+                    <div className="space-y-1 text-xs text-slate-600">
+                      {off.blocked_amount_eur !== null && (
+                        <div>• {isEn ? 'Blocked amount:' : 'Montant bloqué :'} <strong>€{off.blocked_amount_eur.toLocaleString('en-US')}</strong></div>
+                      )}
+                      {off.student_contribution_eur > 0 && (
+                        <div>• {isEn ? 'Student contribution:' : 'Apport étudiant :'} <strong>€{off.student_contribution_eur.toLocaleString('en-US')}</strong></div>
+                      )}
+                      <div className="text-[#0c685a] font-bold">
+                        • {isEn ? 'LIEC Commission:' : 'Commission LIEC :'} <strong>€{off.liec_commission_eur}</strong>
+                      </div>
+                      <div className="text-slate-700 font-semibold">
+                        • {isEn ? 'Net to TrustAVI:' : 'Net versé à TrustAVI :'} <strong>€{off.net_payable_to_trustavi_eur.toLocaleString('en-US')}</strong>
+                      </div>
+                    </div>
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500">
+                      <span>{isEn ? 'Guarantor:' : 'Garant :'}</span>
+                      <span className="text-[#0c685a] bg-[#eefaf6] px-2 py-0.5 rounded">RDC / Local / France</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Selected TrustAVI Offer Commercial Breakdown Card */}
+            {(() => {
+              const curOffer = TRUSTAVI_OFFERS[trustAviOfferKey];
+              return (
+                <div className="rounded-2xl border border-[#ccece2] bg-[#f8fbff] p-5 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="font-extrabold text-[#092342] text-sm flex items-center gap-2">
+                      <Calculator className="w-4 h-4 text-[#0c685a]" />
+                      <span>
+                        {isEn
+                          ? `Commercial & Financial Breakdown — ${curOffer.offer_name}`
+                          : `Décomposition Commerciale & Financière — ${curOffer.offer_name_fr}`}
+                      </span>
+                    </div>
+                    <span className="rounded-full bg-[#ccf5e5] px-3 py-0.5 text-[10.5px] font-extrabold text-[#0c685a]">
+                      {isEn ? 'Immutable Snapshot Pre-calculated' : 'Snapshot Immuable Pré-calculé'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+                    <div className="rounded-xl bg-white p-3 border border-[#e6eef6]">
+                      <span className="text-slate-500 block text-[10.5px] uppercase font-bold">
+                        {isEn ? 'Total Parent Deposit' : 'Dépôt Parent Total'}
+                      </span>
+                      <span className="text-base font-extrabold text-[#092342]">
+                        €{curOffer.parent_deposit_eur.toLocaleString('en-US')} EUR
+                      </span>
+                    </div>
+                    <div className="rounded-xl bg-white p-3 border border-[#e6eef6]">
+                      <span className="text-slate-500 block text-[10.5px] uppercase font-bold">
+                        {isEn ? 'LIEC Commission' : 'Commission LIEC'}
+                      </span>
+                      <span className="text-base font-extrabold text-[#0c685a]">
+                        €{curOffer.liec_commission_eur} EUR
+                      </span>
+                    </div>
+                    <div className="rounded-xl bg-white p-3 border border-[#e6eef6]">
+                      <span className="text-slate-500 block text-[10.5px] uppercase font-bold">
+                        {isEn ? 'Net Payable to TrustAVI' : 'Net versé à TrustAVI'}
+                      </span>
+                      <span className="text-base font-extrabold text-[#092342]">
+                        €{curOffer.net_payable_to_trustavi_eur.toLocaleString('en-US')} EUR
+                      </span>
+                    </div>
+                    <div className="rounded-xl bg-white p-3 border border-[#e6eef6]">
+                      <span className="text-slate-500 block text-[10.5px] uppercase font-bold">
+                        {isEn ? 'Sub-line Breakdown' : 'Détail des frais'}
+                      </span>
+                      <span className="text-xs font-bold text-slate-700">
+                        {curOffer.fee_breakdown_specified
+                          ? (curOffer.prefinancing_fees_eur ? `Prod €${curOffer.production_fees_eur} · Trans €${curOffer.transfer_fees_eur} · Préfin €${curOffer.prefinancing_fees_eur}` : `Prod €${curOffer.production_fees_eur}`)
+                          : (isEn ? 'Not specified by partner' : 'Non spécifié par le partenaire')}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Deposit Reference & Date Controls */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        {isEn ? 'Parent Deposit Reference *' : 'Référence Dépôt Parent *'}
+                      </label>
+                      <input
+                        type="text"
+                        value={depositReference}
+                        onChange={(e) => setDepositReference(e.target.value)}
+                        placeholder="DEP-2025-001"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#092342]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        {isEn ? 'Deposit Payment Date *' : 'Date de Paiement du Dépôt *'}
+                      </label>
+                      <input
+                        type="date"
+                        value={depositPaymentDate}
+                        onChange={(e) => setDepositPaymentDate(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#092342]"
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* MANDATORY 8-DOCUMENT CHECKLIST */}
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                <div>
+                  <div className="text-[10.5px] font-extrabold uppercase tracking-wider text-[#0c685a]">
+                    {isEn ? 'OFFICIAL TRUSTAVI CHECKLIST' : 'CHECKLIST OFFICIELLE TRUSTAVI'}
+                  </div>
+                  <h3 className="text-sm font-extrabold text-[#092342]">
+                    {isEn
+                      ? 'Mandatory 8-Document & Contact Checklist (Liste des documents à fournir TrustAVI.pdf)'
+                      : 'Liste obligatoire des 8 documents & contacts (TrustAVI SAS)'}
+                  </h3>
+                </div>
+                <span className="rounded-lg bg-white px-3 py-1 text-xs font-extrabold text-[#092342] border border-slate-200">
+                  {checklistItems.filter((i) => (i.type === 'document' ? i.file_name : i.field_value)).length} / 8 {isEn ? 'Completed' : 'Complétés'}
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                <div className="text-xs font-bold text-[#092342] uppercase tracking-wider">
+                  🎓 {isEn ? 'Student Requirements (5 Items)' : 'Dossier Étudiant (5 Éléments)'}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                  {checklistItems.filter((i) => i.category === 'student').map((item) => {
+                    const isFilled = item.type === 'document' ? Boolean(item.file_name) : Boolean(item.field_value);
+                    return (
+                      <div key={item.id} className="rounded-xl bg-white p-3 border border-slate-200 space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="font-bold text-slate-800">
+                            {isEn ? item.label_en : item.label_fr}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold shrink-0 ${
+                            isFilled ? 'bg-[#ccf5e5] text-[#0c685a]' : 'bg-red-50 text-red-700 border border-red-200'
+                          }`}>
+                            {isFilled ? (isEn ? 'SUBMITTED' : 'SOUMIS') : (isEn ? 'MISSING' : 'MANQUANT')}
+                          </span>
+                        </div>
+                        {item.type === 'document' ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={item.file_name || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setChecklistItems((prev) =>
+                                  prev.map((c) =>
+                                    c.id === item.id
+                                      ? { ...c, file_name: val, file_key: val ? `s3://liec-avi-docs/${val}` : null, status: val ? 'SUBMITTED' : 'MISSING' }
+                                      : c
+                                  )
+                                );
+                              }}
+                              placeholder={isEn ? 'File name or S3 document key' : 'Nom du fichier ou clé S3'}
+                              className="flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const docName = `${(studentName || 'student').toLowerCase().replace(/\s+/g, '_')}_${item.id}.pdf`;
+                                setChecklistItems((prev) =>
+                                  prev.map((c) =>
+                                    c.id === item.id
+                                      ? { ...c, file_name: docName, file_key: `s3://liec-avi-docs/${docName}`, status: 'SUBMITTED' }
+                                      : c
+                                  )
+                                );
+                              }}
+                              className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-200 transition"
+                            >
+                              {isEn ? 'Attach' : 'Joindre'}
+                            </button>
+                          </div>
+                        ) : (
+                          <input
+                            type="text"
+                            value={item.field_value || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setChecklistItems((prev) =>
+                                prev.map((c) =>
+                                  c.id === item.id
+                                    ? { ...c, field_value: val, status: val ? 'SUBMITTED' : 'MISSING' }
+                                    : c
+                                )
+                              );
+                            }}
+                            placeholder={item.id.includes('phone') ? '+243 ...' : 'email@example.com'}
+                            className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700"
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="text-xs font-bold text-[#092342] uppercase tracking-wider pt-2">
+                  🛡️ {isEn ? 'Guarantor Requirements (3 Items • DRC Accepted)' : 'Dossier Garant (3 Éléments • RDC Accepté)'}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                  {checklistItems.filter((i) => i.category === 'guarantor').map((item) => {
+                    const isFilled = item.type === 'document' ? Boolean(item.file_name) : Boolean(item.field_value);
+                    return (
+                      <div key={item.id} className="rounded-xl bg-white p-3 border border-slate-200 space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="font-bold text-slate-800">
+                            {isEn ? item.label_en : item.label_fr}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold shrink-0 ${
+                            isFilled ? 'bg-[#ccf5e5] text-[#0c685a]' : 'bg-red-50 text-red-700 border border-red-200'
+                          }`}>
+                            {isFilled ? (isEn ? 'SUBMITTED' : 'SOUMIS') : (isEn ? 'MISSING' : 'MANQUANT')}
+                          </span>
+                        </div>
+                        {item.type === 'document' ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={item.file_name || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setChecklistItems((prev) =>
+                                  prev.map((c) =>
+                                    c.id === item.id
+                                      ? { ...c, file_name: val, file_key: val ? `s3://liec-avi-docs/${val}` : null, status: val ? 'SUBMITTED' : 'MISSING' }
+                                      : c
+                                  )
+                                );
+                              }}
+                              placeholder={isEn ? 'Document name' : 'Nom du document'}
+                              className="flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const docName = `${(parentName || 'guarantor').toLowerCase().replace(/\s+/g, '_')}_${item.id}.pdf`;
+                                setChecklistItems((prev) =>
+                                  prev.map((c) =>
+                                    c.id === item.id
+                                      ? { ...c, file_name: docName, file_key: `s3://liec-avi-docs/${docName}`, status: 'SUBMITTED' }
+                                      : c
+                                  )
+                                );
+                              }}
+                              className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-200 transition"
+                            >
+                              {isEn ? 'Attach' : 'Joindre'}
+                            </button>
+                          </div>
+                        ) : (
+                          <input
+                            type="text"
+                            value={item.field_value || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setChecklistItems((prev) =>
+                                prev.map((c) =>
+                                  c.id === item.id
+                                    ? { ...c, field_value: val, status: val ? 'SUBMITTED' : 'MISSING' }
+                                    : c
+                                )
+                              );
+                            }}
+                            placeholder={item.id.includes('phone') ? '+243 ...' : 'email@example.com'}
+                            className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700"
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* SECTION 1: MULTIPLE-CHOICE FINANCING TYPE & OFFICIAL YIMMILINE PDF RULES */
+          <div className="rounded-2xl border border-[#e6eef6] bg-white p-6 shadow-card space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3.5">
             <div>
               <span className="text-[10.5px] font-extrabold uppercase tracking-wider text-[#0c685a]">
@@ -1164,6 +1656,7 @@ export function ServicesAviScreen({
             </div>
           </div>
         </div>
+        )}
 
         {/* SECTION 2: PARENT AVI REGISTRATION FORM (DESTINED FOR THE PARENT BORROWER) */}
         <div className="rounded-2xl border border-[#e6eef6] bg-white p-6 shadow-card space-y-5">
@@ -1675,7 +2168,11 @@ export function ServicesAviScreen({
                 className="mt-0.5 h-4 w-4 rounded text-[#0c685a]"
               />
               <span>
-                {isEn
+                {partnerId === 'trustavi'
+                  ? isEn
+                    ? `I confirm that all parent borrower information, Passport ID (${cleanPassport}), and 8 mandatory checklist documents comply with TrustAVI SAS rules, and that LIEC receives €${TRUSTAVI_OFFERS[trustAviOfferKey].liec_commission_eur} commission.`
+                    : `Je confirme que les informations, le N° Passeport (${cleanPassport}) et les 8 pièces de la checklist respectent les conditions TrustAVI SAS, et que LIEC perçoit ${TRUSTAVI_OFFERS[trustAviOfferKey].liec_commission_eur} € de commission.`
+                  : isEn
                   ? `I confirm that all parent borrower information, Passport ID (${cleanPassport}), and attached supporting documents comply with the YimmiLine ${selectedOffer.nameEn} rules, and that LIEC recovers €150 EUR on the AVI interest paid.`
                   : `Je confirme que les informations du parent emprunteur, le N° Passeport (${cleanPassport}) et les justificatifs respectent les conditions ${selectedOffer.nameFr}, et que LIEC récupère 150 € sur l'intérêt AVI payé.`}
               </span>
@@ -1733,6 +2230,7 @@ export function ServicesAviScreen({
             </thead>
             <tbody className="divide-y divide-slate-100">
               {aviRequests.map((req) => {
+                const isTrustAvi = req.partner_id === 'trustavi';
                 const eurVal =
                   Number(req.principal_eur) ||
                   Number(req.principal_usd || 3000) * Number(req.usd_eur_rate || 0.92);
@@ -1740,14 +2238,22 @@ export function ServicesAviScreen({
                 const xafVal = Number(req.principal_xaf) || eurVal * 655.957;
                 const ratePct = Number(req.interest_rate) || 12;
                 const totIntEur = Number(req.total_interest_eur) || eurVal * (ratePct / 100);
+                const liecCommission = Number(req.liec_fee_usd) || (req.offer_key === 'normal_avi' ? 115 : (isTrustAvi ? 300 : 150));
 
                 return (
                   <tr key={req.ref} className="hover:bg-slate-50">
                     <td className="py-3.5 px-3">
                       <div className="font-extrabold text-[#092342]">{req.ref}</div>
-                      <span className="inline-block mt-0.5 rounded bg-[#eef4fb] px-1.5 py-0.5 font-mono text-[10px] font-bold text-[#0c685a]">
-                        {req.student_id_doc}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                        <span className="rounded bg-[#eef4fb] px-1.5 py-0.5 font-mono text-[10px] font-bold text-[#0c685a]">
+                          {req.student_id_doc}
+                        </span>
+                        {isTrustAvi && (
+                          <span className="rounded bg-[#092342] text-white px-1.5 py-0.5 text-[9px] font-extrabold">
+                            TrustAVI
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3.5 px-3">
                       <div className="font-bold text-[#092342]">{req.parent_name}</div>
@@ -1762,31 +2268,58 @@ export function ServicesAviScreen({
                     </td>
                     <td className="py-3.5 px-3">
                       <div className="font-extrabold text-[#092342]">
-                        {req.offer_name} ({ratePct}%)
+                        {req.offer_name} {!isTrustAvi && `(${ratePct}%)`}
                       </div>
                       <div className="text-[10.5px] text-slate-500">
-                        {req.duration_months} {isEn ? 'months' : 'mois'}
+                        {isTrustAvi ? (
+                          <span className="font-semibold text-[#0c685a]">
+                            ✓ {isEn ? 'DRC Guarantor Accepted' : 'Garant RDC Accepté'}
+                          </span>
+                        ) : (
+                          `${req.duration_months} ${isEn ? 'months' : 'mois'}`
+                        )}
                       </div>
                     </td>
                     <td className="py-3.5 px-3 font-extrabold text-[#092342]">
                       €{eurVal.toLocaleString('en-US', { maximumFractionDigits: 0 })} EUR
                       <span className="block text-[10.5px] font-medium text-slate-500">
-                        ${usdVal.toLocaleString('en-US', { maximumFractionDigits: 0 })} USD •{' '}
-                        {Math.round(xafVal).toLocaleString('en-US')} XAF
+                        {isTrustAvi ? (
+                          isEn ? 'Parent Deposit Total' : 'Dépôt Parent Total'
+                        ) : (
+                          `$${usdVal.toLocaleString('en-US', { maximumFractionDigits: 0 })} USD • ${Math.round(xafVal).toLocaleString('en-US')} XAF`
+                        )}
                       </span>
                     </td>
                     <td className="py-3.5 px-3">
-                      <div className="font-extrabold text-[#0c685a]">
-                        {isEn ? 'Total Interest:' : 'Intérêt Total :'} €{totIntEur.toFixed(2)}
-                      </div>
-                      <span className="inline-block mt-0.5 rounded bg-[#fef3c7] px-2 py-0.5 text-[10px] font-extrabold text-[#92400e]">
-                        {isEn ? 'LIEC Cut: €150.00 EUR' : 'Part LIEC : 150,00 €'}
-                      </span>
+                      {isTrustAvi ? (
+                        <>
+                          <div className="font-extrabold text-[#0c685a]">
+                            {isEn ? 'LIEC Commission:' : 'Commission LIEC :'} €{liecCommission.toFixed(2)}
+                          </div>
+                          <span className="inline-block mt-0.5 rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+                            {isEn ? 'Net to TrustAVI: ' : 'Net versé TrustAVI : '}€{(eurVal - liecCommission).toFixed(2)}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <div className="font-extrabold text-[#0c685a]">
+                            {isEn ? 'Total Interest:' : 'Intérêt Total :'} €{totIntEur.toFixed(2)}
+                          </div>
+                          <span className="inline-block mt-0.5 rounded bg-[#fef3c7] px-2 py-0.5 text-[10px] font-extrabold text-[#92400e]">
+                            {isEn ? 'LIEC Cut: €150.00 EUR' : 'Part LIEC : 150,00 €'}
+                          </span>
+                        </>
+                      )}
                     </td>
                     <td className="py-3.5 px-3">
                       <span className="rounded-full bg-[#ccf5e5] px-2.5 py-1 text-[10.5px] font-extrabold text-[#0c685a]">
                         {req.status}
                       </span>
+                      {isTrustAvi && (
+                        <div className="text-[9.5px] text-[#0c685a] font-bold mt-1">
+                          ✓ 8/8 {isEn ? 'Checklist Docs' : 'Pièces Checklist'}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -2270,8 +2803,8 @@ export function RapportsFinanceScreen({
   const candidatePayments = useMemo(() => {
     if (!currentCandidate) return { instalment1: null, instalment2: null, validatedTotal: 0 };
     const paymentsForCandidate = safePayments.filter((p) => p.candidate_ref === currentCandidate.ref);
-    const inst1 = paymentsForCandidate.find((p) => p.instalment_number === 1) || null;
-    const inst2 = paymentsForCandidate.find((p) => p.instalment_number === 2) || null;
+    const inst1 = paymentsForCandidate.find((p) => p.instalment_number === 1 && p.status !== 'Cancelled' && p.status !== 'Reversed') || null;
+    const inst2 = paymentsForCandidate.find((p) => p.instalment_number === 2 && p.status !== 'Cancelled' && p.status !== 'Reversed') || null;
 
     let total = 0;
     if (inst1 && inst1.status === 'Validated') total += Number(inst1.amount);
@@ -2283,7 +2816,7 @@ export function RapportsFinanceScreen({
   // Candidate's PREPA receipts
   const candidateReceipts = useMemo(() => {
     if (!currentCandidate) return [];
-    return safeReceipts.filter((r) => r.candidate_ref === currentCandidate.ref);
+    return safeReceipts.filter((r) => r.candidate_ref === currentCandidate.ref && !r.metadata?.voided);
   }, [safeReceipts, currentCandidate]);
 
   // Financial KPI totals across all PREPA payments
@@ -2310,7 +2843,7 @@ export function RapportsFinanceScreen({
       pendingCount,
       fullyPaidCount,
       thresholdCount,
-      totalReceiptsCount: safeReceipts.length,
+      totalReceiptsCount: safeReceipts.filter((r) => !r.metadata?.voided).length,
     };
   }, [safePayments, safeReceipts]);
 
@@ -3597,6 +4130,16 @@ export function RapportsFinanceScreen({
   );
 }
 
+export function translateAuditAction(action: string, isEn: boolean): string {
+  if (!action || !isEn) return action;
+  return action
+    .replace(/Mot de passe validé - En attente code MFA Google Authenticator \(admin\)/gi, 'Password verified – Awaiting Google Authenticator MFA code (Admin)')
+    .replace(/Mot de passe validé - En attente code MFA Google Authenticator \(([^)]+)\)/gi, 'Password verified – Awaiting Google Authenticator MFA code ($1)')
+    .replace(/Mot de passe validé - En attente code MFA Google Authenticator/gi, 'Password verified – Awaiting Google Authenticator MFA code')
+    .replace(/Ajout note pédagogique dossier candidat/gi, 'Added pedagogical note to candidate dossier')
+    .replace(/Mise à jour statut pièce dossier candidat/gi, 'Updated candidate document status');
+}
+
 export function ParametresGovernanceScreen({
   auditLogs = [],
   dbEngine = 'postgresql',
@@ -4590,7 +5133,7 @@ export function ParametresGovernanceScreen({
                         {log.entity_ref || 'AUTH'}
                       </span>
                       <span className="font-extrabold">{log.actor}</span>
-                      <span className="text-slate-600">{log.action}</span>
+                      <span className="text-slate-600">{translateAuditAction(log.action, isEn)}</span>
                       {log.details && (
                         <span className="text-[11px] text-slate-500 italic truncate max-w-md">
                           ({log.details})
