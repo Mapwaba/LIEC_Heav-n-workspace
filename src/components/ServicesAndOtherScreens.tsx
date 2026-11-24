@@ -3790,209 +3790,226 @@ export function RapportsFinanceScreen({
                       </div>
                     </div>
 
-                    {/* OFFICIAL PRINTABLE PDF CARD CONTAINER */}
+                    {/* OFFICIAL PRINTABLE PDF CARD CONTAINER — GOOGLE-INSPIRED MINIMALIST A4 LAYOUT */}
                     <div
                       id="liec-official-printable-receipt"
-                      className="rounded-2xl border-2 border-[#092342]/20 bg-white p-8 space-y-6 font-sans text-xs text-[#092342] shadow-md print:shadow-none print:border-none print:p-0"
+                      className="rounded-lg border border-neutral-200 bg-white p-10 space-y-8 font-sans text-[11px] text-neutral-900 shadow-sm print:shadow-none print:border-none print:p-0"
                     >
-                      {/* RECEIPT HEADER — GOOGLE-STYLE CLEAN BUSINESS DOCUMENT */}
-                      <div className="flex items-start justify-between border-b border-slate-200 pb-6">
-                        <div className="flex items-start gap-4">
+                      {/* UPPER HEADER: LOGO + TITLE (LEFT) | LEGAL IDENTITY & CONTACTS (RIGHT) */}
+                      <div className="flex items-start justify-between gap-6">
+                        <div className="space-y-3">
                           <img
                             src="/logo_liec_prepa.png"
                             alt="LIEC Logo"
-                            className="h-16 w-auto object-contain"
+                            className="h-12 w-auto object-contain"
                           />
-                          <div className="space-y-0.5">
-                            <div className="text-base font-bold tracking-tight text-[#092342]">
-                              LIEC - Lyon International Education Consulting
+                          <div>
+                            <div className="text-[28px] font-normal tracking-tight text-neutral-900 leading-tight">
+                              Payment Receipt
                             </div>
-                            <div className="text-[11px] text-slate-600 max-w-md leading-snug">
-                              Bld du 30 Juin, arrêt Sabena / Réf Centre Elite, C/ Gombe, Bâtiment AIHOM meubles de maison, 6e niveau ; V/ Kinshasa
+                            <div className="text-xs text-neutral-700 mt-1">
+                              Receipt number: <span className="font-medium">{activeReceipt.receipt_number}</span>
                             </div>
-                            <div className="text-[10.5px] text-slate-500 pt-0.5">
-                              VAT Number: FR39131632598 • SIREN: 131632598 • SIRET: 13163259800010
-                            </div>
-                            <div className="text-[10.5px] text-slate-500">
-                              contacts@liecconsulting.com • liecconsulting.com • +243 803 615 543 • France: +33 7 69 86 09 13
-                            </div>
+                            {activeReceipt.is_reissue && (
+                              <div className="mt-1 text-[10px] font-semibold text-amber-700 uppercase tracking-wider">
+                                [ Duplicate / Reissued Copy #{activeReceipt.reissue_count || 1} ]
+                              </div>
+                            )}
                           </div>
                         </div>
 
-                        <div className="text-right shrink-0">
-                          <div className="text-lg font-bold tracking-tight text-[#092342] uppercase">
-                            PAYMENT RECEIPT
+                        <div className="text-right text-[10.5px] leading-relaxed text-neutral-700 max-w-xs">
+                          <div className="font-bold text-neutral-900">
+                            LIEC - Lyon International Education Consulting
                           </div>
-                          {activeReceipt.is_reissue && (
-                            <div className="mt-1 text-[10px] font-bold text-amber-700 uppercase tracking-wider">
-                              [ DUPLICATE / REISSUED COPY #{activeReceipt.reissue_count || 1} ]
+                          <div>
+                            Bld du 30 Juin, arrêt Sabena / Réf Centre Elite, C/ Gombe,
+                          </div>
+                          <div>Bâtiment AIHOM meubles de maison, 6e niveau ; V/ Kinshasa</div>
+                          <div className="mt-1.5">VAT number: FR39131632598</div>
+                          <div>SIREN: 131632598</div>
+                          <div>SIRET: 13163259800010</div>
+                          <div className="mt-1.5">contacts@liecconsulting.com • liecconsulting.com</div>
+                          <div>Tel / WhatsApp: +243 803 615 543 • France: +33 7 69 86 09 13</div>
+                        </div>
+                      </div>
+
+                      {/* BILL TO / STUDENT INFORMATION */}
+                      <div className="text-[11px] leading-relaxed text-neutral-800 space-y-0.5 pt-2">
+                        <div className="font-bold text-neutral-900">Bill to</div>
+                        <div className="font-medium text-neutral-900">{activeReceipt.candidate_name}</div>
+                        <div>Candidate Ref: {activeReceipt.candidate_ref}</div>
+                        <div>Programme: LIEC-France PREPA ({activeReceipt.metadata?.academic_intake || '2025–2026 Intake'})</div>
+                        {activeReceipt.metadata?.parent_name && (
+                          <div>Sponsor / Parent: {activeReceipt.metadata.parent_name}</div>
+                        )}
+                      </div>
+
+                      {/* TWO-COLUMN TRANSACTION SUMMARY (DETAILS LEFT | PROMINENT TOTAL & SUMMARY RIGHT) */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-10 pt-2">
+                        {/* Left Column: Dotted-Leader Details */}
+                        <div className="space-y-1.5">
+                          <div className="font-bold text-neutral-900 pb-1">Details</div>
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-neutral-600 shrink-0">Receipt number</span>
+                            <span className="flex-1 border-b border-dotted border-neutral-300 mx-1" />
+                            <span className="font-medium text-neutral-900 shrink-0">{activeReceipt.receipt_number}</span>
+                          </div>
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-neutral-600 shrink-0">Issue date</span>
+                            <span className="flex-1 border-b border-dotted border-neutral-300 mx-1" />
+                            <span className="text-neutral-900 shrink-0">{activeReceipt.issue_date_paris} {activeReceipt.issue_time_paris}</span>
+                          </div>
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-neutral-600 shrink-0">Payment date</span>
+                            <span className="flex-1 border-b border-dotted border-neutral-300 mx-1" />
+                            <span className="text-neutral-900 shrink-0">
+                              {activeReceipt.metadata?.validated_at
+                                ? new Date(activeReceipt.metadata.validated_at).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })
+                                : activeReceipt.issue_date_paris}
+                            </span>
+                          </div>
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-neutral-600 shrink-0">Payment reference</span>
+                            <span className="flex-1 border-b border-dotted border-neutral-300 mx-1" />
+                            <span className="font-mono text-[10.5px] text-neutral-900 shrink-0">{activeReceipt.payment_ref}</span>
+                          </div>
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-neutral-600 shrink-0">Payment method</span>
+                            <span className="flex-1 border-b border-dotted border-neutral-300 mx-1" />
+                            <span className="text-neutral-900 shrink-0">{activeReceipt.metadata?.payment_method || 'Bank Wire'}</span>
+                          </div>
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-neutral-600 shrink-0">Verification ref</span>
+                            <span className="flex-1 border-b border-dotted border-neutral-300 mx-1" />
+                            <span className="font-mono text-[10px] text-neutral-900 shrink-0">{activeReceipt.verification_ref}</span>
+                          </div>
+                        </div>
+
+                        {/* Right Column: Prominent Total & Financial Summary */}
+                        <div className="space-y-4">
+                          <div>
+                            <div className="font-bold text-neutral-900 pb-1.5 border-b border-neutral-400">
+                              LIEC-France PREPA
                             </div>
-                          )}
-                          <div className="font-mono font-bold text-xs text-slate-600 mt-1">
-                            {activeReceipt.receipt_number}
+                            <div className="flex items-baseline justify-between pt-3">
+                              <span className="text-neutral-700">Total received in EUR</span>
+                              <span className="text-xl font-bold text-neutral-900">
+                                €{Number(activeReceipt.amount_paid).toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="font-bold text-neutral-900 pb-1.5 border-b border-neutral-400">
+                              Summary
+                            </div>
+                            <div className="space-y-1.5 pt-2.5 text-[11px]">
+                              <div className="flex justify-between">
+                                <span className="text-neutral-600">Configured programme fee</span>
+                                <span className="text-neutral-900">€2,800.00</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-neutral-600">Previously validated</span>
+                                <span className="text-neutral-900">€{Number(activeReceipt.metadata?.previously_validated_amount || 0).toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between font-medium">
+                                <span className="text-neutral-800">Amount received (this receipt)</span>
+                                <span className="text-neutral-900">€{Number(activeReceipt.amount_paid).toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-neutral-600">Cumulative validated paid</span>
+                                <span className="text-neutral-900">€{Number(activeReceipt.cumulative_paid).toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between font-bold pt-1 border-t border-neutral-200">
+                                <span className="text-neutral-900">Outstanding balance</span>
+                                <span className="text-neutral-900">€{Number(activeReceipt.outstanding_balance).toFixed(2)}</span>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
 
-                      {/* METADATA & CANDIDATE DETAILS ROW */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 rounded-xl bg-[#f8fbff] border border-[#e6eef6] text-[11px]">
-                        <div>
-                          <span className="text-slate-400 block text-[9.5px] uppercase font-bold">ISSUE DATE & TIME</span>
-                          <span className="font-bold text-[#092342]">
-                            {activeReceipt.issue_date_paris} {activeReceipt.issue_time_paris}
-                          </span>
-                          <span className="text-slate-400 block text-[9.5px] font-mono">({activeReceipt.timezone || 'Europe/Paris'})</span>
-                        </div>
-
-                        <div>
-                          <span className="text-slate-400 block text-[9.5px] uppercase font-bold">VALIDATION RECORD</span>
-                          <span className="font-bold text-[#0c685a]">
-                            {activeReceipt.metadata?.validated_at
-                              ? new Date(activeReceipt.metadata.validated_at).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' })
-                              : 'Verified Staff'}
-                          </span>
-                          <span className="text-slate-400 block text-[9.5px]">By: {activeReceipt.metadata?.validated_by || 'Staff'}</span>
-                        </div>
-
-                        <div>
-                          <span className="text-slate-400 block text-[9.5px] uppercase font-bold">PAYMENT REFERENCE</span>
-                          <span className="font-mono font-bold text-[#092342]">
-                            {activeReceipt.payment_ref}
-                          </span>
-                          <span className="text-slate-400 block text-[9.5px]">{activeReceipt.metadata?.payment_method || 'Bank Wire'}</span>
-                        </div>
-
-                        <div>
-                          <span className="text-slate-400 block text-[9.5px] uppercase font-bold">VERIFICATION REFERENCE</span>
-                          <span className="font-mono font-extrabold text-[#092342] text-[10px]">
-                            {activeReceipt.verification_ref}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* CANDIDATE INFORMATION */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs border-b border-slate-200 pb-4">
-                        <div>
-                          <span className="text-slate-400 block text-[10px] uppercase font-bold">CANDIDATE FULL NAME</span>
-                          <span className="font-extrabold text-sm text-[#092342]">{activeReceipt.candidate_name}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block text-[10px] uppercase font-bold">CANDIDATE IDENTIFIER</span>
-                          <span className="font-mono font-bold text-[#092342]">{activeReceipt.candidate_ref}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block text-[10px] uppercase font-bold">ACADEMIC INTAKE COHORT</span>
-                          <span className="font-bold text-[#0c685a]">{activeReceipt.metadata?.academic_intake || '2025–2026 Intake'}</span>
-                        </div>
-                      </div>
-
-                      {/* PAYMENT SCHEDULE & RECEIPT BREAKDOWN TABLE */}
-                      <div className="rounded-xl border border-slate-200 overflow-hidden">
-                        <table className="w-full text-left text-xs">
-                          <thead className="bg-[#092342] text-white text-[10px] uppercase tracking-wider font-extrabold">
-                            <tr>
-                              <th className="py-2.5 px-3">Description</th>
-                              <th className="py-2.5 px-3 text-center">Percentage</th>
-                              <th className="py-2.5 px-3 text-right">Amount Received</th>
+                      {/* STRUCTURED TRANSACTION DETAILS TABLE (GOOGLE PAGE 2 STYLE) */}
+                      <div className="pt-4">
+                        <table className="w-full text-left border-collapse text-[11px]">
+                          <thead>
+                            <tr className="border-b border-neutral-400 text-neutral-900 font-bold">
+                              <th className="py-2 pr-3">Description</th>
+                              <th className="py-2 px-2">Installment</th>
+                              <th className="py-2 px-2">Payment Date</th>
+                              <th className="py-2 px-2">Reference</th>
+                              <th className="py-2 px-2">Method</th>
+                              <th className="py-2 pl-3 text-right">Amount (€)</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-100">
+                          <tbody className="divide-y divide-neutral-200 border-b border-neutral-300">
                             <tr>
-                              <td className="py-3 px-3">
-                                <div className="font-extrabold text-[#092342]">
-                                  {activeReceipt.instalment_number === 1
-                                    ? 'LIEC-France PREPA — First Instalment (64.29%)'
-                                    : 'LIEC-France PREPA — Second Instalment (35.71%)'}
-                                </div>
-                                <div className="text-[11px] text-slate-500">
-                                  {activeReceipt.instalment_number === 1
-                                    ? 'Initial visa procedure qualification, scientific tests & university lodging support'
-                                    : 'Final balance completion for full PREPA cohort participation'}
-                                </div>
+                              <td className="py-3 pr-3 text-neutral-900">
+                                {activeReceipt.instalment_number === 1
+                                  ? 'LIEC-France PREPA — First Instalment'
+                                  : 'LIEC-France PREPA — Second Instalment'}
                               </td>
-                              <td className="py-3 px-3 text-center font-bold text-[#092342]">
-                                {activeReceipt.instalment_number === 1 ? '64.29%' : '35.71%'}
+                              <td className="py-3 px-2 text-neutral-700">
+                                {activeReceipt.instalment_number === 1 ? '1st (64.29%)' : '2nd (35.71%)'}
                               </td>
-                              <td className="py-3 px-3 text-right font-extrabold text-sm text-[#0c685a]">
-                                €{Number(activeReceipt.amount_paid).toFixed(2)}
+                              <td className="py-3 px-2 text-neutral-700">
+                                {activeReceipt.metadata?.validated_at
+                                  ? new Date(activeReceipt.metadata.validated_at).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })
+                                  : activeReceipt.issue_date_paris}
+                              </td>
+                              <td className="py-3 px-2 font-mono text-[10px] text-neutral-700">
+                                {activeReceipt.payment_ref}
+                              </td>
+                              <td className="py-3 px-2 text-neutral-700">
+                                {activeReceipt.metadata?.payment_method || 'Bank Wire'}
+                              </td>
+                              <td className="py-3 pl-3 text-right font-medium text-neutral-900">
+                                {Number(activeReceipt.amount_paid).toFixed(2)}
                               </td>
                             </tr>
                           </tbody>
                         </table>
 
-                        {/* Financial Totals Summary Box */}
-                        <div className="bg-[#f8fbff] p-4 border-t border-slate-200 space-y-2 text-xs">
-                          <div className="flex justify-between items-center text-slate-600">
-                            <span>Total Programme Fee (Configured Schedule)</span>
-                            <span className="font-extrabold text-[#092342]">€2,800.00</span>
-                          </div>
-                          <div className="flex justify-between items-center text-slate-600">
-                            <span>Previously Validated Amount</span>
-                            <span className="font-bold text-slate-700">
-                              €{Number(activeReceipt.metadata?.previously_validated_amount || 0).toFixed(2)}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center text-[#0c685a] font-bold border-t border-slate-200 pt-2">
-                            <span>Cumulative Amount Paid to Date</span>
-                            <span className="text-base font-extrabold">
-                              €{Number(activeReceipt.cumulative_paid).toFixed(2)}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center text-slate-700 font-bold border-t border-slate-200 pt-2">
-                            <span>Outstanding Balance Remaining</span>
-                            <span className={`text-base font-extrabold ${Number(activeReceipt.outstanding_balance) === 0 ? 'text-[#0c685a]' : 'text-[#92400e]'}`}>
-                              €{Number(activeReceipt.outstanding_balance).toFixed(2)}
-                            </span>
+                        <div className="flex justify-end pt-3">
+                          <div className="w-full sm:w-1/2 space-y-1.5 text-[11px]">
+                            <div className="flex justify-between">
+                              <span className="text-neutral-600">Status</span>
+                              <span className="font-semibold text-[#0c685a]">
+                                {Number(activeReceipt.cumulative_paid) >= PREPA_TOTAL_FEE ? 'Settled (Validated)' : 'Partial Payment (Validated)'}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-baseline border-t border-neutral-400 pt-2">
+                              <span className="font-medium text-neutral-900">Total received in EUR</span>
+                              <span className="text-lg font-bold text-neutral-900">
+                                €{Number(activeReceipt.amount_paid).toFixed(2)}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
 
-                      {/* PROGRAMME PAYMENT STATUS DISTINCTION BANNER */}
-                      <div className={`p-3 rounded-xl text-center font-extrabold text-xs ${
-                        Number(activeReceipt.cumulative_paid) >= PREPA_TOTAL_FEE
-                          ? 'bg-[#ccf5e5] text-[#0c685a] border border-[#a3e9d2]'
-                          : 'bg-[#d8f6ea] text-[#094f46] border border-[#bfead9]'
-                      }`}>
-                        {Number(activeReceipt.cumulative_paid) >= PREPA_TOTAL_FEE
-                          ? '✓ FULL PROGRAMME PAYMENT SETTLED (100.00%) — Total Validated: €2,800.00. Outstanding Balance: €0.00. All LIEC-France PREPA Financial Requirements Fully Satisfied.'
-                          : `✓ PARTIAL INSTALMENT PAYMENT — Payment Validated (€${Number(activeReceipt.amount_paid || 1800).toFixed(2)}). Candidate Eligible for Visa Lodging & Partner University Procedure. Outstanding Balance: €${Number(activeReceipt.outstanding_balance || 0).toFixed(2)} (Due within 30 calendar days).`}
-                      </div>
-
-                      {/* FOOTER: ACKNOWLEDGEMENT, LEGAL INFO & OFFICIAL STAMP */}
-                      <div className="border-t border-slate-200 pt-4 space-y-4">
-                        <p className="text-[11px] text-slate-500 italic leading-relaxed text-center">
-                          Lyon International Education Consulting hereby acknowledges receipt and validation of the above funds towards the LIEC-France PREPA programme. This document serves as official financial proof of payment.
-                        </p>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end pt-2">
-                          {/* Left Legal Info */}
-                          <div className="text-[10px] text-slate-500 space-y-0.5">
-                            <div className="font-bold text-[#092342]">LIEC - Lyon International Education Consulting</div>
-                            <div>Bld du 30 Juin, arrêt Sabena / Réf Centre Elite, C/ Gombe, Bâtiment AIHOM meubles de maison, 6e niveau ; V/ Kinshasa</div>
-                            <div>VAT Number: FR39131632598 • SIREN: 131632598 • SIRET: 13163259800010</div>
-                            <div>contacts@liecconsulting.com • liecconsulting.com</div>
-                            <div>Tel / WhatsApp: +243 803 615 543 • France: +33 7 69 86 09 13</div>
+                      {/* FOOTER: ACKNOWLEDGEMENT, AUTHORIZED SIGNATORY & OFFICIAL CONTACTS */}
+                      <div className="border-t border-neutral-200 pt-5 flex flex-col sm:flex-row items-start sm:items-end justify-between gap-6">
+                        <div className="text-[10px] text-neutral-600 space-y-1 max-w-md">
+                          <div className="font-semibold text-neutral-900">Payment Acknowledgment</div>
+                          <p className="leading-relaxed">
+                            LIEC - Lyon International Education Consulting acknowledges receipt of the above payment towards the LIEC-France PREPA programme. No VAT has been calculated or added beyond the recorded transaction amount.
+                          </p>
+                          <div className="pt-1 text-neutral-500">
+                            Questions? Contact contacts@liecconsulting.com • +243 803 615 543 • France: +33 7 69 86 09 13
                           </div>
+                        </div>
 
-                          {/* Right Official Stamp & Signature Area */}
-                          <div className="rounded-xl border-2 border-dashed border-[#092342]/30 p-3 text-center space-y-2 bg-[#fdfefe]">
-                            <div className="text-[9.5px] font-extrabold uppercase tracking-wider text-slate-400">
-                              AUTHENTICATION &amp; OFFICIAL STAMP AREA
-                            </div>
-                            
-                            {/* Visual Stamp Framing with Official LIEC Stamp Asset */}
-                            <div className="min-h-[85px] flex items-center justify-center py-1">
-                              <img
-                                src="/liec_official_stamp.png"
-                                alt="LIEC Official Stamp"
-                                className="h-20 w-auto object-contain mx-auto opacity-95 drop-shadow-sm select-none"
-                              />
-                            </div>
-
-                            <div className="border-t border-slate-200 pt-1 text-[10px] text-[#092342]">
-                              Authorised Signatory: <span className="font-bold">Barthelemy MAPWABA NTORO</span>
-                              <div className="text-[9px] text-slate-400">Managing Director • Senior Advisor</div>
-                            </div>
+                        <div className="text-center shrink-0 space-y-1">
+                          <img
+                            src="/liec_official_stamp.png"
+                            alt="LIEC Official Stamp"
+                            className="h-16 w-auto object-contain mx-auto opacity-90 select-none"
+                          />
+                          <div className="border-t border-neutral-300 pt-1 text-[10px] text-neutral-800">
+                            Authorised Signatory: <span className="font-semibold">Barthelemy MAPWABA NTORO</span>
+                            <div className="text-[9px] text-neutral-500">Managing Director • Senior Advisor</div>
                           </div>
                         </div>
                       </div>
