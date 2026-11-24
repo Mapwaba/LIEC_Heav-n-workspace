@@ -1,27 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { verifySessionToken } from '@/lib/session';
+import { authenticateServerRequest } from '@/lib/rbac';
 
 export async function POST(req: NextRequest) {
-  const token = req.cookies.get('session')?.value || req.headers.get('authorization')?.replace('Bearer ', '');
-  if (!token) {
-    return NextResponse.json({ error: 'AUTHENTICATION_REQUIRED' }, { status: 401 });
-  }
-
-  const session = await verifySessionToken(token);
-  if (!session.valid) {
-    return NextResponse.json({ error: 'SESSION_INVALID' }, { status: 401 });
-  }
-
   try {
-    const body = await req.json().catch(() => ({}));
-    const { is_idle = false, current_activity = '', active_record_type = null, active_record_ref = null, is_editing = false } = body;
-
     const db = await getDb();
-    const userId = String(session.payload.userId || (session.payload as any).id || session.payload.email);
-    const sessionId = String(session.payload.jti || 'default_session');
-    const userName = String((session.payload as any).name || session.payload.email);
-    const userRole = String(session.payload.businessProfile || (session.payload as any).business_profile || session.payload.role || 'Staff');
+    const auth = await authenticateServerRequest(req, db);
+    if (!auth.success) {
+      return NextResponse.json({ error: 'AUTHENTICATION_REQUIRED' }, { status: 401 });
+    }
+
+    const user = auth.user;
+    const body = await req.json().catch(() => ({}));
+    const {
+      is_idle = false,
+      current_activity = '',
+      active_record_type = null,
+      active_record_ref = null,
+      is_editing = false,
+    } = body;
+
+    const userId = String(user.id || user.email);
+    const sessionId = String((user as any).sessionJti || 'default_session');
+    const userName = String(user.name || user.email);
+    const userRole = String(user.business_profile || user.role || 'Staff');
 
     await db.query(
       `INSERT INTO user_presence (
@@ -51,11 +53,14 @@ export async function POST(req: NextRequest) {
       ]
     );
 
-    // Opportunistic cleanup of stale heartbeats older than 10 minutes (preserves 5m idle states safely)
-    await db.query(`DELETE FROM user_presence WHERE last_heartbeat < NOW() - INTERVAL '10 minutes'`).catch(() => {});
+    // Opportunistically clean up stale presence older than 10 minutes
+    await db
+      .query(`DELETE FROM user_presence WHERE last_heartbeat < NOW() - INTERVAL '10 minutes'`)
+      .catch(() => {});
 
-    return NextResponse.json({ ok: true });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ ok: true, user: userName, role: userRole });
+  } catch (err) {
+    console.error('[PRESENCE HEARTBEAT] Error:', err);
+    return NextResponse.json({ error: 'INTERNAL_SERVER_ERROR' }, { status: 500 });
   }
 }

@@ -565,10 +565,78 @@ export function ServicesAviScreen({
   const [amountXaf, setAmountXaf] = useState<number>(Math.round(2800 * 655.957));
 
   // Supporting Documents attachment state
+  const [uploadingChecklistItemId, setUploadingChecklistItemId] = useState<string | null>(null);
+  const [checklistUploadErrors, setChecklistUploadErrors] = useState<Record<string, string>>({});
   const [selectedFilesCount, setSelectedFilesCount] = useState<number>(0);
   const [fileNames, setFileNames] = useState<string[]>([]);
   const [confirmAvi, setConfirmAvi] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  const handleTrustAviDocumentUpload = async (itemId: string, file: File | null) => {
+    if (!file) return;
+    setChecklistUploadErrors((prev) => {
+      const next = { ...prev };
+      delete next[itemId];
+      return next;
+    });
+
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
+      setChecklistUploadErrors((prev) => ({
+        ...prev,
+        [itemId]: isEn ? 'Only PDF files (.pdf) are accepted.' : 'Seuls les fichiers PDF (.pdf) sont acceptés.',
+      }));
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setChecklistUploadErrors((prev) => ({
+        ...prev,
+        [itemId]: isEn ? 'File exceeds 10 MB limit.' : 'Le fichier dépasse la limite de 10 Mo.',
+      }));
+      return;
+    }
+
+    setUploadingChecklistItemId(itemId);
+    try {
+      const formData = new FormData();
+      formData.append('item_id', itemId);
+      formData.append('file', file);
+
+      const res = await fetch('/api/avi/documents', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.storageKey) {
+        throw new Error(data.error || (isEn ? 'Upload failed.' : 'Échec du téléversement.'));
+      }
+
+      setChecklistItems((prev) =>
+        prev.map((c) =>
+          c.id === itemId
+            ? {
+                ...c,
+                file_name: data.fileName || file.name,
+                file_key: data.storageKey,
+                status: 'SUBMITTED',
+              }
+            : c
+        )
+      );
+      onNotify(
+        isEn
+          ? `Uploaded "${data.fileName || file.name}" to secure storage.`
+          : `Document « ${data.fileName || file.name} » téléversé dans le stockage sécurisé.`
+      );
+    } catch (err: any) {
+      setChecklistUploadErrors((prev) => ({
+        ...prev,
+        [itemId]: err?.message || (isEn ? 'Upload error.' : 'Erreur de téléversement.'),
+      }));
+    } finally {
+      setUploadingChecklistItemId(null);
+    }
+  };
 
   // Fetch Real-Time Market Exchange Rate from public FX API
   const syncLiveMarketRates = useCallback(
@@ -1113,7 +1181,7 @@ export function ServicesAviScreen({
                   </h3>
                 </div>
                 <span className="rounded-lg bg-white px-3 py-1 text-xs font-extrabold text-[#092342] border border-slate-200">
-                  {checklistItems.filter((i) => (i.type === 'document' ? i.file_name : i.field_value)).length} / 8 {isEn ? 'Completed' : 'Complétés'}
+                  {checklistItems.filter((i) => (i.type === 'document' ? Boolean(i.file_key && i.file_name) : Boolean(i.field_value))).length} / 8 {isEn ? 'Completed' : 'Complétés'}
                 </span>
               </div>
 
@@ -1123,7 +1191,9 @@ export function ServicesAviScreen({
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                   {checklistItems.filter((i) => i.category === 'student').map((item) => {
-                    const isFilled = item.type === 'document' ? Boolean(item.file_name) : Boolean(item.field_value);
+                    const isFilled = item.type === 'document' ? Boolean(item.file_key && item.file_name) : Boolean(item.field_value);
+                    const isUploading = uploadingChecklistItemId === item.id;
+                    const uploadError = checklistUploadErrors[item.id];
                     return (
                       <div key={item.id} className="rounded-xl bg-white p-3 border border-slate-200 space-y-2">
                         <div className="flex items-start justify-between gap-2">
@@ -1133,43 +1203,45 @@ export function ServicesAviScreen({
                           <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold shrink-0 ${
                             isFilled ? 'bg-[#ccf5e5] text-[#0c685a]' : 'bg-red-50 text-red-700 border border-red-200'
                           }`}>
-                            {isFilled ? (isEn ? 'SUBMITTED' : 'SOUMIS') : (isEn ? 'MISSING' : 'MANQUANT')}
+                            {isFilled ? (isEn ? 'UPLOADED' : 'TÉLÉVERSÉ') : (isEn ? 'MISSING' : 'MANQUANT')}
                           </span>
                         </div>
                         {item.type === 'document' ? (
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              value={item.file_name || ''}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setChecklistItems((prev) =>
-                                  prev.map((c) =>
-                                    c.id === item.id
-                                      ? { ...c, file_name: val, file_key: val ? `s3://liec-avi-docs/${val}` : null, status: val ? 'SUBMITTED' : 'MISSING' }
-                                      : c
-                                  )
-                                );
-                              }}
-                              placeholder={isEn ? 'File name or S3 document key' : 'Nom du fichier ou clé S3'}
-                              className="flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const docName = `${(studentName || 'student').toLowerCase().replace(/\s+/g, '_')}_${item.id}.pdf`;
-                                setChecklistItems((prev) =>
-                                  prev.map((c) =>
-                                    c.id === item.id
-                                      ? { ...c, file_name: docName, file_key: `s3://liec-avi-docs/${docName}`, status: 'SUBMITTED' }
-                                      : c
-                                  )
-                                );
-                              }}
-                              className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-200 transition"
-                            >
-                              {isEn ? 'Attach' : 'Joindre'}
-                            </button>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+                              <span className="truncate text-xs text-slate-700">
+                                {isUploading
+                                  ? (isEn ? 'Uploading PDF...' : 'Téléversement du PDF...')
+                                  : item.file_name
+                                  ? item.file_name
+                                  : (isEn ? 'No PDF file selected' : 'Aucun fichier PDF sélectionné')}
+                              </span>
+                              <label className={`shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-bold transition cursor-pointer ${
+                                isUploading
+                                  ? 'bg-slate-200 text-slate-400 pointer-events-none'
+                                  : 'bg-[#092342] text-white hover:bg-[#0c315a]'
+                              }`}>
+                                {isUploading
+                                  ? '...'
+                                  : item.file_key
+                                  ? (isEn ? 'Replace PDF' : 'Remplacer')
+                                  : (isEn ? 'Attach PDF' : 'Joindre PDF')}
+                                <input
+                                  type="file"
+                                  accept="application/pdf,.pdf"
+                                  className="hidden"
+                                  disabled={isUploading}
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0] || null;
+                                    e.target.value = '';
+                                    handleTrustAviDocumentUpload(item.id, f);
+                                  }}
+                                />
+                              </label>
+                            </div>
+                            {uploadError && (
+                              <p className="text-[11px] font-semibold text-red-600">{uploadError}</p>
+                            )}
                           </div>
                         ) : (
                           <input
@@ -1199,7 +1271,9 @@ export function ServicesAviScreen({
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
                   {checklistItems.filter((i) => i.category === 'guarantor').map((item) => {
-                    const isFilled = item.type === 'document' ? Boolean(item.file_name) : Boolean(item.field_value);
+                    const isFilled = item.type === 'document' ? Boolean(item.file_key && item.file_name) : Boolean(item.field_value);
+                    const isUploading = uploadingChecklistItemId === item.id;
+                    const uploadError = checklistUploadErrors[item.id];
                     return (
                       <div key={item.id} className="rounded-xl bg-white p-3 border border-slate-200 space-y-2">
                         <div className="flex items-start justify-between gap-2">
@@ -1209,43 +1283,45 @@ export function ServicesAviScreen({
                           <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold shrink-0 ${
                             isFilled ? 'bg-[#ccf5e5] text-[#0c685a]' : 'bg-red-50 text-red-700 border border-red-200'
                           }`}>
-                            {isFilled ? (isEn ? 'SUBMITTED' : 'SOUMIS') : (isEn ? 'MISSING' : 'MANQUANT')}
+                            {isFilled ? (isEn ? 'UPLOADED' : 'TÉLÉVERSÉ') : (isEn ? 'MISSING' : 'MANQUANT')}
                           </span>
                         </div>
                         {item.type === 'document' ? (
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              value={item.file_name || ''}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setChecklistItems((prev) =>
-                                  prev.map((c) =>
-                                    c.id === item.id
-                                      ? { ...c, file_name: val, file_key: val ? `s3://liec-avi-docs/${val}` : null, status: val ? 'SUBMITTED' : 'MISSING' }
-                                      : c
-                                  )
-                                );
-                              }}
-                              placeholder={isEn ? 'Document name' : 'Nom du document'}
-                              className="flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const docName = `${(parentName || 'guarantor').toLowerCase().replace(/\s+/g, '_')}_${item.id}.pdf`;
-                                setChecklistItems((prev) =>
-                                  prev.map((c) =>
-                                    c.id === item.id
-                                      ? { ...c, file_name: docName, file_key: `s3://liec-avi-docs/${docName}`, status: 'SUBMITTED' }
-                                      : c
-                                  )
-                                );
-                              }}
-                              className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-200 transition"
-                            >
-                              {isEn ? 'Attach' : 'Joindre'}
-                            </button>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+                              <span className="truncate text-xs text-slate-700">
+                                {isUploading
+                                  ? (isEn ? 'Uploading PDF...' : 'Téléversement...')
+                                  : item.file_name
+                                  ? item.file_name
+                                  : (isEn ? 'No PDF file selected' : 'Aucun PDF')}
+                              </span>
+                              <label className={`shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-bold transition cursor-pointer ${
+                                isUploading
+                                  ? 'bg-slate-200 text-slate-400 pointer-events-none'
+                                  : 'bg-[#092342] text-white hover:bg-[#0c315a]'
+                              }`}>
+                                {isUploading
+                                  ? '...'
+                                  : item.file_key
+                                  ? (isEn ? 'Replace' : 'Remplacer')
+                                  : (isEn ? 'Attach PDF' : 'Joindre PDF')}
+                                <input
+                                  type="file"
+                                  accept="application/pdf,.pdf"
+                                  className="hidden"
+                                  disabled={isUploading}
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0] || null;
+                                    e.target.value = '';
+                                    handleTrustAviDocumentUpload(item.id, f);
+                                  }}
+                                />
+                              </label>
+                            </div>
+                            {uploadError && (
+                              <p className="text-[11px] font-semibold text-red-600">{uploadError}</p>
+                            )}
                           </div>
                         ) : (
                           <input
@@ -3719,37 +3795,40 @@ export function RapportsFinanceScreen({
                       id="liec-official-printable-receipt"
                       className="rounded-2xl border-2 border-[#092342]/20 bg-white p-8 space-y-6 font-sans text-xs text-[#092342] shadow-md print:shadow-none print:border-none print:p-0"
                     >
-                      {/* RECEIPT HEADER */}
-                      <div className="flex items-start justify-between border-b-2 border-[#092342] pb-5">
-                        <div className="flex items-center gap-4">
+                      {/* RECEIPT HEADER — GOOGLE-STYLE CLEAN BUSINESS DOCUMENT */}
+                      <div className="flex items-start justify-between border-b border-slate-200 pb-6">
+                        <div className="flex items-start gap-4">
                           <img
                             src="/logo_liec_prepa.png"
                             alt="LIEC Logo"
-                            className="h-20 w-auto object-contain"
+                            className="h-16 w-auto object-contain"
                           />
-                          <div>
-                            <div className="text-base font-extrabold tracking-tight text-[#092342]">
-                              Lyon International Education Consulting (LIEC)
+                          <div className="space-y-0.5">
+                            <div className="text-base font-bold tracking-tight text-[#092342]">
+                              LIEC - Lyon International Education Consulting
                             </div>
-                            <div className="text-xs font-bold text-[#0c685a] mt-0.5">
-                              Programme: LIEC-France PREPA
+                            <div className="text-[11px] text-slate-600 max-w-md leading-snug">
+                              Bld du 30 Juin, arrêt Sabena / Réf Centre Elite, C/ Gombe, Bâtiment AIHOM meubles de maison, 6e niveau ; V/ Kinshasa
                             </div>
-                            <div className="text-[11px] text-slate-500">
-                              Paris • Lyon • Kinshasa | www.liecconsulting.com
+                            <div className="text-[10.5px] text-slate-500 pt-0.5">
+                              VAT Number: FR39131632598 • SIREN: 131632598 • SIRET: 13163259800010
+                            </div>
+                            <div className="text-[10.5px] text-slate-500">
+                              contacts@liecconsulting.com • liecconsulting.com • +243 803 615 543 • France: +33 7 69 86 09 13
                             </div>
                           </div>
                         </div>
 
-                        <div className="text-right">
-                          <span className="inline-block rounded-md bg-[#092342] text-white px-3 py-1 text-xs font-extrabold tracking-wider uppercase">
+                        <div className="text-right shrink-0">
+                          <div className="text-lg font-bold tracking-tight text-[#092342] uppercase">
                             PAYMENT RECEIPT
-                          </span>
+                          </div>
                           {activeReceipt.is_reissue && (
-                            <div className="mt-1 text-[10.5px] font-extrabold text-amber-700 uppercase tracking-wider">
+                            <div className="mt-1 text-[10px] font-bold text-amber-700 uppercase tracking-wider">
                               [ DUPLICATE / REISSUED COPY #{activeReceipt.reissue_count || 1} ]
                             </div>
                           )}
-                          <div className="font-mono font-extrabold text-sm text-[#092342] mt-2">
+                          <div className="font-mono font-bold text-xs text-slate-600 mt-1">
                             {activeReceipt.receipt_number}
                           </div>
                         </div>
@@ -3888,12 +3967,11 @@ export function RapportsFinanceScreen({
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end pt-2">
                           {/* Left Legal Info */}
                           <div className="text-[10px] text-slate-500 space-y-0.5">
-                            <div className="font-extrabold text-[#092342]">Lyon International Education Consulting (LIEC) SAS</div>
-                            <div>Paris Head Office: 12 Rue de la Paix, 75002 Paris, France</div>
-                            <div>Lyon Office: 45 Rue de la République, 69002 Lyon, France</div>
-                            <div>Kinshasa Hub: Boulevard du 30 Juin, Gombe, Kinshasa, RDC</div>
-                            <div>RCS Paris B 912 345 678 • SIRET 912 345 678 00012</div>
-                            <div>finance@liecconsulting.com • www.liecconsulting.com</div>
+                            <div className="font-bold text-[#092342]">LIEC - Lyon International Education Consulting</div>
+                            <div>Bld du 30 Juin, arrêt Sabena / Réf Centre Elite, C/ Gombe, Bâtiment AIHOM meubles de maison, 6e niveau ; V/ Kinshasa</div>
+                            <div>VAT Number: FR39131632598 • SIREN: 131632598 • SIRET: 13163259800010</div>
+                            <div>contacts@liecconsulting.com • liecconsulting.com</div>
+                            <div>Tel / WhatsApp: +243 803 615 543 • France: +33 7 69 86 09 13</div>
                           </div>
 
                           {/* Right Official Stamp & Signature Area */}

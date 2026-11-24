@@ -1596,26 +1596,27 @@ export default function LiecWorkspacePage() {
           <div className="rounded-2xl border border-[#e6eef6] bg-[#f8fbff] p-2.5 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="h-9 w-9 rounded-full bg-[#092342] text-white flex items-center justify-center shrink-0 font-extrabold text-xs">
-                {rolePreview === 'secretary'
-                  ? 'MK'
-                  : rolePreview === 'avi'
-                  ? 'AK'
-                  : currentUser?.initials || 'SM'}
+                {currentUser?.initials ||
+                  (currentUser?.name
+                    ? currentUser.name
+                        .split(/\s+/)
+                        .filter(Boolean)
+                        .slice(0, 2)
+                        .map((part: string) => part[0]?.toUpperCase() || '')
+                        .join('')
+                    : 'LH')}
               </div>
               <div className="min-w-0">
                 <div className="text-xs font-extrabold text-[#092342] truncate">
-                  {rolePreview === 'secretary'
-                    ? 'Marc Kouassi'
-                    : rolePreview === 'avi'
-                    ? 'Alain Kanza'
-                    : currentUser?.name || 'Barthelemy MAPWABA NTORO'}
+                  {currentUser?.name || currentUser?.email || ''}
                 </div>
                 <div className="text-[10.5px] text-slate-500 truncate">
-                  {rolePreview === 'secretary'
-                    ? isEn ? 'Secretary (Orientation)' : 'Secrétaire Orientation'
-                    : rolePreview === 'avi'
-                    ? isEn ? 'AVI Officer (Financing)' : 'Officier Financement AVI'
-                    : isEn ? 'Administrator / Senior Advisor' : 'Administrateur / Conseillère Senior'}
+                  {currentUser?.email ||
+                    (rolePreview === 'secretary'
+                      ? isEn ? 'Secretary (Orientation)' : 'Secrétaire Orientation'
+                      : rolePreview === 'avi'
+                      ? isEn ? 'AVI Officer (Financing)' : 'Officier Financement AVI'
+                      : isEn ? 'Administrator / Senior Advisor' : 'Administrateur / Conseillère Senior')}
                 </div>
               </div>
             </div>
@@ -1803,13 +1804,7 @@ export default function LiecWorkspacePage() {
                   accommodationRequests={accommodationRequests}
                   selectedIntake={selectedIntakeHeader}
                   onSelectIntake={(intakeId) => setSelectedIntakeHeader(intakeId)}
-                  userName={
-                    rolePreview === 'secretary' && currentUser?.role !== 'secretary'
-                      ? 'Marc Kouassi'
-                      : rolePreview === 'avi' && currentUser?.role !== 'avi'
-                      ? 'Alain Kanza'
-                      : currentUser?.name || ''
-                  }
+                  userName={currentUser?.name || currentUser?.email || ''}
                   currentUser={currentUser}
                   onNavigate={(tab) => setActiveTab(tab as NavTab)}
                   onOpenNewDemande={() => {
