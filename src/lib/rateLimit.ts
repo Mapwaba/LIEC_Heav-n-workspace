@@ -1,6 +1,6 @@
 import crypto from 'crypto';
-import type { NextRequest } from 'next/server.js';
-import { getDb, type DBClient } from './db.ts';
+import type { NextRequest } from 'next/server';
+import { getDb, type DBClient } from './db';
 
 const RATE_LIMIT_SALT = process.env.SESSION_SECRET || 'liec_rate_limit_default_salt_2026';
 

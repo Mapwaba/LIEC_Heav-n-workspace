@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { generateTotpCode } from './totp.ts';
+import { generateTotpCode } from './totp';
 
 function getMfaEncryptionKey(): Buffer {
   const rawKey = process.env.MFA_ENCRYPTION_KEY?.trim();

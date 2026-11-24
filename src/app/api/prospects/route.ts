@@ -1,14 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server.js';
-import { getDb } from '../../../lib/db.ts';
-import { authenticateServerRequest, canAssignAdvisor, canPerformManualStatusOverride, canVerifyFinancialPayments, canManageProspects } from '../../../lib/rbac.ts';
-import { sendAdvisorAssignmentEmail } from '../../../lib/emailService.ts';
+import { NextRequest, NextResponse } from 'next/server';
+import { getDb } from '../../../lib/db';
+import { authenticateServerRequest, canAssignAdvisor, canPerformManualStatusOverride, canVerifyFinancialPayments, canManageProspects } from '../../../lib/rbac';
+import { sendAdvisorAssignmentEmail } from '../../../lib/emailService';
 import {
   verifyFirstInstalmentPayment,
   validateRawbankSlip,
   validateRawbankOpCode,
   checkDuplicateRawbankTransaction,
   resolveApplicableInstalmentAmount,
-} from '../../../lib/paymentVerification.ts';
+} from '../../../lib/paymentVerification';
 
 const COUNTRY_FLAGS: Record<string, string> = {
   RDC: '🇨🇩',

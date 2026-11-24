@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import type { DBClient } from './db.ts';
+import type { DBClient } from './db';
 
 export const SESSION_COOKIE_NAME = 'liec_session';
 

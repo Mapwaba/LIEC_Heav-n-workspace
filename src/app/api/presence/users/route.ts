@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const db = await getDb();
-    const role = (session.payload.business_profile || session.payload.role || '').toLowerCase();
+    const role = (session.payload.businessProfile || (session.payload as any).business_profile || session.payload.role || '').toLowerCase();
     const isAdmin = role.includes('admin');
 
     // Only active presence within last 75 seconds

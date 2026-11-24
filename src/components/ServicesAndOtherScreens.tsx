@@ -60,7 +60,7 @@ export interface YimmiOfferSpec {
   rate: number; // 0.12 | 0.06 | 0.12
   months: number; // 8 | 3 | 12
   minEur: number;
-  maxEur: number;
+  maxEur?: number;
   amountLabelEn: string;
   amountLabelFr: string;
   personalContributionEn?: string;

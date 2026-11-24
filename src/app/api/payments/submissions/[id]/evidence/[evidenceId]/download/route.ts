@@ -17,7 +17,7 @@ export async function OPTIONS() {
 
 export async function GET(
   req: NextRequest,
-  context: { params: Promise<{ id: string; evidenceId: string }> | { id: string; evidenceId: string } }
+  context: { params: Promise<{ id: string; evidenceId: string }> }
 ) {
   try {
     const db = await getDb();
@@ -25,7 +25,7 @@ export async function GET(
     if (!auth.success) return auth.response;
     const user = auth.user;
 
-    const resolvedParams = await Promise.resolve(context.params);
+    const resolvedParams = await context.params;
     const submissionId = parseInt(resolvedParams.id, 10);
     const evidenceId = parseInt(resolvedParams.evidenceId, 10);
 

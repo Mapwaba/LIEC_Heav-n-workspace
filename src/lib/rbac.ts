@@ -1,12 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server.js';
-import { getDb, type DBClient } from './db.ts';
+import { NextRequest, NextResponse } from 'next/server';
+import { getDb, type DBClient } from './db';
 import {
   verifySessionToken,
   SESSION_COOKIE_NAME,
   IDLE_TIMEOUT_SECONDS,
   getMaxSessionLifetimeSeconds,
-} from './session.ts';
-import { calculatePasswordExpiry } from './passwordExpiry.ts';
+} from './session';
+import { calculatePasswordExpiry } from './passwordExpiry';
 
 /**
  * LIEC_Heav'n Enterprise Role-Based Access Control (RBAC)

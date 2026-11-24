@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { getDb } from '@/lib/db';
 import { authenticateServerRequest } from '@/lib/rbac';
-import { PREPA_TOTAL_FEE } from '../payments/route';
+import { PREPA_TOTAL_FEE } from '@/lib/prepaConstants';
 
 export async function GET(req: NextRequest) {
   try {

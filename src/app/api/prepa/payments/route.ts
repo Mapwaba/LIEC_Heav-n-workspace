@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { authenticateServerRequest } from '@/lib/rbac';
-
-// Exact configured fee and payment schedule for LIEC-France PREPA
-export const PREPA_TOTAL_FEE = 2800.00;
-export const PREPA_INSTALMENT_1_AMOUNT = 1800.00;
-export const PREPA_INSTALMENT_1_PCT = 64.29;
-export const PREPA_INSTALMENT_2_AMOUNT = 1000.00;
-export const PREPA_INSTALMENT_2_PCT = 35.71;
+import {
+  PREPA_TOTAL_FEE,
+  PREPA_INSTALMENT_1_AMOUNT,
+  PREPA_INSTALMENT_1_PCT,
+  PREPA_INSTALMENT_2_AMOUNT,
+  PREPA_INSTALMENT_2_PCT,
+} from '@/lib/prepaConstants';
 
 export async function GET(req: NextRequest) {
   try {

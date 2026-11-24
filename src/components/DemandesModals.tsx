@@ -962,7 +962,7 @@ export function FullStudentRecordModal({
             <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between flex-wrap gap-2 text-xs">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-lg bg-[#092342] text-white flex items-center justify-center font-bold text-xs">
-                  {demande.adviser ? demande.adviser.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase() : 'BM'}
+                  {demande.adviser ? demande.adviser.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() : 'BM'}
                 </div>
                 <div>
                   <div className="font-extrabold text-[#092342]">{demande.adviser || 'Barthelemy MAPWABA NTORO'}</div>

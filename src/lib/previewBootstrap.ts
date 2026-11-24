@@ -21,9 +21,9 @@
  */
 
 import crypto from 'crypto';
-import type { DBClient } from './db.ts';
-import { hashPassword, generateSecureTemporaryPassword } from './passwordSecurity.ts';
-import { isPreviewEnvironment } from './environment.ts';
+import type { DBClient } from './db';
+import { hashPassword, generateSecureTemporaryPassword } from './passwordSecurity';
+import { isPreviewEnvironment } from './environment';
 
 export interface PreviewBootstrapOptions {
   initialPassword?: string;

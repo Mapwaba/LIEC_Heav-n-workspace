@@ -33,7 +33,7 @@ export async function OPTIONS() {
  */
 export async function POST(
   req: NextRequest,
-  context: { params: Promise<{ id: string }> | { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
     const db = await getDb();
@@ -52,7 +52,7 @@ export async function POST(
       );
     }
 
-    const resolvedParams = await Promise.resolve(context.params);
+    const resolvedParams = await context.params;
     const submissionId = parseInt(resolvedParams.id, 10);
 
     if (isNaN(submissionId) || submissionId <= 0) {

@@ -13,14 +13,14 @@
  */
 
 import crypto from 'crypto';
-import type { DBClient } from './db.ts';
-import type { AuthenticatedUserContext } from './rbac.ts';
+import type { DBClient } from './db';
+import type { AuthenticatedUserContext } from './rbac';
 import {
   validateRawbankSlip,
   validateRawbankOpCode,
   checkDuplicateRawbankTransaction,
   resolveApplicableInstalmentAmount,
-} from './paymentVerification.ts';
+} from './paymentVerification';
 
 export const MAIN_ADMIN_CANONICAL_EMAIL = 'bmapwabantoro@liecconsulting.com';
 

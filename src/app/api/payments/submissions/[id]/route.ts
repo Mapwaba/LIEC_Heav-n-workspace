@@ -16,7 +16,7 @@ export async function OPTIONS() {
 
 export async function GET(
   req: NextRequest,
-  context: { params: Promise<{ id: string }> | { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
     const db = await getDb();
@@ -26,8 +26,8 @@ export async function GET(
     }
     const user = auth.user;
 
-    const resolvedParams = await Promise.resolve(context.params);
-    const submissionId = parseInt(resolvedParams.id, 10);
+    const { id } = await context.params;
+    const submissionId = parseInt(id, 10);
 
     if (isNaN(submissionId) || submissionId <= 0) {
       return NextResponse.json(

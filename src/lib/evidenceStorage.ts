@@ -12,7 +12,7 @@
 
 import crypto from 'crypto';
 import path from 'path';
-import { uploadDocument, getSignedDownloadUrl, isStorageConfigured, getStorageConfig } from './storage.ts';
+import { uploadDocument, getSignedDownloadUrl, isStorageConfigured, getStorageConfig } from './storage';
 
 export const ALLOWED_EVIDENCE_MIME_TYPES = [
   'application/pdf',

@@ -1,15 +1,15 @@
-import { NextRequest, NextResponse } from 'next/server.js';
-import { getDb, withTransaction } from '../../../lib/db.ts';
-import { allocateDemandeRef, allocateCandidatRef } from '../../../lib/referenceAllocator.ts';
-import { authenticateServerRequest, canAssignAdvisor, canPerformManualStatusOverride, canVerifyFinancialPayments, canManageProspects } from '../../../lib/rbac.ts';
-import { sendAdvisorAssignmentEmail } from '../../../lib/emailService.ts';
+import { NextRequest, NextResponse } from 'next/server';
+import { getDb, withTransaction } from '../../../lib/db';
+import { allocateDemandeRef, allocateCandidatRef } from '../../../lib/referenceAllocator';
+import { authenticateServerRequest, canAssignAdvisor, canPerformManualStatusOverride, canVerifyFinancialPayments, canManageProspects } from '../../../lib/rbac';
+import { sendAdvisorAssignmentEmail } from '../../../lib/emailService';
 import {
   verifyFirstInstalmentPayment,
   validateRawbankSlip,
   validateRawbankOpCode,
   checkDuplicateRawbankTransaction,
   resolveApplicableInstalmentAmount,
-} from '../../../lib/paymentVerification.ts';
+} from '../../../lib/paymentVerification';
 
 function corsHeaders() {
   return {

@@ -18,10 +18,10 @@ export async function POST(req: NextRequest) {
     const { is_idle = false, current_activity = '', active_record_type = null, active_record_ref = null, is_editing = false } = body;
 
     const db = await getDb();
-    const userId = String(session.payload.id || session.payload.email);
+    const userId = String(session.payload.userId || (session.payload as any).id || session.payload.email);
     const sessionId = String(session.payload.jti || 'default_session');
-    const userName = String(session.payload.name || session.payload.email);
-    const userRole = String(session.payload.business_profile || session.payload.role || 'Staff');
+    const userName = String((session.payload as any).name || session.payload.email);
+    const userRole = String(session.payload.businessProfile || (session.payload as any).business_profile || session.payload.role || 'Staff');
 
     await db.query(
       `INSERT INTO user_presence (

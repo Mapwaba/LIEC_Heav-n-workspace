@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server.js';
-import { getDb, withTransaction } from '../../../lib/db.ts';
-import { authenticateServerRequest, evaluateModuleAccess, applyFieldLevelAcl } from '../../../lib/rbac.ts';
-import { allocateCandidatRef } from '../../../lib/referenceAllocator.ts';
+import { NextRequest, NextResponse } from 'next/server';
+import { getDb, withTransaction } from '../../../lib/db';
+import { authenticateServerRequest, evaluateModuleAccess, applyFieldLevelAcl } from '../../../lib/rbac';
+import { allocateCandidatRef } from '../../../lib/referenceAllocator';
 
 function corsHeaders() {
   return {

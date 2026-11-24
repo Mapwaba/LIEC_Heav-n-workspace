@@ -5,6 +5,28 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const cookieEmail = request.cookies.get('liec_user_email')?.value;
 
+  // TRUSTED SERVER-CONTROLLED MAINTENANCE MODE:
+  // Relies exclusively on server-side environment configuration (process.env.MAINTENANCE_MODE).
+  // Arbitrary incoming client headers are strictly rejected to prevent client-side bypass or spoofing.
+  const isMaintenanceMode = process.env.MAINTENANCE_MODE === 'true';
+
+  if (isMaintenanceMode && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(request.method)) {
+    return NextResponse.json(
+      {
+        error: 'MAINTENANCE_MODE_ACTIVE',
+        message: 'System is currently undergoing scheduled maintenance. All database writes are temporarily blocked to preserve data integrity.',
+        timestamp: new Date().toISOString()
+      },
+      {
+        status: 503,
+        headers: {
+          'Retry-After': '300',
+          'Cache-Control': 'no-store, no-cache, must-revalidate'
+        }
+      }
+    );
+  }
+
   // Protect the root workspace page: If unauthenticated, redirect to /login
   if (pathname === '/' && !cookieEmail) {
     const loginUrl = new URL('/login', request.url);

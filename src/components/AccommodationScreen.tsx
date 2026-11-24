@@ -39,6 +39,23 @@ import {
   getAccommodationPartnerById,
 } from '@/lib/accommodationPartners';
 
+export type AccommodationStatus =
+  | 'Draft'
+  | 'Ready to Send'
+  | 'Sending'
+  | 'Sent'
+  | 'Failed'
+  | 'Submitted'
+  | 'In Progress'
+  | 'Reserved'
+  | 'Partner Confirmed'
+  | 'Rejected'
+  | 'Cancelled'
+  | 'Completed'
+  | 'Pending Partner Response'
+  | 'Reservation Granted'
+  | 'Reservation Declined';
+
 export interface AccommodationRequest {
   id: number;
   ref: string;
@@ -63,21 +80,16 @@ export interface AccommodationRequest {
   supporting_docs?: string;
   partner_name?: string;
   attachments?: Array<{ filename: string; sizeFormatted?: string; contentType?: string }>;
-  status:
-    | 'Draft'
-    | 'Ready to Send'
-    | 'Sending'
-    | 'Sent'
-    | 'Failed'
-    | 'Submitted'
-    | 'In Progress'
-    | 'Reserved'
-    | 'Partner Confirmed'
-    | 'Rejected'
-    | 'Cancelled'
-    | 'Completed';
+  status: AccommodationStatus;
   assigned_agent: string;
   notes?: string;
+  confirmation_date?: string;
+  confirmation_reference?: string;
+  confirmation_agent?: string;
+  confirmation_notes?: string;
+  confirmation_doc_name?: string;
+  decline_reason?: string;
+  cancellation_reason?: string;
   history?: Array<{
     timestamp: string;
     author: string;

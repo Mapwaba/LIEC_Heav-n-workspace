@@ -6,7 +6,7 @@
  */
 
 import crypto from 'crypto';
-import { isPreviewEnvironment } from './environment.ts';
+import { isPreviewEnvironment } from './environment';
 
 export interface StorageConfig {
   endpoint: string;

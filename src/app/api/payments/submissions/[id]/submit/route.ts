@@ -21,7 +21,7 @@ export async function OPTIONS() {
  */
 export async function POST(
   req: NextRequest,
-  context: { params: Promise<{ id: string }> | { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
     const db = await getDb();
@@ -36,8 +36,8 @@ export async function POST(
       );
     }
 
-    const resolvedParams = await Promise.resolve(context.params);
-    const submissionId = parseInt(resolvedParams.id, 10);
+    const { id } = await context.params;
+    const submissionId = parseInt(id, 10);
     const body = await req.json().catch(() => ({}));
     const expectedVersion = body.version !== undefined ? Number(body.version) : undefined;
 
