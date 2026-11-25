@@ -197,7 +197,39 @@ export function evaluateModuleAccess(
     return { allowed: true, scope: 'full' };
   }
 
-  // 2. FINANCE OFFICER (Technical role: lh_finance)
+  // 2. SECRETARY (Business profile takes authoritative precedence over conflicting legacy technical roles)
+  if (profile === 'Secretary') {
+    switch (module) {
+      case 'dashboard':
+      case 'demandes':
+      case 'prospects':
+      case 'candidats':
+      case 'prepa':
+      case 'reports':
+      case 'avi':
+      case 'accommodation':
+      case 'programme_reports':
+      case 'document_retention':
+        return { allowed: true, scope: 'intake_administrative' };
+      case 'yimmiline':
+      case 'finance':
+        return {
+          allowed: false,
+          scope: 'denied',
+          reason: 'Access denied: Secretary is denied from General Finance operations.',
+        };
+      case 'users_roles_config':
+      case 'audit':
+      default:
+        return {
+          allowed: false,
+          scope: 'denied',
+          reason: 'Access denied: Secretary cannot manage users, system roles, or inspect full audit logs.',
+        };
+    }
+  }
+
+  // 3. FINANCE OFFICER (Technical role: lh_finance)
   if (profile === 'Finance Officer' || roles.includes('lh_finance')) {
     switch (module) {
       case 'dashboard':
@@ -238,8 +270,8 @@ export function evaluateModuleAccess(
     }
   }
 
-  // 3. SECRETARY (Technical roles: lh_internal, ITIL)
-  if (profile === 'Secretary' || roles.includes('lh_internal') || roles.includes('ITIL')) {
+  // 4. FALLBACK SECRETARY TECHNICAL ROLES (lh_internal, ITIL)
+  if (roles.includes('lh_internal') || roles.includes('ITIL')) {
     switch (module) {
       case 'dashboard':
       case 'demandes':
@@ -321,6 +353,11 @@ export function canVerifyFinancialPayments(user: any): boolean {
   const profile = actualUser.business_profile;
   const userRole = actualUser.role;
   const roles = actualUser.technical_roles || [];
+
+  // Secretary business_profile must NEVER inherit Finance Officer payment/ledger privileges from a conflicting technical role
+  if (profile === 'Secretary') {
+    return false;
+  }
 
   return (
     profile === 'Admin' ||

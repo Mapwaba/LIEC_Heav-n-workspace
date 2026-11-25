@@ -97,20 +97,24 @@ export default function LoginPage() {
           });
       }
 
+      const langParam = params.get('lang');
+      const savedLang = typeof localStorage !== 'undefined' ? localStorage.getItem('liec_lang') : null;
+      const resolvedEn = langParam === 'fr' ? false : langParam === 'en' ? true : savedLang !== 'fr';
+      setIsEn(resolvedEn);
+
       if (params.get('reason') === 'session_timeout') {
         const timeout = params.get('timeout') || '15';
-        const langParam = params.get('lang');
-        const savedLang = typeof localStorage !== 'undefined' ? localStorage.getItem('liec_lang') : null;
-        const isEn = langParam === 'en' || (!langParam && savedLang !== 'fr');
-
         setSessionTimeoutNotice(
-          isEn
+          resolvedEn
             ? `⏱️ Session timed out after ${timeout} minutes of inactivity. In accordance with administrator security policy, your session was closed to protect data. Please sign in again.`
             : `⏱️ Session expirée après ${timeout} minutes d'inactivité. Conformément à la politique de sécurité fixée par l'administrateur, votre session a été fermée pour protéger vos données. Veuillez vous reconnecter.`
         );
       }
     }
   }, []);
+
+  // Active UI locale (defaults to English unless French is explicitly selected)
+  const [isEn, setIsEn] = useState(true);
 
   // Mandatory First-Login Password Change State
   const [firstLoginUser, setFirstLoginUser] = useState<any>(null);
@@ -191,12 +195,20 @@ export default function LoginPage() {
 
     const cleanCode = useRecoveryCode ? recoveryCodeInput.trim() : totpCode.trim();
     if (!cleanCode) {
-      setError(useRecoveryCode ? 'Please enter a recovery code.' : 'Veuillez saisir le code à 6 chiffres.');
+      setError(
+        useRecoveryCode
+          ? (isEn ? 'Please enter a recovery code.' : 'Veuillez saisir un code de récupération.')
+          : (isEn ? 'Please enter the 6-digit verification code.' : 'Veuillez saisir le code à 6 chiffres.')
+      );
       setLoading(false);
       return;
     }
     if (!useRecoveryCode && cleanCode.length !== 6) {
-      setError('Veuillez saisir le code complet à 6 chiffres affiché dans Google Authenticator.');
+      setError(
+        isEn
+          ? 'Please enter the complete 6-digit code displayed in Google Authenticator.'
+          : 'Veuillez saisir le code complet à 6 chiffres affiché dans Google Authenticator.'
+      );
       setLoading(false);
       return;
     }
@@ -240,10 +252,19 @@ export default function LoginPage() {
           window.location.replace(getRedirectTarget());
         }
       } else {
-        setError(data.error || 'Code Google Authenticator invalide ou expiré.');
+        setError(
+          data.error ||
+            (isEn
+              ? 'Invalid or expired Google Authenticator code.'
+              : 'Code Google Authenticator invalide ou expiré.')
+        );
       }
     } catch {
-      setError('Network error during 2FA verification. Please check your connection.');
+      setError(
+        isEn
+          ? 'Network error during 2FA verification. Please check your connection.'
+          : 'Erreur réseau lors de la vérification 2FA. Veuillez vérifier votre connexion.'
+      );
     } finally {
       setLoading(false);
     }
@@ -1469,9 +1490,11 @@ export default function LoginPage() {
               </>
             ) : step === 'recovery_codes' ? (
               <>
-                <h2>Codes de récupération d’urgence</h2>
+                <h2>{isEn ? 'Emergency Recovery Codes' : 'Codes de récupération d’urgence'}</h2>
                 <p className="sub">
-                  Conservez précieusement ces 8 codes uniques à usage unique. Si vous perdez l’accès à votre application Google Authenticator, chacun de ces codes vous permettra de déverrouiller votre session une seule fois.
+                  {isEn
+                    ? 'Store these 8 single-use recovery codes securely. If you lose access to your Google Authenticator app, each code can unlock your session once.'
+                    : 'Conservez précieusement ces 8 codes uniques à usage unique. Si vous perdez l’accès à votre application Google Authenticator, chacun de ces codes vous permettra de déverrouiller votre session une seule fois.'}
                 </p>
 
                 <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '12px', padding: '16px', margin: '18px 0' }}>
@@ -1498,13 +1521,17 @@ export default function LoginPage() {
                         cursor: 'pointer',
                       }}
                     >
-                      {copiedRecoveryCodes ? '✓ Codes copiés !' : '📋 Copier tous les codes'}
+                      {copiedRecoveryCodes
+                        ? (isEn ? '✓ Codes copied!' : '✓ Codes copiés !')
+                        : (isEn ? '📋 Copy all codes' : '📋 Copier tous les codes')}
                     </button>
                   </div>
                 </div>
 
                 <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '8px', padding: '10px', fontSize: '11px', color: '#92400e', marginBottom: '16px' }}>
-                  ⚠️ Ces codes ne seront plus jamais réaffichés. Assurez-vous de les avoir notés ou copiés dans un gestionnaire de mots de passe sécurisé avant de continuer.
+                  {isEn
+                    ? '⚠️ These codes will not be shown again. Make sure you have saved them in a secure password manager before continuing.'
+                    : '⚠️ Ces codes ne seront plus jamais réaffichés. Assurez-vous de les avoir notés ou copiés dans un gestionnaire de mots de passe sécurisé avant de continuer.'}
                 </div>
 
                 <button
@@ -1512,7 +1539,11 @@ export default function LoginPage() {
                   type="button"
                   onClick={() => window.location.replace(getRedirectTarget())}
                 >
-                  <span>J’ai sauvegardé mes codes & Accéder au Workspace</span>
+                  <span>
+                    {isEn
+                      ? 'I have saved my codes & Continue to Workspace'
+                      : 'J’ai sauvegardé mes codes & Accéder au Workspace'}
+                  </span>
                   <span aria-hidden="true">→</span>
                 </button>
               </>
@@ -1521,13 +1552,17 @@ export default function LoginPage() {
                 {/* 2FA Step with Google Authenticator (Available when ENABLE_2FA is active) */}
                 <h2>
                   {twoFaData?.isFirstLogin
-                    ? 'Configuration Google Authenticator'
-                    : 'Validation en deux étapes (2FA)'}
+                    ? (isEn ? 'Google Authenticator Setup' : 'Configuration Google Authenticator')
+                    : (isEn ? 'Two-Factor Authentication (2FA)' : 'Validation en deux étapes (2FA)')}
                 </h2>
                 <p className="sub">
                   {twoFaData?.isFirstLogin
-                    ? 'Activez la double authentification pour protéger votre compte LIEC Heav’n.'
-                    : `Saisissez le code de sécurité généré pour ${twoFaData?.user.name}.`}
+                    ? (isEn
+                        ? 'Enable two-factor authentication to protect your LIEC Heav’n account.'
+                        : 'Activez la double authentification pour protéger votre compte LIEC Heav’n.')
+                    : (isEn
+                        ? `Enter the 6-digit security code generated for ${twoFaData?.user.name}.`
+                        : `Saisissez le code de sécurité généré pour ${twoFaData?.user.name}.`)}
                 </p>
 
                 {error && <div className="error">{error}</div>}
@@ -1539,18 +1574,24 @@ export default function LoginPage() {
                       dangerouslySetInnerHTML={{ __html: twoFaData.qrSvg }}
                     />
                     <div style={{ marginTop: '10px', fontSize: '11px', color: '#475569', textAlign: 'center' }}>
-                      Scannez ce QR code avec l’application <strong>Google Authenticator</strong>
+                      {isEn ? (
+                        <>Scan this QR code with the <strong>Google Authenticator</strong> app</>
+                      ) : (
+                        <>Scannez ce QR code avec l’application <strong>Google Authenticator</strong></>
+                      )}
                     </div>
 
                     {twoFaData.secret && (
                       <div className="secret-pill">
-                        <span>Clé manuelle : {twoFaData.secret}</span>
+                        <span>{isEn ? 'Manual key:' : 'Clé manuelle :'} {twoFaData.secret}</span>
                         <button
                           type="button"
                           className="copy-btn"
                           onClick={handleCopySecret}
                         >
-                          {copiedKey ? '✓ Copié' : 'Copier'}
+                          {copiedKey
+                            ? (isEn ? '✓ Copied' : '✓ Copié')
+                            : (isEn ? 'Copy' : 'Copier')}
                         </button>
                       </div>
                     )}
@@ -1561,7 +1602,9 @@ export default function LoginPage() {
                   {!useRecoveryCode ? (
                     <div className="field">
                       <label htmlFor="totpCode">
-                        Code Google Authenticator à 6 chiffres
+                        {isEn
+                          ? '6-digit Google Authenticator code'
+                          : 'Code Google Authenticator à 6 chiffres'}
                       </label>
                       <input
                         id="totpCode"
@@ -1582,7 +1625,9 @@ export default function LoginPage() {
                   ) : (
                     <div className="field">
                       <label htmlFor="recoveryCode">
-                        Code de récupération d’urgence à usage unique
+                        {isEn
+                          ? 'Single-use emergency recovery code'
+                          : 'Code de récupération d’urgence à usage unique'}
                       </label>
                       <input
                         id="recoveryCode"
@@ -1616,18 +1661,18 @@ export default function LoginPage() {
                       }}
                     >
                       {useRecoveryCode
-                        ? '← Utiliser l’application Google Authenticator'
-                        : 'Téléphone indisponible ? Utiliser un code de secours'}
+                        ? (isEn ? '← Use Google Authenticator app' : '← Utiliser l’application Google Authenticator')
+                        : (isEn ? 'Phone unavailable? Use a backup recovery code' : 'Téléphone indisponible ? Utiliser un code de secours')}
                     </button>
                   </div>
 
                   <button className="submit" type="submit" disabled={loading}>
                     <span>
                       {loading
-                        ? 'Vérification du code...'
+                        ? (isEn ? 'Verifying code...' : 'Vérification du code...')
                         : twoFaData?.isFirstLogin
-                        ? 'Activer 2FA & Accéder au workspace'
-                        : 'Confirmer la connexion'}
+                        ? (isEn ? 'Enable 2FA & Access Workspace' : 'Activer 2FA & Accéder au workspace')
+                        : (isEn ? 'Confirm Sign In' : 'Confirmer la connexion')}
                     </span>
                     <span aria-hidden="true">→</span>
                   </button>
