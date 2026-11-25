@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { authenticateServerRequest } from '@/lib/rbac';
+import { SESSION_COOKIE_NAME, verifySessionToken } from '@/lib/session';
+import { ensureUserPresenceTable } from '@/lib/presenceSchema';
 
 export async function POST(req: NextRequest) {
   try {
@@ -9,6 +11,15 @@ export async function POST(req: NextRequest) {
     if (!auth.success) {
       return NextResponse.json({ error: 'AUTHENTICATION_REQUIRED' }, { status: 401 });
     }
+
+    await ensureUserPresenceTable(db);
+
+    const rawToken =
+      req.cookies.get(SESSION_COOKIE_NAME)?.value ||
+      req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ||
+      '';
+    const verified = rawToken ? verifySessionToken(rawToken) : null;
+    const sessionJti = verified && verified.valid && verified.payload.jti ? String(verified.payload.jti) : null;
 
     const user = auth.user;
     const body = await req.json().catch(() => ({}));
@@ -21,7 +32,7 @@ export async function POST(req: NextRequest) {
     } = body;
 
     const userId = String(user.id || user.email);
-    const sessionId = String((user as any).sessionJti || 'default_session');
+    const sessionId = sessionJti || `sess_${userId}`;
     const userName = String(user.name || user.email);
     const userRole = String(user.business_profile || user.role || 'Staff');
 
@@ -53,12 +64,12 @@ export async function POST(req: NextRequest) {
       ]
     );
 
-    // Opportunistically clean up stale presence older than 10 minutes
+    // Clean up stale presence older than 10 minutes
     await db
       .query(`DELETE FROM user_presence WHERE last_heartbeat < NOW() - INTERVAL '10 minutes'`)
       .catch(() => {});
 
-    return NextResponse.json({ ok: true, user: userName, role: userRole });
+    return NextResponse.json({ ok: true, user_id: userId, session_id: sessionId, user: userName, role: userRole });
   } catch (err) {
     console.error('[PRESENCE HEARTBEAT] Error:', err);
     return NextResponse.json({ error: 'INTERNAL_SERVER_ERROR' }, { status: 500 });

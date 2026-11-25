@@ -16,11 +16,12 @@ export async function POST(req: NextRequest) {
           const db = await getDb();
           await revokeDatabaseSession(db, verified.payload.jti);
 
-          // Clear real-time presence immediately on explicit logout
+          // Clear ONLY this specific session's presence immediately on explicit logout
+          // (Preserves any other active sessions belonging to the same user)
           const userId = String(verified.payload.userId || (verified.payload as any).id || verified.payload.email);
           const sessionId = String(verified.payload.jti);
           await db.query(
-            `DELETE FROM user_presence WHERE user_id = $1 OR session_id = $2`,
+            `DELETE FROM user_presence WHERE user_id = $1 AND session_id = $2`,
             [userId, sessionId]
           ).catch(() => {});
 

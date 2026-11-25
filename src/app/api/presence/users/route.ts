@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { authenticateServerRequest } from '@/lib/rbac';
+import { ensureUserPresenceTable } from '@/lib/presenceSchema';
 
 export async function GET(req: NextRequest) {
   try {
@@ -10,6 +11,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'AUTHENTICATION_REQUIRED' }, { status: 401 });
     }
 
+    await ensureUserPresenceTable(db);
+
     const user = auth.user;
     const role = (user.business_profile || user.role || '').toLowerCase();
     const isAdmin = role.includes('admin');
@@ -17,22 +20,25 @@ export async function GET(req: NextRequest) {
 
     // Only active presence within last 75 seconds
     const res = await db.query(`
-      SELECT user_id, user_name, user_role, is_idle, current_activity,
+      SELECT user_id, session_id, user_name, user_role, is_idle, current_activity,
              active_record_type, active_record_ref, is_editing, last_heartbeat
       FROM user_presence
       WHERE last_heartbeat >= NOW() - INTERVAL '75 seconds'
       ORDER BY last_heartbeat DESC
     `);
 
-    // Deduplicate by user_id (most recent heartbeat wins)
-    const seenUsers = new Set<string>();
-    const connectedUsers: Array<{
-      user_id: string;
-      name: string;
-      role: string;
-      status: 'online' | 'idle' | 'offline';
-      activity?: string;
-    }> = [];
+    // Deduplicate by user_id (if any session for that user is online, user is online)
+    const userMap = new Map<
+      string,
+      {
+        user_id: string;
+        name: string;
+        role: string;
+        status: 'online' | 'idle' | 'offline';
+        activity?: string;
+        session_count: number;
+      }
+    >();
 
     const recordCollaborators: Record<
       string,
@@ -46,16 +52,20 @@ export async function GET(req: NextRequest) {
 
     for (const row of res.rows) {
       const uid = String(row.user_id);
-      if (!seenUsers.has(uid)) {
-        seenUsers.add(uid);
-        // Admin sees all connected staff; non-admin sees themselves + active collaborators
-        connectedUsers.push({
+      const rowStatus: 'online' | 'idle' = row.is_idle ? 'idle' : 'online';
+      const existing = userMap.get(uid);
+      if (!existing) {
+        userMap.set(uid, {
           user_id: uid,
           name: row.user_name,
           role: row.user_role,
-          status: row.is_idle ? 'idle' : 'online',
+          status: rowStatus,
           activity: isAdmin ? row.current_activity || undefined : undefined,
+          session_count: 1,
         });
+      } else {
+        existing.session_count += 1;
+        if (rowStatus === 'online') existing.status = 'online';
       }
 
       if (row.active_record_type && row.active_record_ref) {
@@ -63,7 +73,6 @@ export async function GET(req: NextRequest) {
         if (!recordCollaborators[key]) {
           recordCollaborators[key] = [];
         }
-        // Exclude current user from collaborators list on their own screen so they see OTHER collaborators
         if (uid !== currentUserId) {
           const exists = recordCollaborators[key].some((c) => c.user_id === uid);
           if (!exists) {
@@ -80,7 +89,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      users: connectedUsers,
+      users: Array.from(userMap.values()),
       collaborators: recordCollaborators,
     });
   } catch (err) {

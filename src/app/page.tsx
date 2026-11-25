@@ -299,6 +299,7 @@ export default function LiecWorkspacePage() {
       try {
         await fetch('/api/presence/heartbeat', {
           method: 'POST',
+          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             is_idle: isUserIdle,
@@ -313,7 +314,7 @@ export default function LiecWorkspacePage() {
 
     const fetchPresence = async () => {
       try {
-        const res = await fetch('/api/presence/users');
+        const res = await fetch('/api/presence/users', { credentials: 'include', cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data.users)) setConnectedUsers(data.users);
@@ -322,8 +323,10 @@ export default function LiecWorkspacePage() {
       } catch {}
     };
 
-    sendHeartbeat();
-    fetchPresence();
+    (async () => {
+      await sendHeartbeat();
+      await fetchPresence();
+    })();
 
     const heartbeatInterval = setInterval(sendHeartbeat, 20000);
     const presenceInterval = setInterval(fetchPresence, 15000);
