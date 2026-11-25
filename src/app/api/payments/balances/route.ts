@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { authenticateServerRequest } from '@/lib/rbac';
+import { authenticateServerRequest, canVerifyFinancialPayments } from '@/lib/rbac';
 import {
   resolveAuthoritativeCourseFee,
   resolveInstalmentObligation,
@@ -11,6 +11,12 @@ export async function GET(req: NextRequest) {
     const db = await getDb();
     const auth = await authenticateServerRequest(req, db);
     if (!auth.success) return auth.response;
+    if (!canVerifyFinancialPayments(auth.user)) {
+      return NextResponse.json(
+        { error: 'Forbidden: Unrestricted student financial balance queries require Admin or Finance Officer privileges.' },
+        { status: 403 }
+      );
+    }
 
     const { searchParams } = new URL(req.url);
     const entityType = (searchParams.get('entity_type') || searchParams.get('entityType') || '').toUpperCase().trim();

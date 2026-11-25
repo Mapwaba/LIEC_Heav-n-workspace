@@ -106,6 +106,20 @@ export async function GET(req: NextRequest) {
       filteredCandidats = parsedCandidats.map((c) =>
         applyFieldLevelAcl(user, 'candidats', c)
       );
+
+      // Redact protected AVI financial snapshots, commissions & settlement amounts for Secretary intake scope
+      filteredAviRequests = aviRes.rows.map((r: any) => {
+        const {
+          financial_snapshot_json: _fs,
+          liec_retained_eur: _lr,
+          total_interest_eur: _ti,
+          amount_eur: _ae,
+          amount_usd: _au,
+          amount_xaf: _ax,
+          ...safeAdminFields
+        } = r;
+        return safeAdminFields;
+      });
     } else if (profile === 'Finance Officer') {
       // Finance Officer: Denied from internal secretary intake prospects, prepa content, user management & audit
       filteredProspects = [];

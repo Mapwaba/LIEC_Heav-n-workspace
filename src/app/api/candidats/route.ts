@@ -781,7 +781,7 @@ export async function PATCH(req: NextRequest) {
     if (action === 'add_note') {
       const notes = JSON.parse(cand.notes_json || '[]');
       const newNote = {
-        author: body.author || authorSignature,
+        author: authorSignature,
         date: "Aujourd'hui, à l'instant",
         text: (body.text || '').trim(),
       };

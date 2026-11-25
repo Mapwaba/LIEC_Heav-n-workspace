@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { authenticateServerRequest } from '@/lib/rbac';
+import { authenticateServerRequest, canVerifyFinancialPayments } from '@/lib/rbac';
 import {
   PREPA_TOTAL_FEE,
   PREPA_INSTALMENT_1_AMOUNT,
@@ -15,6 +15,12 @@ export async function GET(req: NextRequest) {
     const auth = await authenticateServerRequest(req, db);
     if (!auth.success) {
       return auth.response;
+    }
+    if (!canVerifyFinancialPayments(auth.user)) {
+      return NextResponse.json(
+        { error: 'Forbidden: PREPA financial ledger access requires Admin or Finance Officer privileges.' },
+        { status: 403 }
+      );
     }
 
     const { searchParams } = new URL(req.url);
@@ -43,6 +49,12 @@ export async function POST(req: NextRequest) {
     const auth = await authenticateServerRequest(req, db);
     if (!auth.success) {
       return auth.response;
+    }
+    if (!canVerifyFinancialPayments(auth.user)) {
+      return NextResponse.json(
+        { error: 'Forbidden: PREPA financial ledger access requires Admin or Finance Officer privileges.' },
+        { status: 403 }
+      );
     }
     const user = auth.user;
 
@@ -195,6 +207,12 @@ export async function PATCH(req: NextRequest) {
     const auth = await authenticateServerRequest(req, db);
     if (!auth.success) {
       return auth.response;
+    }
+    if (!canVerifyFinancialPayments(auth.user)) {
+      return NextResponse.json(
+        { error: 'Forbidden: PREPA financial ledger access requires Admin or Finance Officer privileges.' },
+        { status: 403 }
+      );
     }
     const user = auth.user;
 

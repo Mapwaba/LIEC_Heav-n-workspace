@@ -12,27 +12,55 @@ export async function GET(req: NextRequest) {
   const auth = await enforceRbac(req, 'avi', 'Query AVI Records');
   if (!auth.allowed) return auth.response;
 
-  const { db } = auth;
+  const { db, user } = auth;
+  const isIntakeOnly = user.business_profile === 'Secretary';
   try {
     const res = await db.query('SELECT * FROM avi_requests ORDER BY id DESC');
     const partnersRes = await db.query('SELECT * FROM avi_partners WHERE active = true ORDER BY name').catch(() => ({ rows: [] }));
     const offersRes = await db.query('SELECT * FROM avi_commercial_offers WHERE active = true ORDER BY id').catch(() => ({ rows: [] }));
 
     return NextResponse.json({
-      aviRequests: res.rows.map((r: any) => ({
-        ...r,
-        financial_snapshot: typeof r.financial_snapshot_json === 'string'
-          ? JSON.parse(r.financial_snapshot_json)
-          : r.financial_snapshot_json,
-        trustavi_checklist: typeof r.trustavi_checklist_json === 'string'
+      aviRequests: res.rows.map((r: any) => {
+        const checklist = typeof r.trustavi_checklist_json === 'string'
           ? JSON.parse(r.trustavi_checklist_json)
-          : r.trustavi_checklist_json,
-      })),
+          : r.trustavi_checklist_json;
+        if (isIntakeOnly) {
+          // Redact protected financial snapshots, commissions & settlement figures for Secretary intake scope
+          const {
+            financial_snapshot_json: _fs,
+            liec_retained_eur: _lr,
+            total_interest_eur: _ti,
+            amount_eur: _ae,
+            amount_usd: _au,
+            amount_xaf: _ax,
+            ...safeAdminFields
+          } = r;
+          return {
+            ...safeAdminFields,
+            financial_snapshot: null,
+            trustavi_checklist: checklist,
+          };
+        }
+        return {
+          ...r,
+          financial_snapshot: typeof r.financial_snapshot_json === 'string'
+            ? JSON.parse(r.financial_snapshot_json)
+            : r.financial_snapshot_json,
+          trustavi_checklist: checklist,
+        };
+      }),
       partners: partnersRes.rows.length > 0 ? partnersRes.rows : [
         { id: 'yimmiline', name: 'YIMMILINE' },
         { id: 'trustavi', name: 'TrustAVI SAS' },
       ],
-      commercialOffers: offersRes.rows.length > 0 ? offersRes.rows : Object.values(TRUSTAVI_OFFERS),
+      commercialOffers: isIntakeOnly
+        ? Object.values(TRUSTAVI_OFFERS).map((o: any) => ({
+            key: o.key,
+            name_en: o.name_en,
+            name_fr: o.name_fr,
+            guarantor_policy: o.guarantor_policy,
+          }))
+        : (offersRes.rows.length > 0 ? offersRes.rows : Object.values(TRUSTAVI_OFFERS)),
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -307,9 +335,23 @@ export async function POST(req: NextRequest) {
       [
         `${user.name} (${user.business_profile})`,
         ref,
-        `AVI dossier created for student ${studentName} with offer ${offerMeta.name} (LIEC share: €150.00)`,
+        `AVI dossier created for student ${studentName} with offer ${offerMeta.name}`,
       ]
     );
+
+    // Notify Finance/AVI Officer workspace (deduplicated by ref, zero restricted financial data)
+    await db.query(
+      `INSERT INTO audit_logs (actor, action, entity_ref, outcome, details)
+       SELECT $1, 'AVI_OFFICER_NOTIFICATION', $2, 'PENDING_REVIEW', $3
+       WHERE NOT EXISTS (
+         SELECT 1 FROM audit_logs WHERE action = 'AVI_OFFICER_NOTIFICATION' AND entity_ref = $2
+       )`,
+      [
+        `${user.name} (${user.business_profile})`,
+        ref,
+        `New AVI intake dossier ${ref} created for student ${studentName} (Partner: YIMMILINE) by ${user.name} (${user.business_profile}). Awaiting Finance/AVI Officer review.`,
+      ]
+    ).catch(() => {});
 
     return NextResponse.json({
       success: true,
@@ -335,6 +377,16 @@ export async function PATCH(req: NextRequest) {
 
     if (!ref || !item_id || !status) {
       return NextResponse.json({ error: 'ref, item_id, and status are required' }, { status: 400 });
+    }
+
+    // Separate administrative document completeness (allowed for Secretary) from financial approval (Admin/Finance Officer only)
+    const normalizedStatus = String(status).trim().toUpperCase();
+    const FINANCIAL_APPROVAL_STATUSES = ['APPROVED', 'FINANCE_APPROVED', 'SETTLED', 'DISBURSED'];
+    if (user.business_profile === 'Secretary' && FINANCIAL_APPROVAL_STATUSES.includes(normalizedStatus)) {
+      return NextResponse.json(
+        { error: 'Forbidden: Financial approval statuses require Admin or Finance Officer privileges.' },
+        { status: 403 }
+      );
     }
 
     const res = await db.query('SELECT * FROM avi_requests WHERE ref = $1', [ref]);

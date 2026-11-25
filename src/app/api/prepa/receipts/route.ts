@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { getDb } from '@/lib/db';
-import { authenticateServerRequest } from '@/lib/rbac';
+import { authenticateServerRequest, canVerifyFinancialPayments } from '@/lib/rbac';
 import { PREPA_TOTAL_FEE } from '@/lib/prepaConstants';
 
 export async function GET(req: NextRequest) {
@@ -10,6 +10,12 @@ export async function GET(req: NextRequest) {
     const auth = await authenticateServerRequest(req, db);
     if (!auth.success) {
       return auth.response;
+    }
+    if (!canVerifyFinancialPayments(auth.user)) {
+      return NextResponse.json(
+        { error: 'Forbidden: Unrestricted receipt ledger access requires Admin or Finance Officer privileges.' },
+        { status: 403 }
+      );
     }
 
     const { searchParams } = new URL(req.url);
