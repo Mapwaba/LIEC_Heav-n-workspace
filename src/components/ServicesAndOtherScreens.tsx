@@ -3766,7 +3766,26 @@ export function RapportsFinanceScreen({
                 {/* Printable Official Receipt View */}
                 {activeReceipt && (
                   <div className="space-y-4 pt-4 border-t border-slate-200">
-                    <div className="flex items-center justify-between">
+                    <style>{`
+                      @media print {
+                        @page { size: A4; margin: 14mm; }
+                        body * { visibility: hidden !important; }
+                        #liec-official-printable-receipt,
+                        #liec-official-printable-receipt * { visibility: visible !important; }
+                        #liec-official-printable-receipt {
+                          position: fixed !important;
+                          top: 0 !important;
+                          left: 0 !important;
+                          width: 100% !important;
+                          margin: 0 !important;
+                          padding: 0 !important;
+                          border: none !important;
+                          box-shadow: none !important;
+                          background: #ffffff !important;
+                        }
+                      }
+                    `}</style>
+                    <div className="flex items-center justify-between print:hidden">
                       <div className="flex items-center gap-2">
                         <CheckCircle2 className="w-4 h-4 text-[#0c685a]" />
                         <span className="font-extrabold text-xs text-[#092342]">

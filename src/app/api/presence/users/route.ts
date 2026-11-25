@@ -52,6 +52,10 @@ export async function GET(req: NextRequest) {
 
     for (const row of res.rows) {
       const uid = String(row.user_id);
+      if (uid === currentUserId) {
+        // Never display the logged-in user in their own Live Presence collaborator list
+        continue;
+      }
       const rowStatus: 'online' | 'idle' = row.is_idle ? 'idle' : 'online';
       const existing = userMap.get(uid);
       if (!existing) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb, withTransaction } from '../../../lib/db';
 import { authenticateServerRequest, evaluateModuleAccess, applyFieldLevelAcl } from '../../../lib/rbac';
 import { allocateCandidatRef } from '../../../lib/referenceAllocator';
+import { ensureOptimisticConcurrencyColumns } from '../../../lib/concurrencySchema';
 
 function corsHeaders() {
   return {
@@ -21,6 +22,7 @@ export async function OPTIONS() {
 export async function GET(req: NextRequest) {
   try {
     const db = await getDb();
+    await ensureOptimisticConcurrencyColumns(db);
     const auth = await authenticateServerRequest(req, db);
     if (!auth.success) return auth.response;
 
@@ -399,6 +401,7 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const db = await getDb();
+    await ensureOptimisticConcurrencyColumns(db);
     const auth = await authenticateServerRequest(req, db);
     if (!auth.success) return auth.response;
 
