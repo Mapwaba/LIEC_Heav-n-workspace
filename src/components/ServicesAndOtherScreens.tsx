@@ -1,5 +1,7 @@
 'use client';
 
+import { PARTNER_SCHOOLS_LYON } from '@/lib/partnerSchools';
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { UserImportSetsModal } from './UserImportSetsModal';
 import { PaymentSubmissionModal } from './payments/PaymentSubmissionModal';
@@ -247,65 +249,16 @@ export function PrepaScreen({
                 : 'PARTENARIAT EXCLUSIF VILLE DE LYON • RECRUTEMENT RDC & CONGO-BRAZZAVILLE'}
             </span>
             <h2 className="text-lg font-extrabold text-[#092342]">
-              {isEn ? 'The 6 LIEC Partner Schools in Lyon' : 'Les 6 Écoles Partenaires LIEC à Lyon'}
+              {isEn ? 'The 7 LIEC Partner Schools in Lyon' : 'Les 7 Écoles Partenaires LIEC à Lyon'}
             </h2>
           </div>
           <span className="rounded-full bg-[#ccf5e5] px-3 py-1 text-xs font-extrabold text-[#0c685a]">
-            {isEn ? '6 Partner Institutions in Lyon' : '6 Établissements à Lyon'}
+            {isEn ? '7 Partner Institutions in Lyon' : '7 Établissements à Lyon'}
           </span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-          {[
-            {
-              num: 1,
-              name: 'ISCOM',
-              desc: isEn
-                ? 'Communication, advertising, marketing and events management.'
-                : 'Communication, publicité, marketing et événementiel.',
-              badge: 'Lyon Campus',
-            },
-            {
-              num: 2,
-              name: 'MyDigitalSchool',
-              desc: isEn
-                ? 'Web development, digital creation, webmarketing and UX/UI design.'
-                : 'Développement web, création numérique, webmarketing et UX/UI design.',
-              badge: 'Lyon Campus',
-            },
-            {
-              num: 3,
-              name: 'École Internationale Tunon',
-              desc: isEn
-                ? 'Tourism, hospitality, public relations and events management.'
-                : 'Tourisme, hôtellerie, relations publiques et événementiel.',
-              badge: 'Lyon Campus',
-            },
-            {
-              num: 4,
-              name: 'IHECF',
-              desc: isEn
-                ? 'Accounting, chartered accountancy, finance and management control.'
-                : 'Comptabilité, expertise comptable, finance et contrôle de gestion.',
-              badge: 'Lyon Campus',
-            },
-            {
-              num: 5,
-              name: 'Ipac Bachelor Factory',
-              desc: isEn
-                ? 'Business, management, finance, communication and logistics.'
-                : 'Commerce, gestion, finance, communication et logistique.',
-              badge: 'Lyon Campus',
-            },
-            {
-              num: 6,
-              name: 'MBway',
-              desc: isEn
-                ? 'Management, entrepreneurship, human resources, finance and international trade.'
-                : 'Management, entrepreneuriat, ressources humaines, finance et commerce international.',
-              badge: 'Lyon Campus',
-            },
-          ].map((school) => (
+          {PARTNER_SCHOOLS_LYON.map((school) => (
             <div
               key={school.num}
               className="rounded-2xl border border-[#e6eef6] bg-[#f8fbff] p-4 flex flex-col justify-between gap-3"
@@ -320,7 +273,7 @@ export function PrepaScreen({
                   </span>
                 </div>
                 <h3 className="mt-2.5 text-sm font-extrabold text-[#092342]">{school.name}</h3>
-                <p className="mt-1 text-xs text-slate-600 leading-relaxed">{school.desc}</p>
+                <p className="mt-1 text-xs text-slate-600 leading-relaxed">{isEn ? school.descEn : school.descFr}</p>
               </div>
               <button
                 onClick={onOpenNewDemande}

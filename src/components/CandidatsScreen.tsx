@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ESMES_BACHELOR_PROGRAMS, ESMES_MASTER_PROGRAMS } from '@/lib/partnerSchools';
 import {
   Users,
   GraduationCap,
@@ -278,40 +279,67 @@ export default function CandidatsScreen({
   const selectedCandidat =
     safeCandidats.find((c) => c.ref === selectedRef) || filteredCandidats[0] || safeCandidats[0];
 
-  // Sync form state when selectedCandidat changes
+  const lastSyncedRef = useRef<{ ref: string; version: number | undefined }>({ ref: '', version: undefined });
+
+  // Sync form state when selectedCandidat changes or updates in the background (without overwriting dirty edits)
   useEffect(() => {
-    if (selectedCandidat) {
-      setFormFullName(selectedCandidat.full_name || '');
-      setFormEmail(selectedCandidat.email || '');
-      setFormPhone(selectedCandidat.phone || '');
-      setFormSexe((selectedCandidat.sexe === 'Female' || selectedCandidat.sexe === 'Féminin') ? 'Female' : 'Male');
-      setFormProgram(selectedCandidat.program || 'MyDigitalSchool Lyon — Dév. Web & UX/UI');
-      setFormCountry(selectedCandidat.country || 'RDC (Kinshasa)');
-      setFormNationality(selectedCandidat.nationality || 'Congolaise (RDC)');
-      setFormAdmissionStatus(
-        selectedCandidat.admission_status || 'Admitted — Partner School Lyon'
+    if (!selectedCandidat) return;
+    const isSameRecord = lastSyncedRef.current.ref === selectedCandidat.ref;
+    const versionChanged = lastSyncedRef.current.version !== selectedCandidat.version;
+
+    if (isSameRecord && !versionChanged) return;
+
+    if (isSameRecord && versionChanged) {
+      // Check if user currently has unsaved edits before applying background update
+      const hasUnsavedChanges = Boolean(
+        formFullName.trim() !== (selectedCandidat.full_name || '').trim() ||
+        formEmail.trim() !== (selectedCandidat.email || '').trim() ||
+        formPhone.trim() !== (selectedCandidat.phone || '').trim() ||
+        formParentFullName.trim() !== (selectedCandidat.parent_full_name || '').trim() ||
+        formNewComment.trim().length > 0
       );
-      setFormProcedureStatus(
-        selectedCandidat.procedure_status || selectedCandidat.stage_badge || 'Milestone 2'
-      );
-      setFormParentFullName(selectedCandidat.parent_full_name || '');
-      setFormParentRelation(selectedCandidat.parent_relation || 'Parent');
-      setFormParentPhone(selectedCandidat.parent_phone || '');
-      setFormParentEmail(selectedCandidat.parent_email || '');
-      setFormDescription(
-        selectedCandidat.description ||
-          `${selectedCandidat.full_name} is pursuing higher education admission at partner campuses in Lyon. Academic profile verified with verified diplomas.`
-      );
-      setFormVisaStatus(selectedCandidat.visa_status || 'Not Applied');
-      setFormVisaSubmissionDate(selectedCandidat.visa_submission_date || '');
-      setFormVisaDecisionDate(selectedCandidat.visa_decision_date || '');
-      setFormVisaOutcomeNotes(selectedCandidat.visa_outcome_notes || '');
-      setFormApplicationYear(selectedCandidat.application_year || '2027–2028');
-      setFormNewComment('');
-      onEditingChange?.(false);
-      onEditingChange?.(false);
+      if (hasUnsavedChanges) {
+        lastSyncedRef.current = { ref: selectedCandidat.ref, version: selectedCandidat.version };
+        onNotify?.(
+          isEn
+            ? `Another advisor updated ${selectedCandidat.ref}. Your unsaved edits were preserved — review before saving.`
+            : `Un autre conseiller a mis à jour ${selectedCandidat.ref}. Vos modifications non enregistrées ont été préservées.`
+        );
+        return;
+      }
     }
-  }, [selectedCandidat?.ref]);
+
+    lastSyncedRef.current = { ref: selectedCandidat.ref, version: selectedCandidat.version };
+    setFormFullName(selectedCandidat.full_name || '');
+    setFormEmail(selectedCandidat.email || '');
+    setFormPhone(selectedCandidat.phone || '');
+    setFormSexe((selectedCandidat.sexe === 'Female' || selectedCandidat.sexe === 'Féminin') ? 'Female' : 'Male');
+    setFormProgram(selectedCandidat.program || 'MyDigitalSchool Lyon — Dév. Web & UX/UI');
+    setFormCountry(selectedCandidat.country || 'RDC (Kinshasa)');
+    setFormNationality(selectedCandidat.nationality || 'Congolaise (RDC)');
+    setFormAdmissionStatus(
+      selectedCandidat.admission_status || 'Admitted — Partner School Lyon'
+    );
+    setFormProcedureStatus(
+      selectedCandidat.procedure_status || selectedCandidat.stage_badge || 'Milestone 2'
+    );
+    setFormParentFullName(selectedCandidat.parent_full_name || '');
+    setFormParentRelation(selectedCandidat.parent_relation || 'Parent');
+    setFormParentPhone(selectedCandidat.parent_phone || '');
+    setFormParentEmail(selectedCandidat.parent_email || '');
+    setFormDescription(
+      selectedCandidat.description ||
+        `${selectedCandidat.full_name} is pursuing higher education admission at partner campuses in Lyon. Academic profile verified with verified diplomas.`
+    );
+    setFormVisaStatus(selectedCandidat.visa_status || 'Not Applied');
+    setFormVisaSubmissionDate(selectedCandidat.visa_submission_date || '');
+    setFormVisaDecisionDate(selectedCandidat.visa_decision_date || '');
+    setFormVisaOutcomeNotes(selectedCandidat.visa_outcome_notes || '');
+    setFormApplicationYear(selectedCandidat.application_year || '2027–2028');
+    setFormNewComment('');
+    onEditingChange?.(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCandidat?.ref, selectedCandidat?.version]);
 
   // Track dirty / editing state to update real-time collaborator presence
   useEffect(() => {
@@ -2397,60 +2425,19 @@ export default function CandidatsScreen({
                       <option value="MBway Lyon — Management & Commerce International">
                         6. MBway Lyon (Management, entrepreneurship & HR)
                       </option>
-                      <optgroup label={isEn ? "7. ESMES Business School — Bachelors" : "7. ESMES Business School — Bachelors"}>
-                        <option value="ESMES Business School — Bachelor HR">
-                          {isEn ? "ESMES — Bachelor HR (Human Resources)" : "ESMES — Bachelor HR (Ressources Humaines)"}
-                        </option>
-                        <option value="ESMES Business School — Bachelor Business International">
-                          {isEn ? "ESMES — Bachelor International Business" : "ESMES — Bachelor Business International"}
-                        </option>
-                        <option value="ESMES Business School — Bachelor Marketing Digital and Communication">
-                          {isEn ? "ESMES — Bachelor Digital Marketing & Communication" : "ESMES — Bachelor Marketing Digital & Communication"}
-                        </option>
-                        <option value="ESMES Business School — Bachelor Comptabilité et Finance">
-                          {isEn ? "ESMES — Bachelor Accounting & Finance" : "ESMES — Bachelor Comptabilité & Finance"}
-                        </option>
-                        <option value="ESMES Business School — Bachelor Négociation et Relation Client">
-                          {isEn ? "ESMES — Bachelor Negotiation & Customer Relations" : "ESMES — Bachelor Négociation & Relation Client"}
-                        </option>
-                        <option value="ESMES Business School — Bachelor Informatique">
-                          {isEn ? "ESMES — Bachelor Computer Science & IT" : "ESMES — Bachelor Informatique"}
-                        </option>
-                        <option value="ESMES Business School — Bachelor Management">
-                          {isEn ? "ESMES — Bachelor Management" : "ESMES — Bachelor Management"}
-                        </option>
-                        <option value="ESMES Business School — Bachelor Commerce et Gestion des Entreprises">
-                          {isEn ? "ESMES — Bachelor Commerce & Business Administration" : "ESMES — Bachelor Commerce & Gestion des Entreprises"}
-                        </option>
-                        <option value="ESMES Business School — Bachelor Start-up Management">
-                          {isEn ? "ESMES — Bachelor Start-up Management" : "ESMES — Bachelor Start-up Management"}
-                        </option>
-                        <option value="ESMES Business School — Bachelor Entrepreneuriat Social">
-                          {isEn ? "ESMES — Bachelor Social Entrepreneurship" : "ESMES — Bachelor Entrepreneuriat Social"}
-                        </option>
+                      <optgroup label={isEn ? "7. ESMES Business School — Bachelors (Bac +3)" : "7. ESMES Business School — Bachelors (Bac +3)"}>
+                        {ESMES_BACHELOR_PROGRAMS.map((prog) => (
+                          <option key={prog.value} value={prog.value}>
+                            {isEn ? prog.labelEn : prog.labelFr}
+                          </option>
+                        ))}
                       </optgroup>
-                      <optgroup label={isEn ? "7. ESMES Business School — Masters" : "7. ESMES Business School — Masters"}>
-                        <option value="ESMES Business School — Master Management, Commerce et Entrepreneuriat">
-                          {isEn ? "ESMES — Master Management, Commerce & Entrepreneurship" : "ESMES — Master Management, Commerce & Entrepreneuriat"}
-                        </option>
-                        <option value="ESMES Business School — Master Management des Ressources Humaines">
-                          {isEn ? "ESMES — Master Human Resources Management" : "ESMES — Master Management des Ressources Humaines"}
-                        </option>
-                        <option value="ESMES Business School — Master Responsabilité Sociale des Entreprises">
-                          {isEn ? "ESMES — Master Corporate Social Responsibility (CSR)" : "ESMES — Master Responsabilité Sociale des Entreprises (RSE)"}
-                        </option>
-                        <option value="ESMES Business School — Master Finance Conseil">
-                          {isEn ? "ESMES — Master Financial Advisory (Finance Conseil)" : "ESMES — Master Finance Conseil"}
-                        </option>
-                        <option value="ESMES Business School — Master Développement Fullstack">
-                          {isEn ? "ESMES — Master Fullstack Development" : "ESMES — Master Développement Fullstack"}
-                        </option>
-                        <option value="ESMES Business School — Master Management de la Santé">
-                          {isEn ? "ESMES — Master Healthcare Management" : "ESMES — Master Management de la Santé"}
-                        </option>
-                        <option value="ESMES Business School — Master Comptabilité">
-                          {isEn ? "ESMES — Master Accounting & Audit (Comptabilité)" : "ESMES — Master Comptabilité & Audit"}
-                        </option>
+                      <optgroup label={isEn ? "7. ESMES Business School — Masters (Bac +5)" : "7. ESMES Business School — Masters (Bac +5)"}>
+                        {ESMES_MASTER_PROGRAMS.map((prog) => (
+                          <option key={prog.value} value={prog.value}>
+                            {isEn ? prog.labelEn : prog.labelFr}
+                          </option>
+                        ))}
                       </optgroup>
                     </select>
                   </div>

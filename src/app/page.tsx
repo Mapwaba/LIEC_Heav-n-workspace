@@ -52,6 +52,7 @@ import {
 } from '@/components/ServicesAndOtherScreens';
 import { KnowledgeBaseScreen } from '@/components/KnowledgeBaseScreen';
 import { ACADEMIC_INTAKE_OPTIONS, ACADEMIC_YEAR_OPTIONS } from '@/lib/academicIntake';
+import { ESMES_BACHELOR_PROGRAMS, ESMES_MASTER_PROGRAMS } from '@/lib/partnerSchools';
 import { GuidedTour } from '@/components/GuidedTour';
 
 type NavTab =
@@ -347,6 +348,20 @@ export default function LiecWorkspacePage() {
     setIsRecordEditing(false);
   }, [activeTab]);
 
+  // HF-01: Broadcast helper for immediate cross-tab synchronization
+  const broadcastWorkspaceSync = useCallback((recordRef?: string) => {
+    try {
+      if (typeof window !== 'undefined') {
+        if ('BroadcastChannel' in window) {
+          const bc = new BroadcastChannel('liec_workspace_sync');
+          bc.postMessage({ type: 'workspace_updated', recordRef: recordRef || null, ts: Date.now() });
+          bc.close();
+        }
+        localStorage.setItem('liec_workspace_sync_ts', String(Date.now()));
+      }
+    } catch {}
+  }, []);
+
   const fetchWorkspace = useCallback(async (overrideEmail?: string) => {
     try {
       const activeEmail =
@@ -500,15 +515,27 @@ export default function LiecWorkspacePage() {
       let initialTab: NavTab = u.role === 'avi' ? 'services' : 'overview';
       if (typeof window !== 'undefined') {
         const urlParams = new URLSearchParams(window.location.search);
-        const requestedTab = urlParams.get('tab') as NavTab | null;
+        const requestedTab = (urlParams.get('tab') || sessionStorage.getItem('liec_active_tab')) as NavTab | null;
         const validTabs: NavTab[] = [
           'overview', 'demandes', 'prospects', 'candidats', 'prepa',
           'services', 'accommodation', 'programme_reports', 'contenus', 'rapports',
           'notifications', 'parametres', 'aide'
         ];
         if (requestedTab && validTabs.includes(requestedTab)) {
-          initialTab = requestedTab;
+          if (isNavVisible(requestedTab, u.role)) {
+            initialTab = requestedTab;
+          } else {
+            showToast(
+              lang === 'en'
+                ? `Access denied: your role does not have permission to view "${requestedTab}".`
+                : `Accès refusé : votre rôle ne permet pas d'accéder à « ${requestedTab} ».`
+            );
+          }
         }
+        const urlCandRef = urlParams.get('ref') || urlParams.get('candidat') || sessionStorage.getItem('liec_selected_candidat_ref');
+        if (urlCandRef) setSelectedCandidatRef(urlCandRef);
+        const urlDemRef = urlParams.get('demande') || sessionStorage.getItem('liec_selected_demande_ref');
+        if (urlDemRef) setSelectedDemandeRef(urlDemRef);
       }
       setActiveTab(initialTab);
 
@@ -536,6 +563,82 @@ export default function LiecWorkspacePage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // HF-02: Persist active module & selected record ref in URL + sessionStorage so F5/Ctrl+R preserves exact page
+  useEffect(() => {
+    if (!isAuthenticated || checkingAuth || typeof window === 'undefined') return;
+    try {
+      sessionStorage.setItem('liec_active_tab', activeTab);
+      if (selectedCandidatRef) {
+        sessionStorage.setItem('liec_selected_candidat_ref', selectedCandidatRef);
+      } else {
+        sessionStorage.removeItem('liec_selected_candidat_ref');
+      }
+      if (selectedDemandeRef) {
+        sessionStorage.setItem('liec_selected_demande_ref', selectedDemandeRef);
+      } else {
+        sessionStorage.removeItem('liec_selected_demande_ref');
+      }
+
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', activeTab);
+      if (activeTab === 'candidats' && selectedCandidatRef) {
+        url.searchParams.set('ref', selectedCandidatRef);
+      } else {
+        url.searchParams.delete('ref');
+      }
+      if (activeTab === 'demandes' && selectedDemandeRef) {
+        url.searchParams.set('demande', selectedDemandeRef);
+      } else {
+        url.searchParams.delete('demande');
+      }
+      const nextUrl = `${url.pathname}?${url.searchParams.toString()}${url.hash}`;
+      if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextUrl) {
+        window.history.replaceState({ liecWorkspaceSession: true }, '', nextUrl);
+      }
+    } catch {}
+  }, [isAuthenticated, checkingAuth, activeTab, selectedCandidatRef, selectedDemandeRef]);
+
+  // HF-01: Immediate cross-tab sync (BroadcastChannel + storage) + 10-second background reconciliation fallback
+  useEffect(() => {
+    if (!isAuthenticated || !currentUser?.email) return;
+
+    const triggerSync = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      fetchWorkspace(currentUser.email);
+    };
+
+    const syncInterval = setInterval(triggerSync, 10000);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') triggerSync();
+    };
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'liec_workspace_sync_ts') triggerSync();
+    };
+
+    let bc: BroadcastChannel | null = null;
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        bc = new BroadcastChannel('liec_workspace_sync');
+        bc.onmessage = (ev) => {
+          if (ev.data?.type === 'workspace_updated') triggerSync();
+        };
+      }
+    } catch {}
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', triggerSync);
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      clearInterval(syncInterval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', triggerSync);
+      window.removeEventListener('storage', handleStorage);
+      try { bc?.close(); } catch {}
+    };
+  }, [isAuthenticated, currentUser?.email, fetchWorkspace]);
 
   const handleRoleChange = (nextRole: 'admin' | 'secretary' | 'avi') => {
     setRolePreview(nextRole);
@@ -2443,60 +2546,19 @@ export default function LiecWorkspacePage() {
                                             <option value="MBway Lyon — Management & Commerce International">
                         6. MBway Lyon (Management, entrepreneurship & HR)
                       </option>
-                      <optgroup label={isEn ? "7. ESMES Business School — Bachelors" : "7. ESMES Business School — Bachelors"}>
-                        <option value="ESMES Business School — Bachelor HR">
-                          {isEn ? "ESMES — Bachelor HR (Human Resources)" : "ESMES — Bachelor HR (Ressources Humaines)"}
-                        </option>
-                        <option value="ESMES Business School — Bachelor Business International">
-                          {isEn ? "ESMES — Bachelor International Business" : "ESMES — Bachelor Business International"}
-                        </option>
-                        <option value="ESMES Business School — Bachelor Marketing Digital and Communication">
-                          {isEn ? "ESMES — Bachelor Digital Marketing & Communication" : "ESMES — Bachelor Marketing Digital & Communication"}
-                        </option>
-                        <option value="ESMES Business School — Bachelor Comptabilité et Finance">
-                          {isEn ? "ESMES — Bachelor Accounting & Finance" : "ESMES — Bachelor Comptabilité & Finance"}
-                        </option>
-                        <option value="ESMES Business School — Bachelor Négociation et Relation Client">
-                          {isEn ? "ESMES — Bachelor Negotiation & Customer Relations" : "ESMES — Bachelor Négociation & Relation Client"}
-                        </option>
-                        <option value="ESMES Business School — Bachelor Informatique">
-                          {isEn ? "ESMES — Bachelor Computer Science & IT" : "ESMES — Bachelor Informatique"}
-                        </option>
-                        <option value="ESMES Business School — Bachelor Management">
-                          {isEn ? "ESMES — Bachelor Management" : "ESMES — Bachelor Management"}
-                        </option>
-                        <option value="ESMES Business School — Bachelor Commerce et Gestion des Entreprises">
-                          {isEn ? "ESMES — Bachelor Commerce & Business Administration" : "ESMES — Bachelor Commerce & Gestion des Entreprises"}
-                        </option>
-                        <option value="ESMES Business School — Bachelor Start-up Management">
-                          {isEn ? "ESMES — Bachelor Start-up Management" : "ESMES — Bachelor Start-up Management"}
-                        </option>
-                        <option value="ESMES Business School — Bachelor Entrepreneuriat Social">
-                          {isEn ? "ESMES — Bachelor Social Entrepreneurship" : "ESMES — Bachelor Entrepreneuriat Social"}
-                        </option>
+                      <optgroup label={isEn ? "7. ESMES Business School — Bachelors (Bac +3)" : "7. ESMES Business School — Bachelors (Bac +3)"}>
+                        {ESMES_BACHELOR_PROGRAMS.map((prog) => (
+                          <option key={prog.value} value={prog.value}>
+                            {isEn ? prog.labelEn : prog.labelFr}
+                          </option>
+                        ))}
                       </optgroup>
-                      <optgroup label={isEn ? "7. ESMES Business School — Masters" : "7. ESMES Business School — Masters"}>
-                        <option value="ESMES Business School — Master Management, Commerce et Entrepreneuriat">
-                          {isEn ? "ESMES — Master Management, Commerce & Entrepreneurship" : "ESMES — Master Management, Commerce & Entrepreneuriat"}
-                        </option>
-                        <option value="ESMES Business School — Master Management des Ressources Humaines">
-                          {isEn ? "ESMES — Master Human Resources Management" : "ESMES — Master Management des Ressources Humaines"}
-                        </option>
-                        <option value="ESMES Business School — Master Responsabilité Sociale des Entreprises">
-                          {isEn ? "ESMES — Master Corporate Social Responsibility (CSR)" : "ESMES — Master Responsabilité Sociale des Entreprises (RSE)"}
-                        </option>
-                        <option value="ESMES Business School — Master Finance Conseil">
-                          {isEn ? "ESMES — Master Financial Advisory (Finance Conseil)" : "ESMES — Master Finance Conseil"}
-                        </option>
-                        <option value="ESMES Business School — Master Développement Fullstack">
-                          {isEn ? "ESMES — Master Fullstack Development" : "ESMES — Master Développement Fullstack"}
-                        </option>
-                        <option value="ESMES Business School — Master Management de la Santé">
-                          {isEn ? "ESMES — Master Healthcare Management" : "ESMES — Master Management de la Santé"}
-                        </option>
-                        <option value="ESMES Business School — Master Comptabilité">
-                          {isEn ? "ESMES — Master Accounting & Audit (Comptabilité)" : "ESMES — Master Comptabilité & Audit"}
-                        </option>
+                      <optgroup label={isEn ? "7. ESMES Business School — Masters (Bac +5)" : "7. ESMES Business School — Masters (Bac +5)"}>
+                        {ESMES_MASTER_PROGRAMS.map((prog) => (
+                          <option key={prog.value} value={prog.value}>
+                            {isEn ? prog.labelEn : prog.labelFr}
+                          </option>
+                        ))}
                       </optgroup>
                     </select>
                   </div>
